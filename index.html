@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Open Road</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0e14; font-family: ui-monospace, Menlo, Consolas, monospace; }
+      canvas#game { display: block; width: 100%; height: 100%; }
+      #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+      #debug { position: fixed; top: 8px; left: 8px; padding: 6px 8px; font-size: 12px; line-height: 1.35; color: #cfe8ff;
+               background: rgba(5,10,20,.65); border-radius: 6px; white-space: pre; display: none; pointer-events: none; }
+      #loading { position: fixed; inset: 0; display: grid; place-items: center; color: #9db4d0; font-size: 14px; background: #0b0e14; z-index: 10; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="hud"></div>
+    <div id="debug"></div>
+    <div id="loading">Loading physics…</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
