@@ -37,6 +37,7 @@ npm install
 npm run dev        # http://localhost:5173
 npm test           # Vitest: tyre model, drivetrain, headless driving and crash simulations
 npm run build      # typecheck + production build into dist/
+npm run models     # rebuild the car models in Blender (needs `blender` on the PATH)
 ```
 
 ## How it works
@@ -53,7 +54,8 @@ src/
   ui/        HUD
 tests/       unit tests plus headless simulations of driving, crashes and collisions
 docs/        screenshots and TUNING.md
-art/         notes on the model conventions (see below)
+public/models/  the exported cars (GLB)
+art/         Blender scripts (build_cars.py, specs.py), .blend sources, model conventions
 ```
 
 ### Driving
@@ -94,7 +96,7 @@ Honest list of what this is not:
 - **Not a soft-body.** Deformation is panel-level and driven by crush rays. There is no internal structure, no chassis bending and no part-to-part load path.
 - **Very hard hits bottom out.** At 100 km/h into a wall the crumple depth runs out and the rigid core stops the car abruptly (peak deceleration well above real life).
 - **Car vs car energy is approximate.** Each car sees the other's undeformed outline, so absorbed energy is overestimated.
-- **Models are procedural, not Blender.** Blender was not installed on the build machine, so the cars come from a TypeScript lofting generator with the naming conventions in `art/README.md`. They are stylised (box lights, no interior detail).
+- **Models are Blender-generated but stylised.** `art/build_cars.py` builds each car parametrically (lofted shell, panels, wheels) and exports GLB; the shapes are simple (box lights, no interior detail) and were not hand-sculpted. A TypeScript generator with identical part names stays as a fallback if a GLB fails to load.
 - **Handling was tuned with headless simulations** (0-100, braking, skid pad, high-speed stability, steering response), not by a human driver. Expect to adjust the feel; the knobs are in the JSON files.
 - **World.** A flat 2 km x 2 km plane with three surfaces and a test area. The prompt asked for a chunk system to be prepared; it is not implemented, the `world/` module is simply isolated.
 - Glass shatters in one step (no crack stage). Skid marks only on asphalt. Audio is synthesised and simple.

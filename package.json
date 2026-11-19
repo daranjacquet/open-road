@@ -10,7 +10,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "models": "blender -b --factory-startup -P art/build_cars.py"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@emnapi/core": "^2.0.0-beta.2",
     "@emnapi/runtime": "^2.0.0-beta.2",
+    "@types/node": "^26.6.6",
     "@types/three": "^0.187.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.8",

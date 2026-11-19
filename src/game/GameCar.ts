@@ -43,7 +43,7 @@ export class GameCar {
   ) {
     this.spawn = { x, z, yaw };
     this.vehicle = new Vehicle(physics, def.cfg, x, z, yaw);
-    this.model = buildCarModel(def.cfg, def.body, paint);
+    this.model = buildCarModel(def.cfg, def.body, paint, def.id);
     scene.add(this.model.root);
     this.view = new VehicleView(this.vehicle, this.model);
     this.crush = this.vehicle.attachCrush(buildCrushRays(def.cfg, this.model));

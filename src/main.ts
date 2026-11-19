@@ -5,6 +5,7 @@ import { createPhysics, FIXED_DT } from './core/physics';
 import { DebugOverlay } from './debug/overlay';
 import { CameraRig } from './render/camera';
 import { createScene } from './render/scene';
+import { loadCarTemplates } from './render/car/glb';
 import { CARS, carById } from './game/catalog';
 import { GameCar, IDLE } from './game/GameCar';
 import { GameAudio } from './audio/audio';
@@ -20,6 +21,8 @@ async function boot(): Promise<void> {
   const debug = new DebugOverlay(document.getElementById('debug')!);
   const hud = new Hud(document.getElementById('hud')!);
   const physics = await createPhysics();
+  // Blender-built cars (public/models/*.glb); missing files fall back to the procedural generator.
+  await loadCarTemplates(CARS.map((c) => c.id), import.meta.env.BASE_URL);
   const gs = createScene(canvas);
   gs.scene.add(createGround(physics).group);
   const props = createWorldProps(physics);

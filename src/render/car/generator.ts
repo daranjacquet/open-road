@@ -272,28 +272,7 @@ export function generateCar(cfg: VehicleConfig, spec: CarBodySpec): CarModel {
   // Wheels.
   const wheels = buildWheels(cfg, mats, root, disposables);
 
-  // Probe: back-face raycasts from inside the car against the undeformed shell (build-time use).
-  const probeMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide });
-  disposables.push(probeMat);
-  const probeMeshes: THREE.Mesh[] = [];
-  for (const [name, mesh] of parts) {
-    if (!mesh.userData['rest']) continue;
-    const pm = new THREE.Mesh(mesh.geometry, probeMat);
-    pm.position.copy(mesh.position);
-    pm.name = name;
-    pm.updateMatrixWorld(true);
-    probeMeshes.push(pm);
-  }
-  const rc = new THREE.Raycaster();
-  const _o = new THREE.Vector3();
-  const _d = new THREE.Vector3();
-  const probe: CarModel['probe'] = (origin, dir, maxDist) => {
-    rc.set(_o.set(origin[0], origin[1], origin[2]), _d.set(dir[0], dir[1], dir[2]).normalize());
-    rc.near = 0;
-    rc.far = maxDist;
-    const hit = rc.intersectObjects(probeMeshes, false)[0];
-    return hit ? { dist: hit.distance, part: hit.object.name } : null;
-  };
+  const probe = createProbe(parts, disposables);
 
   return {
     root,
@@ -379,4 +358,31 @@ function buildWheels(cfg: VehicleConfig, mats: CarMaterials, root: THREE.Group, 
   };
   // FL, FR, RL, RR: left wheels (+X) face outwards towards +X.
   return [make(1), make(-1), make(1), make(-1)];
+}
+
+
+/** Probe: back-face raycasts from inside the car against the undeformed shell (build-time use). */
+export function createProbe(parts: Map<string, THREE.Mesh>, disposables: { dispose(): void }[]): CarModel['probe'] {
+  const probeMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide });
+  disposables.push(probeMat);
+  const probeMeshes: THREE.Mesh[] = [];
+  for (const [name, mesh] of parts) {
+    if (!mesh.userData['rest']) continue;
+    mesh.updateWorldMatrix(true, false);
+    const pm = new THREE.Mesh(mesh.geometry, probeMat);
+    pm.position.copy(mesh.position);
+    pm.name = name;
+    pm.updateMatrixWorld(true);
+    probeMeshes.push(pm);
+  }
+  const rc = new THREE.Raycaster();
+  const o = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  return (origin, dir, maxDist) => {
+    rc.set(o.set(origin[0], origin[1], origin[2]), d.set(dir[0], dir[1], dir[2]).normalize());
+    rc.near = 0;
+    rc.far = maxDist;
+    const hit = rc.intersectObjects(probeMeshes, false)[0];
+    return hit ? { dist: hit.distance, part: hit.object.name } : null;
+  };
 }
