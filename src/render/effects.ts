@@ -3,6 +3,7 @@ import { clamp } from '../core/math';
 import type { DamageModel, ImpactInfo } from '../damage/DamageModel';
 import type { Vehicle } from '../vehicle/Vehicle';
 import { ParticlePool } from './particles';
+import { SmokeClouds } from './smoke';
 
 const MAX_SKID = 3000;
 const _v = new THREE.Vector3();
@@ -66,6 +67,8 @@ export class Effects {
   private readonly sparks = new ParticlePool({ capacity: 900, additive: true, gravity: -9.8, drag: 0.6, sizeScale: 600 });
   private readonly smoke = new ParticlePool({ capacity: 1400, gravity: 0.6, drag: 0.8, sizeScale: 600 });
   private readonly skids = new SkidMarks();
+  /** Tyre smoke: big lingering clouds when the tyres slide on asphalt (drifts, burnouts, lock-ups). */
+  private readonly tyreSmoke = new SmokeClouds(1800);
   private smokeCarry = 0;
   private wheelSmoke = [0, 0, 0, 0];
   /** Set by impacts, read by the camera rig (metres of shake). */
@@ -75,7 +78,7 @@ export class Effects {
     private readonly vehicle: Vehicle,
     private readonly damage: DamageModel,
   ) {
-    this.group.add(this.skids.mesh, this.smoke.points, this.sparks.points);
+    this.group.add(this.skids.mesh, this.tyreSmoke.mesh, this.smoke.points, this.sparks.points);
     this.group.renderOrder = 5;
     damage.addImpactListener((i) => this.impact(i));
   }
@@ -142,14 +145,22 @@ export class Effects {
         this.skids.lift(i);
         continue;
       }
-      const slip = Math.hypot(w.slipRatio * 1.0, Math.tan(w.slipAngle) * 1.2);
-      const sliding = slip > 0.42 && v.speed > 2;
+      // How hard the patch slides over the ground: wheelspin, lock-up or a sideways tyre.
+      const slide = w.slideSpeed;
+      const sliding = slide > 2.2 && (v.speed > 1.5 || Math.abs(w.omega) > 8);
       if (sliding && w.surface === 'asphalt') {
-        this.skids.add(i, w.contactPoint.x, w.contactPoint.y, w.contactPoint.z, v.cfg.wheel.width * 0.8);
-        this.wheelSmoke[i]! += dt * clamp(slip, 0, 2) * 40;
+        this.skids.add(i, w.contactPoint.x, w.contactPoint.y, w.contactPoint.z, w.width * 0.85);
+        const k = clamp((slide - 2.2) / 9, 0, 1.4);
+        this.wheelSmoke[i]! += dt * (12 + 55 * k);
+        const lv = v.body.linvel();
         while (this.wheelSmoke[i]! >= 1) {
           this.wheelSmoke[i]! -= 1;
-          this.smoke.spawn(w.contactPoint.x, w.contactPoint.y + 0.1, w.contactPoint.z, (Math.random() - 0.5) * 1.2, 0.4 + Math.random() * 0.6, (Math.random() - 0.5) * 1.2, 0.9 + Math.random() * 0.5, 0.35, 1.5, 0.85, 0.85, 0.85, 0.28);
+          // Out of the back of the tyre, carried a little by the car, then left hanging in the air.
+          this.tyreSmoke.spawn(
+            w.contactPoint.x + (Math.random() - 0.5) * 0.4, w.contactPoint.y + 0.25 + Math.random() * 0.15, w.contactPoint.z + (Math.random() - 0.5) * 0.4,
+            lv.x * 0.35 + (Math.random() - 0.5) * 1.6, 0.25 + Math.random() * 0.5, lv.z * 0.35 + (Math.random() - 0.5) * 1.6,
+            2.4 + Math.random() * 1.8, 0.7 + Math.random() * 0.3, 3.4 + k * 2.4 + Math.random() * 0.8, 0.3 + 0.35 * Math.min(k, 1), 0.9 + Math.random() * 0.1,
+          );
         }
       } else {
         this.skids.lift(i);
@@ -166,11 +177,13 @@ export class Effects {
 
     this.sparks.update(dt, viewportHeight);
     this.smoke.update(dt, viewportHeight);
+    this.tyreSmoke.update(dt);
   }
 
   dispose(): void {
     this.sparks.dispose();
     this.smoke.dispose();
+    this.tyreSmoke.dispose();
     this.skids.mesh.geometry.dispose();
     (this.skids.mesh.material as THREE.Material).dispose();
     this.skids.mesh.dispose();

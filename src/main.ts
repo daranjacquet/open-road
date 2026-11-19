@@ -12,9 +12,10 @@ import { Hud } from './ui/hud';
 import { Garage } from './ui/garage';
 import { createGround } from './world/ground';
 import { createWorldProps } from './world/props';
+import { createMap, SPAWN, type Location } from './world/map';
+import { LapTimer } from './game/laps';
 import type { DriveInput } from './vehicle/Vehicle';
 
-const SPAWN = { x: 0, z: -120, yaw: 0 };
 
 async function boot(): Promise<void> {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -31,6 +32,10 @@ async function boot(): Promise<void> {
   gs.scene.add(createGround(physics).group);
   const props = createWorldProps(physics);
   gs.scene.add(props.group);
+  if (loading) loading.textContent = 'Building the city…';
+  await new Promise((r) => setTimeout(r, 0));
+  const map = createMap(physics);
+  gs.scene.add(map.group);
 
   const saved = (() => {
     try {
@@ -49,6 +54,7 @@ async function boot(): Promise<void> {
   const all = (): GameCar[] => [player, ...dummies];
 
   const rig = new CameraRig(gs.camera);
+  rig.attachMouse(canvas);
   const input = new Input();
   const audio = new GameAudio();
   audio.muted = false;
@@ -57,6 +63,25 @@ async function boot(): Promise<void> {
 
   // Garage: setups and every setting, saved per car.
   const garage = new Garage(() => player, (id) => swapCar(id));
+
+  // Lap timers, one per circuit, best laps saved per car.
+  let timers: LapTimer[] = [];
+  const makeTimers = (): void => {
+    timers = map.tracks.map((t) => new LapTimer(t.line, `open-road:best:${t.line.def.id}:${player.def.id}`));
+  };
+  makeTimers();
+
+  let locIndex = 0;
+  /** Simulated seconds (lap times use physics time, not the wall clock). */
+  let simTime = 0;
+  const teleport = (loc: Location): void => {
+    player.vehicle.placeAt(loc.x, 1.0, loc.z, loc.yaw);
+    timers.forEach((t) => t.reset());
+    hud.toast(loc.name);
+  };
+  const go = garage.gui.addFolder('Go to (T)');
+  for (const loc of map.locations) go.add({ [loc.name]: () => teleport(loc) }, loc.name);
+  go.close();
 
   function swapCar(id: string): void {
     const t = player.vehicle.body.translation();
@@ -67,6 +92,7 @@ async function boot(): Promise<void> {
     player.vehicle.placeAt(t.x, 1.0, t.z, yaw);
     garage.attach();
     hookAudio();
+    makeTimers();
     rig.mode = rig.mode; // keep the current camera
     try {
       localStorage.setItem('open-road:car', id);
@@ -130,6 +156,8 @@ async function boot(): Promise<void> {
     renderFrom,
     swapCar,
     garage,
+    map,
+    teleport,
   };
   (window as unknown as { game: unknown }).game = api;
 
@@ -151,6 +179,10 @@ async function boot(): Promise<void> {
     }
     if (input.pressed('KeyB')) dummies.forEach((d) => d.respawn());
     if (input.pressed('KeyG')) garage.toggle();
+    if (input.pressed('KeyT')) {
+      locIndex = (locIndex + 1) % map.locations.length;
+      teleport(map.locations[locIndex]!);
+    }
     if (input.pressed('KeyE')) player.vehicle.manual && player.vehicle.shiftUp();
     if (input.pressed('KeyQ')) player.vehicle.manual && player.vehicle.shiftDown();
 
@@ -162,6 +194,27 @@ async function boot(): Promise<void> {
       for (const c of all()) c.vehicle.afterPhysicsStep();
     }
     if (res.steps > 0) physMs = (performance.now() - p0) / res.steps;
+    simTime += res.steps * FIXED_DT;
+
+    // Off the edge of the world: back to the start, repaired.
+    const pt = player.vehicle.body.translation();
+    if (map.isOutside(pt.x, pt.y, pt.z)) {
+      player.repair();
+      player.vehicle.placeAt(SPAWN.x, 1.0, SPAWN.z, SPAWN.yaw);
+      timers.forEach((t) => t.reset());
+      hud.toast('Out of the map - back to the start');
+    }
+    let lapShown = false;
+    for (const t of timers) {
+      const st = t.update(pt.x, pt.z, simTime);
+      if (st.completed !== null) hud.toast(st.newBest ? `New best lap  ${(st.completed).toFixed(3)} s` : `Lap  ${st.completed.toFixed(3)} s`);
+      if (st.onTrack && !lapShown) {
+        hud.laps(t.line.def.name, st);
+        lapShown = true;
+      }
+    }
+    if (!lapShown) hud.laps(null, null);
+    map.update(now / 1000);
 
     const vh = gs.renderer.domElement.clientHeight;
     for (const c of all()) c.updateVisuals(now, res.alpha, frameDt, vh);

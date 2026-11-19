@@ -28,6 +28,8 @@ A browser driving sandbox built around **realistic car physics and crash damage*
 | Flip the car upright | `R` | `Y` |
 | Repair and respawn | `Shift+R` | |
 | Camera (chase, hood, bumper) | `C` | `B` |
+| Orbit the camera around the car / zoom | hold right mouse button and move / wheel | |
+| Teleport (test area, city, circuits, skid pad) | `T` (or the garage menu) | |
 | Switch car | `V` (or the menu) | |
 | Reset the parked target cars | `B` | |
 | Mute | `M` | |
@@ -44,6 +46,16 @@ The top-right panel (`G`) changes the car live and saves the setup per car:
 - **Engine**: power, torque, rev limit. **Driveline**: FWD, RWD or AWD, AWD split, diff lock, final drive, auto or manual gearbox.
 - **Suspension**: ride height, springs, dampers, anti-roll bars. **Wheels and tyres**: track width, camber, tyre width, grip, rear grip balance, grip while sliding.
 - **Brakes**: power, bias, handbrake. **Chassis**: mass, weight distribution, downforce. **Driving aids**: TC, ABS, ESP.
+
+### The map
+
+A 2 km x 2 km world. Leaving it (or falling off) puts the car back at the start, repaired.
+
+- **Test area** (start): crash wall, barriers, ramps, props, a long straight.
+- **City** (east): a grid of avenues and streets with raised pavements, a couple of hundred buildings that get taller towards downtown, parks and car parks, lane markings, zebra crossings and stop lines, traffic lights that cycle, stop and speed-limit signs, and street lamps. Lamps and signs fall over when you hit them.
+- **Grand Prix circuit** (north-west): 2.9 km, 14 m wide, long main straight, hairpin, esses, kerbs, armco and a start gantry.
+- **Drift circuit** (south-west): 2 km, 16 m wide, tight and twisty, red and white block walls, plus a 110 m skid pad.
+- **Lap timer** on both circuits: a lap counts only if you went through every sector; best laps are saved per car and circuit.
 
 ## Run locally
 
@@ -126,7 +138,7 @@ I have not measured on a modest PC. Draw calls are above what I would aim for on
 - **Car vs car is approximate.** Each car sees the other's undeformed outline box; dents are capped by its own crush, so impacts look plausible but not exact.
 - **Models are procedural.** They come from scripts, not a car designer: proportions are right, but surfaces are simpler than a real car's.
 - **Handling was tuned with headless simulations**, not by a human driver: full-lock corners from 60 to 180 km/h, slaloms, handbrake flicks and a keyboard-style drifter that only presses keys fully (`tests/handling.test.ts`).
-- **World.** A flat 2 km x 2 km plane with three surfaces and a test area. There is no chunk system.
+- **World.** Flat (no hills). There is no traffic and no chunk system; the whole map is built at load (about 1 s).
 - Skid marks only on asphalt. Audio is synthesised and simple.
 
 ## License

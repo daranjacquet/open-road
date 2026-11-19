@@ -27,8 +27,44 @@ export class CameraRig {
   photo: { offset: THREE.Vector3; target: THREE.Vector3 } | null = null;
   /** Transient shake amplitude (metres), decays on its own. Set by crashes. */
   shake = 0;
+  /** Mouse orbit around the car (right button held), on top of the chase direction. */
+  orbitYaw = 0;
+  orbitPitch = 0;
+  /** Distance multiplier (mouse wheel). */
+  zoom = 1;
+  private dragging = false;
+  /** Seconds since the mouse last moved the camera. */
+  private idle = 99;
 
-  constructor(private readonly camera: THREE.PerspectiveCamera) {}
+  constructor(readonly camera: THREE.PerspectiveCamera) {}
+
+  /** Right-drag orbits around the car, the wheel zooms (chase camera). */
+  attachMouse(el: HTMLElement): void {
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('mousedown', (e) => {
+      if (e.button !== 2) return;
+      this.dragging = true;
+      e.preventDefault();
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 2) this.dragging = false;
+    });
+    window.addEventListener('blur', () => (this.dragging = false));
+    window.addEventListener('mousemove', (e) => {
+      if (!this.dragging) return;
+      this.orbitYaw -= e.movementX * 0.006;
+      this.orbitPitch = clamp(this.orbitPitch + e.movementY * 0.005, -0.25, 1.1);
+      this.idle = 0;
+    });
+    el.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        this.zoom = clamp(this.zoom * Math.exp(e.deltaY * 0.0012), 0.55, 2.6);
+      },
+      { passive: false },
+    );
+  }
 
   cycle(): void {
     this.mode = MODES[(MODES.indexOf(this.mode) + 1) % MODES.length]!;
@@ -64,15 +100,31 @@ export class CameraRig {
         this.initialised = true;
       }
       this.yaw += angleDiff(this.yaw, target) * damp(3.2, dt);
-      const dist = lerp(6.8, 9.2, clamp(speed / 50, 0, 1));
-      const height = lerp(2.5, 3.2, clamp(speed / 50, 0, 1));
-      _p.set(carPos.x - Math.sin(this.yaw) * dist, carPos.y + height, carPos.z - Math.cos(this.yaw) * dist);
+      // The mouse orbit stays where it was left while parked; when driving it eases back behind
+      // the car after a moment without mouse movement.
+      this.idle += dt;
+      if (!this.dragging && this.idle > 1.2 && speed > 3) {
+        const k = damp(lerp(0.8, 2.5, clamp(speed / 25, 0, 1)), dt);
+        this.orbitYaw -= angleDiff(0, this.orbitYaw) * k;
+        this.orbitPitch -= this.orbitPitch * k;
+      }
+      const dist = lerp(6.8, 9.2, clamp(speed / 50, 0, 1)) * this.zoom;
+      const height = lerp(2.5, 3.2, clamp(speed / 50, 0, 1)) * this.zoom;
+      // Spherical offset: base elevation of the chase view plus the mouse pitch.
+      const range = Math.hypot(dist, height - 1.1);
+      const elev = clamp(Math.atan2(height - 1.1, dist) + this.orbitPitch, -0.12, 1.35);
+      const yaw = this.yaw + this.orbitYaw;
+      const flat = Math.cos(elev) * range;
+      _p.set(carPos.x - Math.sin(yaw) * flat, carPos.y + 1.1 + Math.sin(elev) * range, carPos.z - Math.cos(yaw) * flat);
+      _p.y = Math.max(_p.y, 0.4);
       if (this.pos.lengthSq() === 0) this.pos.copy(_p);
       // Positional smoothing, stiffer at speed so the car does not outrun the camera.
       const k = damp(lerp(9, 18, clamp(speed / 40, 0, 1)), dt);
-      this.pos.lerp(_p, k);
+      this.pos.lerp(_p, this.dragging ? 1 : k);
       this.camera.position.copy(this.pos);
-      _look.set(carPos.x + Math.sin(this.yaw) * 4, carPos.y + 1.1, carPos.z + Math.cos(this.yaw) * 4);
+      // Look a little ahead of the car when chasing, straight at it when orbiting around.
+      const ahead = 4 * Math.max(Math.cos(this.orbitYaw), 0) * (1 - clamp(this.orbitPitch, 0, 1));
+      _look.set(carPos.x + Math.sin(this.yaw) * ahead, carPos.y + 1.1, carPos.z + Math.cos(this.yaw) * ahead);
       this.camera.lookAt(_look);
     } else {
       const off = this.mode === 'hood' ? _p.set(0.0, 1.05, 0.55) : _p.set(0, 0.55, 2.35);

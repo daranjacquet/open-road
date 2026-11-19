@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Physics } from '../core/physics';
 import { GROUP, groups } from '../core/physics';
+import { ASPHALT, DIRT, type SurfaceMap } from './surface';
 
 export const WORLD_SIZE = 2000; // metres, square
 
@@ -27,9 +28,20 @@ export const asphaltZones: AsphaltZone[] = [
 ];
 export const dirtZones: AsphaltZone[] = [{ cx: -260, cz: 60, hx: 90, hz: 120 }];
 
+/** The painted surface raster (roads, circuits, city), set when the map is built. */
+let raster: SurfaceMap | null = null;
+export function setSurfaceMap(map: SurfaceMap): void {
+  raster = map;
+}
+
 export function surfaceAt(x: number, z: number): Surface {
   for (const a of asphaltZones) {
     if (Math.abs(x - a.cx) <= a.hx && Math.abs(z - a.cz) <= a.hz) return 'asphalt';
+  }
+  if (raster) {
+    const c = raster.get(x, z);
+    if (c === ASPHALT) return 'asphalt';
+    if (c === DIRT) return 'dirt';
   }
   for (const d of dirtZones) {
     if (Math.abs(x - d.cx) <= d.hx && Math.abs(z - d.cz) <= d.hz) return 'dirt';
@@ -37,7 +49,7 @@ export function surfaceAt(x: number, z: number): Surface {
   return 'grass';
 }
 
-function tileTexture(draw: (g: CanvasRenderingContext2D, s: number) => void, size = 256): THREE.CanvasTexture {
+export function tileTexture(draw: (g: CanvasRenderingContext2D, s: number) => void, size = 256): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d')!;
@@ -49,7 +61,7 @@ function tileTexture(draw: (g: CanvasRenderingContext2D, s: number) => void, siz
   return t;
 }
 
-function noiseFill(g: CanvasRenderingContext2D, s: number, base: [number, number, number], amp: number): void {
+export function noiseFill(g: CanvasRenderingContext2D, s: number, base: [number, number, number], amp: number): void {
   const img = g.createImageData(s, s);
   for (let i = 0; i < s * s; i++) {
     const n = (Math.random() - 0.5) * amp;

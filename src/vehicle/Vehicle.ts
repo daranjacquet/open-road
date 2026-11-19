@@ -56,6 +56,8 @@ export class WheelState {
   /** Slip ratio with a high speed floor, used by ABS/TC so they stay calm at walking speed. */
   slipAssist = 0;
   slipAngle = 0;
+  /** Speed (m/s) at which the contact patch slides over the ground (smoke, skid marks, audio). */
+  slideSpeed = 0;
   surface: Surface = 'asphalt';
   contactPoint = new THREE.Vector3();
   contactNormal = new THREE.Vector3(0, 1, 0);
@@ -707,6 +709,7 @@ export class Vehicle {
         w.slipRatio = 0;
         w.slipAssist = 0;
         w.slipAngle = 0;
+        w.slideSpeed = 0;
         w.spin += w.omega * dt;
         continue;
       }
@@ -756,6 +759,7 @@ export class Vehicle {
       w.slipRatio = kappa;
       w.slipAssist = clamp(slipSpeed / Math.max(Math.abs(vx), 5), -5, 5);
       w.slipAngle = Math.atan(tanA);
+      w.slideSpeed = Math.hypot(slipSpeed, vy);
 
       tireForces(w.isFront ? this.frontTire : this.rearTire, kappa, tanA, F, grip, _tire);
       let fx = _tire.fx;
@@ -766,7 +770,10 @@ export class Vehicle {
 
       // Stability clamps: a tyre cannot remove more slip velocity in one step than exists.
       const mc = Math.max(F * this.invG, 40);
-      const fxMax = Math.abs(slipSpeed) / (dt * (R * R / Ieff + 1 / mc));
+      // A wheel the brake holds cannot spin up, so only the car's own mass limits the force that
+      // stops the contact sliding (static friction: no creeping when parked).
+      const held = w.brakeTorque > Math.abs(w.hubDrive) + 1 && Math.abs(w.omega) < 0.5;
+      const fxMax = held ? (Math.abs(slipSpeed) * mc * 0.8) / dt : Math.abs(slipSpeed) / (dt * (R * R / Ieff + 1 / mc));
       fx = clamp(fx, -fxMax, fxMax);
       const fyMax = (Math.abs(vy) * mc * 0.7) / dt;
       fy = clamp(fy, -fyMax, fyMax);

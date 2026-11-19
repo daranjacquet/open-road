@@ -1,4 +1,5 @@
 import type { GameCar } from '../game/GameCar';
+import { formatLap, type LapState } from '../game/laps';
 
 /** Minimal driving HUD: speed, gear, rpm bar, assist lights. Updated at ~20 Hz. */
 export class Hud {
@@ -9,6 +10,10 @@ export class Hud {
   private last = 0;
   private readonly zones: Record<'front' | 'rear' | 'left' | 'right' | 'roof', HTMLElement>;
   private readonly eng: HTMLElement;
+  private readonly lapBox: HTMLElement;
+  private readonly lapEls: Record<'track' | 'cur' | 'last' | 'best', HTMLElement>;
+  private readonly toastEl: HTMLElement;
+  private toastTimer = 0;
 
   constructor(root: HTMLElement) {
     root.innerHTML = `
@@ -30,6 +35,12 @@ export class Hud {
         .hud-car .l{left:0;top:26px;width:8px;bottom:26px}.hud-car .rt{right:0;top:26px;width:8px;bottom:26px}
         .hud-car .roof{left:12px;right:12px;top:26px;bottom:26px;background:#4ade80}
         .hud-eng{margin-top:4px;opacity:.9}
+        .hud-lap{position:fixed;left:24px;top:40px;font-weight:600;background:rgba(10,14,20,.45);padding:8px 12px;border-radius:8px;min-width:170px;display:none}
+        .hud-lap .t{font-size:12px;opacity:.8;margin-bottom:2px}
+        .hud-lap .c{font-size:30px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+        .hud-lap .r{font-size:13px;font-variant-numeric:tabular-nums;opacity:.9;display:flex;justify-content:space-between;gap:12px}
+        .hud-toast{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);font-size:26px;font-weight:700;padding:10px 18px;border-radius:10px;background:rgba(10,14,20,.6);opacity:0;transition:opacity .35s;pointer-events:none;text-align:center}
+        .hud-toast.on{opacity:1}
         .hud-help{position:fixed;left:50%;transform:translateX(-50%);top:10px;font-size:12px;opacity:.75;text-align:center;white-space:nowrap}
       </style>
       <div class="hud-box">
@@ -41,7 +52,9 @@ export class Hud {
         <div class="hud-car"><i class="f" id="dz-front"></i><i class="r" id="dz-rear"></i><i class="l" id="dz-left"></i><i class="rt" id="dz-right"></i><i class="roof" id="dz-roof"></i></div>
         <div class="hud-eng" id="dz-eng">ENGINE 100%</div>
       </div>
-      <div class="hud-help">W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; Q/E shift (manual) &middot; G garage &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V car &middot; B targets &middot; M mute</div>`;
+      <div class="hud-lap" id="hud-lap"><div class="t" id="lap-track"></div><div class="c" id="lap-cur">0:00.000</div><div class="r"><span>Last</span><span id="lap-last"></span></div><div class="r"><span>Best</span><span id="lap-best"></span></div></div>
+      <div class="hud-toast" id="hud-toast"></div>
+      <div class="hud-help">W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; Q/E shift (manual) &middot; G garage &middot; T teleport &middot; right-drag camera &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V car &middot; B targets &middot; M mute</div>`;
     this.speed = root.querySelector('#hud-speed')!;
     this.gear = root.querySelector('#hud-gear')!;
     this.rpmFill = root.querySelector('#hud-rpm')!;
@@ -53,12 +66,41 @@ export class Hud {
       roof: root.querySelector('#dz-roof')!,
     };
     this.eng = root.querySelector('#dz-eng')!;
+    this.lapBox = root.querySelector('#hud-lap')!;
+    this.lapEls = {
+      track: root.querySelector('#lap-track')!,
+      cur: root.querySelector('#lap-cur')!,
+      last: root.querySelector('#lap-last')!,
+      best: root.querySelector('#lap-best')!,
+    };
+    this.toastEl = root.querySelector('#hud-toast')!;
     this.lights = {
       tc: root.querySelector('#hud-tc')!,
       abs: root.querySelector('#hud-abs')!,
       esp: root.querySelector('#hud-esp')!,
       man: root.querySelector('#hud-man')!,
     };
+  }
+
+  /** A short message in the middle of the screen. */
+  toast(msg: string, ms = 2200): void {
+    this.toastEl.textContent = msg;
+    this.toastEl.classList.add('on');
+    window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('on'), ms);
+  }
+
+  /** Lap timer panel (null hides it). Updated every frame for a smooth clock. */
+  laps(track: string | null, st: LapState | null): void {
+    if (!track || !st) {
+      this.lapBox.style.display = 'none';
+      return;
+    }
+    this.lapBox.style.display = 'block';
+    this.lapEls.track.textContent = st.running ? `${track} - lap ${st.lap + 1}` : `${track} - cross the line to start`;
+    this.lapEls.cur.textContent = formatLap(st.running ? st.current : 0);
+    this.lapEls.last.textContent = formatLap(st.last);
+    this.lapEls.best.textContent = formatLap(st.best);
   }
 
   update(gc: GameCar, now: number): void {
