@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { clamp, damp, G, lerp, moveToward, RADS_TO_RPM, smoothstep } from '../core/math';
-import { GROUP, groups, type Physics } from '../core/physics';
-import { SURFACE_GRIP, surfaceAt, type Surface } from '../world/ground';
+import { GROUP, groups, SURFACE_GRIP, type Physics, type Surface } from '../core/physics';
 import { CrushSystem } from '../damage/CrushSystem';
 import type { CrushRay } from '../damage/rays';
 import { absScale, espControl, tcScale, type EspOut } from './assists';
@@ -747,7 +746,7 @@ export class Vehicle {
       const vx = _vp.dot(_wf);
       const vy = _vp.dot(_wl);
 
-      const surface: Surface = this.physics.groundColliders.has(w.groundHandle) ? surfaceAt(w.contactPoint.x, w.contactPoint.z) : 'asphalt';
+      const surface: Surface = this.physics.groundColliders.has(w.groundHandle) ? this.physics.surfaceAt(w.contactPoint.x, w.contactPoint.z) : 'asphalt';
       w.surface = surface;
       const grip = SURFACE_GRIP[surface] * (surface === 'asphalt' ? 1 : (cfg.tire.looseGrip ?? 1)) * w.gripScale * (w.isFront ? 1 : cfg.rearGripScale) * (w.flat ? 0.45 : 1);
 

@@ -2,14 +2,25 @@ import RAPIER from '@dimforge/rapier3d-compat';
 
 export const FIXED_DT = 1 / 120;
 
+/** Ground surface types: the tyre model scales grip by them. */
+export type Surface = 'asphalt' | 'dirt' | 'grass';
+/** Friction multiplier per surface. */
+export const SURFACE_GRIP: Record<Surface, number> = {
+  asphalt: 1.0,
+  dirt: 0.72,
+  grass: 0.55,
+};
+
 export interface Physics {
   RAPIER: typeof RAPIER;
   world: RAPIER.World;
   events: RAPIER.EventQueue;
-  /** Handles of the colliders that make up the open ground (surface grip comes from `surfaceAt`). */
+  /** Handles of the colliders that make up the open ground (their grip comes from `surfaceAt`). */
   groundColliders: Set<number>;
   /** Handles of rigid bodies that run their own crumple zones (no double reaction on them). */
   crushBodies: Set<number>;
+  /** Surface under a point of the open ground. The map installs its painted raster here. */
+  surfaceAt(x: number, z: number): Surface;
   step(): void;
 }
 
@@ -44,6 +55,7 @@ export async function createPhysics(): Promise<Physics> {
     events,
     groundColliders: new Set<number>(),
     crushBodies: new Set<number>(),
+    surfaceAt: () => 'asphalt',
     step() {
       world.step(events);
     },

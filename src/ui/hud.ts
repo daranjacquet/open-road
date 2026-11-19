@@ -14,6 +14,7 @@ export class Hud {
   private readonly lapEls: Record<'track' | 'cur' | 'last' | 'best', HTMLElement>;
   private readonly toastEl: HTMLElement;
   private toastTimer = 0;
+  private lastLaps = 0;
   /** Called by the on-screen repair button. */
   onRepair: (() => void) | null = null;
 
@@ -101,6 +102,10 @@ export class Hud {
 
   /** Lap timer panel (null hides it). Updated every frame for a smooth clock. */
   laps(track: string | null, st: LapState | null): void {
+    // The clock text changes every frame; 20 updates a second are plenty (and cheaper on layout).
+    const now = performance.now();
+    if (now - this.lastLaps < 50 && !(st?.completed)) return;
+    this.lastLaps = now;
     if (!track || !st) {
       this.lapBox.style.display = 'none';
       return;

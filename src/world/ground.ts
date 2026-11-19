@@ -1,18 +1,13 @@
 import * as THREE from 'three';
 import type { Physics } from '../core/physics';
-import { GROUP, groups } from '../core/physics';
+import { GROUP, groups, type Surface } from '../core/physics';
 import { ASPHALT, DIRT, type SurfaceMap } from './surface';
 
 export const WORLD_SIZE = 2000; // metres, square
 
-/** Surface types: friction multiplier applied by the tyre model. */
-export type Surface = 'asphalt' | 'dirt' | 'grass';
+export type { Surface } from '../core/physics';
 
-export const SURFACE_GRIP: Record<Surface, number> = {
-  asphalt: 1.0,
-  dirt: 0.72,
-  grass: 0.55,
-};
+export { SURFACE_GRIP } from '../core/physics';
 
 export interface AsphaltZone {
   cx: number;
@@ -28,25 +23,25 @@ export const asphaltZones: AsphaltZone[] = [
 ];
 export const dirtZones: AsphaltZone[] = [{ cx: -260, cz: 60, hx: 90, hz: 120 }];
 
-/** The painted surface raster (roads, circuits, city), set when the map is built. */
-let raster: SurfaceMap | null = null;
-export function setSurfaceMap(map: SurfaceMap): void {
-  raster = map;
-}
-
-export function surfaceAt(x: number, z: number): Surface {
-  for (const a of asphaltZones) {
-    if (Math.abs(x - a.cx) <= a.hx && Math.abs(z - a.cz) <= a.hz) return 'asphalt';
-  }
-  if (raster) {
-    const c = raster.get(x, z);
-    if (c === ASPHALT) return 'asphalt';
-    if (c === DIRT) return 'dirt';
-  }
-  for (const d of dirtZones) {
-    if (Math.abs(x - d.cx) <= d.hx && Math.abs(z - d.cz) <= d.hz) return 'dirt';
-  }
-  return 'grass';
+/**
+ * Surface lookup for the test area (zones), with an optional painted raster (roads, circuits,
+ * city) on top. `createGround` installs it on the physics world.
+ */
+export function surfaceLookup(raster: SurfaceMap | null): (x: number, z: number) => Surface {
+  return (x, z) => {
+    for (const a of asphaltZones) {
+      if (Math.abs(x - a.cx) <= a.hx && Math.abs(z - a.cz) <= a.hz) return 'asphalt';
+    }
+    if (raster) {
+      const c = raster.get(x, z);
+      if (c === ASPHALT) return 'asphalt';
+      if (c === DIRT) return 'dirt';
+    }
+    for (const d of dirtZones) {
+      if (Math.abs(x - d.cx) <= d.hx && Math.abs(z - d.cz) <= d.hz) return 'dirt';
+    }
+    return 'grass';
+  };
 }
 
 export function tileTexture(draw: (g: CanvasRenderingContext2D, s: number) => void, size = 256): THREE.CanvasTexture {
@@ -91,6 +86,7 @@ export function createGround(physics: Physics): Ground {
     body,
   );
   physics.groundColliders.add(collider.handle);
+  physics.surfaceAt = surfaceLookup(null);
 
   const group = new THREE.Group();
   group.name = 'ground';

@@ -1,0 +1,283 @@
+import type { GameAudio } from '../audio/audio';
+import { FixedStepper, type StepResult } from '../core/loop';
+import type { Input } from '../core/input';
+import { FIXED_DT, type Physics } from '../core/physics';
+import type { DebugOverlay } from '../debug/overlay';
+import type { CameraRig } from '../render/camera';
+import type { AdaptiveResolution } from '../render/quality';
+import type { GameScene } from '../render/scene';
+import type { Garage } from '../ui/garage';
+import type { Hud } from '../ui/hud';
+import type { DriveInput } from '../vehicle/Vehicle';
+import type { GameMap, Location } from '../world/map';
+import { SPAWN } from '../world/map';
+import type { WorldProps } from '../world/props';
+import { CARS, carById } from './catalog';
+import { GameCar, IDLE } from './GameCar';
+import { RaceSystem } from './race';
+
+export interface GameDeps {
+  physics: Physics;
+  gs: GameScene;
+  map: GameMap;
+  props: WorldProps;
+  input: Input;
+  rig: CameraRig;
+  hud: Hud;
+  audio: GameAudio;
+  debug: DebugOverlay;
+  resolution: AdaptiveResolution;
+}
+
+const CAR_KEY = 'open-road:car';
+
+/**
+ * The running game: cars, fixed-step simulation, per-frame systems and rendering. `main.ts` builds
+ * the pieces and hands them over; everything that happens each frame lives here.
+ */
+export class Game {
+  player: GameCar;
+  /** Parked cars to crash into. */
+  readonly dummies: GameCar[];
+  /** Player first, then the dummies. Kept as one array: the hot loops must not allocate. */
+  readonly cars: GameCar[];
+  readonly race: RaceSystem;
+  garage!: Garage;
+  paused = false;
+
+  private readonly stepper = new FixedStepper(FIXED_DT);
+  private readonly res: StepResult = { steps: 0, alpha: 0 };
+  /** Simulated seconds (lap times use physics time, not the wall clock). */
+  private simTime = 0;
+  private physMs = 0;
+  private last = performance.now();
+  private locIndex = 0;
+  private readonly d: GameDeps;
+
+  constructor(deps: GameDeps) {
+    this.d = deps;
+    const { physics, gs } = deps;
+    this.player = new GameCar(physics, gs.scene, carById(Game.savedCar()), SPAWN.x, SPAWN.z, SPAWN.yaw);
+    this.dummies = [
+      new GameCar(physics, gs.scene, CARS[0]!, 0, 22, Math.PI, 0x8a8f96),
+      new GameCar(physics, gs.scene, CARS[1]!, -15, -85, Math.PI / 2, 0xe0b020),
+    ];
+    this.cars = [this.player, ...this.dummies];
+    this.race = new RaceSystem(deps.map.tracks, deps.hud);
+    this.race.setCar(this.player.def.id);
+    this.hookPlayer();
+    deps.hud.onRepair = () => this.repair();
+  }
+
+  private static savedCar(): string {
+    try {
+      return localStorage.getItem(CAR_KEY) ?? 'sedan';
+    } catch {
+      return 'sedan';
+    }
+  }
+
+  private hookPlayer(): void {
+    this.player.damage.addImpactListener((i) => this.d.audio.impact(i));
+  }
+
+  // ---- actions (keys, garage menu, HUD button, debug API) ---------------------------------------
+
+  swapCar(id: string): void {
+    const old = this.player;
+    const t = old.vehicle.body.translation();
+    const q = old.vehicle.currQuat;
+    const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
+    old.dispose();
+    this.player = new GameCar(this.d.physics, this.d.gs.scene, carById(id), t.x, t.z, yaw);
+    this.player.vehicle.placeAt(t.x, 1.0, t.z, yaw);
+    this.cars[0] = this.player;
+    this.garage.attach();
+    this.hookPlayer();
+    this.race.setCar(id);
+    try {
+      localStorage.setItem(CAR_KEY, id);
+    } catch {
+      /* storage unavailable: fine */
+    }
+  }
+
+  nextCar(): void {
+    const i = CARS.findIndex((c) => c.id === this.player.def.id);
+    this.swapCar(CARS[(i + 1) % CARS.length]!.id);
+  }
+
+  teleport(loc: Location): void {
+    this.player.vehicle.placeAt(loc.x, 1.0, loc.z, loc.yaw);
+    this.race.reset();
+    this.d.hud.toast(loc.name);
+  }
+
+  nextLocation(): void {
+    const locs = this.d.map.locations;
+    this.locIndex = (this.locIndex + 1) % locs.length;
+    this.teleport(locs[this.locIndex]!);
+  }
+
+  /** Repair in place: body, glass, parts, engine and wheels, keeping position and speed. */
+  repair(): void {
+    this.player.repair();
+    this.d.hud.toast('Repaired', 1200);
+  }
+
+  // ---- simulation -----------------------------------------------------------------------------------
+
+  private inputFor(c: GameCar, cmd: DriveInput): DriveInput {
+    return c === this.player ? cmd : IDLE;
+  }
+
+  /** One fixed physics step for every car. */
+  step(cmd: DriveInput): void {
+    const cars = this.cars;
+    for (let i = 0; i < cars.length; i++) cars[i]!.fixedUpdate(FIXED_DT, this.inputFor(cars[i]!, cmd));
+    this.d.physics.step();
+    for (let i = 0; i < cars.length; i++) cars[i]!.vehicle.afterPhysicsStep();
+    this.simTime += FIXED_DT;
+  }
+
+  /** Run `seconds` of game time immediately (automated checks, screenshots). */
+  advance(seconds: number, drive?: () => DriveInput): void {
+    const n = Math.round(seconds / FIXED_DT);
+    const vh = this.d.gs.renderer.domElement.clientHeight;
+    for (let i = 0; i < n; i++) {
+      this.step(drive ? drive() : this.d.input.out);
+      if (i % 4 === 0) for (const c of this.cars) c.updateVisuals(performance.now() + i, 1, FIXED_DT * 4, vh);
+    }
+    for (const c of this.cars) c.updateVisuals(performance.now() + 1e6, 1, 0.016, vh);
+    this.d.props.update();
+  }
+
+  private handleKeys(): void {
+    const input = this.d.input;
+    const v = this.player.vehicle;
+    if (input.pressed('Shift+KeyR')) this.player.respawn();
+    else if (input.pressed('KeyR')) v.recover();
+    if (input.pressed('KeyC')) this.d.rig.cycle();
+    if (input.pressed('KeyV')) this.nextCar();
+    if (input.pressed('KeyB')) for (const d of this.dummies) d.respawn();
+    if (input.pressed('KeyG')) this.garage.toggle();
+    if (input.pressed('KeyF')) this.repair();
+    if (input.pressed('KeyT')) this.nextLocation();
+    if (input.pressed('KeyE') && v.manual) v.shiftUp();
+    if (input.pressed('KeyQ') && v.manual) v.shiftDown();
+  }
+
+  /** One rendered frame. */
+  frame(now: number): void {
+    if (this.paused) {
+      this.last = now;
+      return;
+    }
+    const { gs, map, hud, rig, audio, debug, props, resolution } = this.d;
+    const frameDt = Math.min(Math.max((now - this.last) / 1000, 0), 0.1);
+    this.last = now;
+    resolution.sample(frameDt);
+
+    const cmd = this.d.input.sample(frameDt);
+    this.handleKeys();
+
+    this.stepper.advance(frameDt, this.res);
+    const p0 = performance.now();
+    for (let i = 0; i < this.res.steps; i++) this.step(cmd);
+    if (this.res.steps > 0) this.physMs = (performance.now() - p0) / this.res.steps;
+
+    // Off the edge of the world: back to the start, repaired.
+    const pt = this.player.vehicle.body.translation();
+    if (map.isOutside(pt.x, pt.y, pt.z)) {
+      this.player.repair();
+      this.player.vehicle.placeAt(SPAWN.x, 1.0, SPAWN.z, SPAWN.yaw);
+      this.race.reset();
+      hud.toast('Out of the map - back to the start');
+    }
+    this.race.update(pt.x, pt.z, this.simTime);
+    map.update(now / 1000);
+
+    const vh = gs.renderer.domElement.clientHeight;
+    for (const c of this.cars) c.updateVisuals(now, this.res.alpha, frameDt, vh);
+    props.update();
+    const player = this.player;
+    rig.shake = Math.max(rig.shake, player.effects.shake);
+    player.effects.shake = 0;
+    rig.update(frameDt, player.vehicle, player.view.pos, player.view.quat);
+    gs.followSun(player.view.pos);
+    gs.renderer.render(gs.scene, gs.camera);
+
+    hud.update(player, now);
+    audio.update(player.vehicle, now);
+    if (debug.isVisible) this.debugPanel();
+    debug.frame(frameDt, now);
+  }
+
+  private debugPanel(): void {
+    const { debug, gs } = this.d;
+    const car = this.player.vehicle;
+    const dm = this.player.damage;
+    debug.set('physics', `${this.physMs.toFixed(2)} ms/step @ ${(1 / FIXED_DT).toFixed(0)} Hz, ${this.res.steps} steps/frame, ${this.cars.length} cars`);
+    debug.set('render', `${gs.renderer.info.render.calls} draw calls, ${gs.renderer.info.render.triangles} tris, pixel ratio ${this.d.resolution.ratio}`);
+    debug.set('car', `${car.speedKmh.toFixed(0)} km/h, gear ${car.gear}, ${car.rpm.toFixed(0)} rpm, steer ${(car.steerAngle * 57.3).toFixed(1)} deg`);
+    debug.set('yaw rate', `${car.yawRate.toFixed(2)} rad/s, tc ${car.tcActive ? 'ON' : '-'} abs ${car.absActive ? 'ON' : '-'} esp ${car.espActivity.toFixed(2)}`);
+    const names = ['FL', 'FR', 'RL', 'RR'];
+    car.wheels.forEach((w, i) => {
+      debug.set(names[i]!, `Fz ${w.fz.toFixed(0)} N  slip k ${w.slipRatio.toFixed(2)} a ${(w.slipAngle * 57.3).toFixed(1)} deg  ${w.surface}${w.hit ? '' : ' (air)'}  dmg ${dm.wheel[i]!.toFixed(2)}`);
+    });
+    debug.set('damage', `engine ${dm.engine.toFixed(2)} front ${dm.zone.front.toFixed(2)} rear ${dm.zone.rear.toFixed(2)} L ${dm.zone.left.toFixed(2)} R ${dm.zone.right.toFixed(2)} roof ${dm.zone.roof.toFixed(2)}`);
+    debug.set('crush', `energy ${(this.player.crush.energy / 1000).toFixed(0)} kJ, rays active ${this.player.crush.active}, parts off ${this.player.parts.detached}`);
+  }
+
+  // ---- automated checks -----------------------------------------------------------------------------
+
+  /** Force one camera update + render now. */
+  renderNow(): void {
+    const { gs, rig } = this.d;
+    for (const c of this.cars) c.view.update(1);
+    rig.update(0.05, this.player.vehicle, this.player.view.pos, this.player.view.quat);
+    gs.followSun(this.player.view.pos);
+    gs.renderer.render(gs.scene, gs.camera);
+  }
+
+  /** Render once from a world-space camera position. */
+  renderFrom(pos: [number, number, number], target: [number, number, number]): void {
+    const { gs } = this.d;
+    for (const c of this.cars) c.view.update(1);
+    gs.camera.position.set(...pos);
+    gs.camera.lookAt(...target);
+    gs.renderer.render(gs.scene, gs.camera);
+  }
+
+  /** `window.game`: the handle the automated browser checks drive the game with. */
+  debugApi(): Record<string, unknown> {
+    const self = this;
+    const d = this.d;
+    return {
+      get paused() {
+        return self.paused;
+      },
+      set paused(v: boolean) {
+        self.paused = v;
+      },
+      get player() {
+        return self.player;
+      },
+      dummies: this.dummies,
+      physics: d.physics,
+      input: d.input,
+      rig: d.rig,
+      map: d.map,
+      resolution: d.resolution,
+      get garage() {
+        return self.garage;
+      },
+      advance: (s: number, drive?: () => DriveInput) => this.advance(s, drive),
+      renderNow: () => this.renderNow(),
+      renderFrom: (p: [number, number, number], t: [number, number, number]) => this.renderFrom(p, t),
+      swapCar: (id: string) => this.swapCar(id),
+      teleport: (l: Location) => this.teleport(l),
+      repairCar: () => this.repair(),
+    };
+  }
+}

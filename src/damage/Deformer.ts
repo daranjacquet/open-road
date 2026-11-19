@@ -36,6 +36,8 @@ interface MeshBinding {
 }
 
 const H = 0.1; // lattice spacing (m)
+/** Vertices whose normals are recomputed per frame at most (after a crash). */
+const NORMALS_BUDGET = 40000;
 const WAVE = 0.13; // crumple wavelength (m)
 const DECAY = 0.12; // screened-Laplace decay per iteration (larger = more local dents)
 
@@ -107,6 +109,7 @@ export class Deformer {
   private readonly bindings: MeshBinding[] = [];
   private readonly ray: RAPIER.Ray;
   private dirty = false;
+  private normalsCursor = 0;
   private dmin = [0, 0, 0];
   private dmax = [0, 0, 0];
   private lastNormals = 0;
@@ -311,12 +314,19 @@ export class Deformer {
       this.computeCompression(x0, y0, z0, x1, y1, z1);
       this.updateMeshes(x0 - 1, y0 - 1, z0 - 1, x1 + 1, y1 + 1, z1 + 1);
     }
-    if (now - this.lastNormals > 90) {
+    // Normals of dented meshes: a vertex budget per frame, round-robin, so a big crash spreads the
+    // work over a few frames instead of one long stall.
+    if (now - this.lastNormals > 30) {
       this.lastNormals = now;
-      for (const b of this.bindings) {
+      let budget = NORMALS_BUDGET;
+      const n = this.bindings.length;
+      for (let k = 0; k < n && budget > 0; k++) {
+        const b = this.bindings[(this.normalsCursor + k) % n]!;
         if (!b.needsNormals) continue;
         b.mesh.geometry.computeVertexNormals();
         b.needsNormals = false;
+        budget -= b.cell.length;
+        this.normalsCursor = (this.normalsCursor + k + 1) % n;
       }
     }
   }

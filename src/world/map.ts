@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Physics } from '../core/physics';
 import { createCity, type City } from './city';
-import { noiseFill, setSurfaceMap, tileTexture, WORLD_SIZE } from './ground';
+import { noiseFill, surfaceLookup, tileTexture, WORLD_SIZE } from './ground';
 import { SurfaceMap } from './surface';
 import { buildTrack, trackMaterials, type BuiltTrack, type TrackDef } from './track';
 
@@ -81,7 +81,7 @@ export function createMap(physics: Physics): GameMap {
   });
   const city = createCity(physics, surface, asphalt);
   group.add(city.group);
-  setSurfaceMap(surface);
+  physics.surfaceAt = surfaceLookup(surface);
 
   // World edge: red and white posts, and grass beyond so the horizon is not a cliff.
   const posts: THREE.Matrix4[] = [];

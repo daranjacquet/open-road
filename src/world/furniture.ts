@@ -99,7 +99,6 @@ export class Furniture {
 
   /** Sync the parts of bodies that moved (sleeping ones are skipped once drawn). */
   update(): void {
-    const dirty = new Set<THREE.InstancedMesh>();
     for (const it of this.items) {
       const sleeping = it.body.isSleeping();
       if (sleeping && it.synced) continue;
@@ -109,13 +108,12 @@ export class Furniture {
       for (const p of it.parts) {
         _m.multiplyMatrices(_b, p.local);
         p.mesh.setMatrixAt(p.index, _m);
-        dirty.add(p.mesh);
+        p.mesh.instanceMatrix.needsUpdate = true;
       }
       it.synced = sleeping;
       // Fell through the world or flew off: park it.
       if (t.y < -20) it.body.setEnabled(false);
     }
-    for (const m of dirty) m.instanceMatrix.needsUpdate = true;
   }
 
   get count(): number {
