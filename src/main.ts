@@ -22,7 +22,11 @@ async function boot(): Promise<void> {
   const hud = new Hud(document.getElementById('hud')!);
   const physics = await createPhysics();
   // Blender-built cars (public/models/*.glb); missing files fall back to the procedural generator.
-  await loadCarTemplates(CARS.map((c) => c.id), import.meta.env.BASE_URL);
+  const loading = document.getElementById('loading');
+  if (loading) loading.textContent = 'Loading cars…';
+  await loadCarTemplates(CARS.map((c) => c.id), import.meta.env.BASE_URL, (n) => {
+    if (loading) loading.textContent = `Loading cars… ${n}/${CARS.length}`;
+  });
   const gs = createScene(canvas);
   gs.scene.add(createGround(physics).group);
   const props = createWorldProps(physics);
@@ -30,17 +34,17 @@ async function boot(): Promise<void> {
 
   const saved = (() => {
     try {
-      return localStorage.getItem('open-road:car') ?? 'sport';
+      return localStorage.getItem('open-road:car') ?? 'sedan';
     } catch {
-      return 'sport';
+      return 'sedan';
     }
   })();
 
   let player = new GameCar(physics, gs.scene, carById(saved), SPAWN.x, SPAWN.z, SPAWN.yaw);
   // Parked cars to crash into.
   const dummies: GameCar[] = [
-    new GameCar(physics, gs.scene, CARS[0]!, 0, 22, Math.PI, 0x2a5db0),
-    new GameCar(physics, gs.scene, CARS[CARS.length > 1 ? 1 : 0]!, -15, -85, Math.PI / 2, 0xe0b020),
+    new GameCar(physics, gs.scene, CARS[0]!, 0, 22, Math.PI, 0x8a8f96),
+    new GameCar(physics, gs.scene, CARS[1]!, -15, -85, Math.PI / 2, 0xe0b020),
   ];
   const all = (): GameCar[] => [player, ...dummies];
 
@@ -101,7 +105,7 @@ async function boot(): Promise<void> {
     const n = Math.round(seconds / FIXED_DT);
     for (let i = 0; i < n; i++) {
       const cmd = drive ? drive() : input.out;
-      for (const c of all()) c.vehicle.fixedUpdate(FIXED_DT, driveInputFor(c, cmd));
+      for (const c of all()) c.fixedUpdate(FIXED_DT, driveInputFor(c, cmd));
       physics.step();
       for (const c of all()) c.vehicle.afterPhysicsStep();
       if (i % 4 === 0) for (const c of all()) c.updateVisuals(performance.now() + i, 1, FIXED_DT * 4, gs.renderer.domElement.clientHeight);
@@ -118,8 +122,18 @@ async function boot(): Promise<void> {
     gs.renderer.render(gs.scene, gs.camera);
   };
 
+  /** Render once from a world-space camera position (automated screenshots of any car). */
+  const renderFrom = (pos: [number, number, number], target: [number, number, number]): void => {
+    for (const c of all()) c.view.update(1);
+    gs.camera.position.set(...pos);
+    gs.camera.lookAt(...target);
+    gs.renderer.render(gs.scene, gs.camera);
+  };
+
   // Expose for automated checks / debugging.
   const api = {
+    /** Freeze the live loop (automated screenshots). */
+    paused: false,
     get player() {
       return player;
     },
@@ -129,11 +143,16 @@ async function boot(): Promise<void> {
     rig,
     advance,
     renderNow,
+    renderFrom,
     swapCar,
   };
   (window as unknown as { game: unknown }).game = api;
 
   gs.renderer.setAnimationLoop((now: number) => {
+    if (api.paused) {
+      last = now;
+      return;
+    }
     const frameDt = Math.min((now - last) / 1000, 0.1);
     last = now;
 
@@ -150,7 +169,7 @@ async function boot(): Promise<void> {
     stepper.advance(frameDt, res);
     const p0 = performance.now();
     for (let i = 0; i < res.steps; i++) {
-      for (const c of all()) c.vehicle.fixedUpdate(FIXED_DT, driveInputFor(c, cmd));
+      for (const c of all()) c.fixedUpdate(FIXED_DT, driveInputFor(c, cmd));
       physics.step();
       for (const c of all()) c.vehicle.afterPhysicsStep();
     }

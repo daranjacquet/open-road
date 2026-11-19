@@ -3,8 +3,9 @@ import { buildCrushRays } from '../damage/rays';
 import { DamageModel } from '../damage/DamageModel';
 import { Deformer } from '../damage/Deformer';
 import { PartsManager } from '../damage/PartsManager';
+import type { CrushSystem } from '../damage/CrushSystem';
 import type { Physics } from '../core/physics';
-import { buildCarModel, type CarBodySpec } from '../render/car';
+import { buildCarModel } from '../render/car';
 import type { CarModel } from '../render/carModel';
 import { Effects } from '../render/effects';
 import { VehicleView } from '../render/VehicleView';
@@ -15,22 +16,22 @@ export interface CarDef {
   id: string;
   name: string;
   cfg: VehicleConfig;
-  body: CarBodySpec;
 }
 
 export const IDLE: DriveInput = { throttle: 0, brake: 0, steer: 0, handbrake: 1 };
 
-/** A complete car: physics, model, crumple zones, dents, mechanical damage, detachable parts and effects. */
+/** A complete car: physics, Blender model, crumple zones, deformation field, damage, parts, effects. */
 export class GameCar {
   readonly vehicle: Vehicle;
   readonly model: CarModel;
   readonly view: VehicleView;
-  readonly crush;
+  readonly crush: CrushSystem;
   readonly deformer: Deformer;
   readonly damage: DamageModel;
   readonly parts: PartsManager;
   readonly effects: Effects;
   private readonly spawn: { x: number; z: number; yaw: number };
+  private readonly crushNear = (x: number, y: number, z: number): number => this.crush.crushNear(x, y, z);
 
   constructor(
     private readonly physics: Physics,
@@ -43,11 +44,11 @@ export class GameCar {
   ) {
     this.spawn = { x, z, yaw };
     this.vehicle = new Vehicle(physics, def.cfg, x, z, yaw);
-    this.model = buildCarModel(def.cfg, def.body, paint, def.id);
+    this.model = buildCarModel(def.id, paint);
     scene.add(this.model.root);
     this.view = new VehicleView(this.vehicle, this.model);
     this.crush = this.vehicle.attachCrush(buildCrushRays(def.cfg, this.model));
-    this.deformer = new Deformer(this.crush, this.model.parts);
+    this.deformer = new Deformer(physics.RAPIER, this.model, def.cfg);
     this.damage = new DamageModel(this.vehicle, this.crush);
     this.parts = new PartsManager(physics, scene, this.vehicle, this.model, this.crush, this.deformer, this.damage);
     this.effects = new Effects(this.vehicle, this.damage);
@@ -56,7 +57,13 @@ export class GameCar {
     this.view.update(1);
   }
 
-  /** Per rendered frame: dents, mechanical state, detached panels, visuals. */
+  /** One physics step for this car (before `physics.step()`): driving forces, crumple zones, imprints. */
+  fixedUpdate(dt: number, input: DriveInput): void {
+    this.vehicle.fixedUpdate(dt, input);
+    this.deformer.imprint(this.vehicle.currPos, this.vehicle.currQuat, this.crush.contacts, this.crushNear);
+  }
+
+  /** Per rendered frame: deformation, mechanical state, detached panels, visuals. */
   updateVisuals(now: number, alpha: number, frameDt: number, viewportHeight: number): void {
     this.damage.update();
     this.deformer.update(now);
@@ -72,7 +79,6 @@ export class GameCar {
     this.damage.reset();
   }
 
-  /** Repair and put the car back where it started. */
   respawn(): void {
     this.repair();
     this.vehicle.placeAt(this.spawn.x, 1.0, this.spawn.z, this.spawn.yaw);

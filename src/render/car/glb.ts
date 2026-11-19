@@ -1,125 +1,373 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import type { VehicleConfig } from '../../vehicle/types';
-import type { CarModel, WheelNodes } from '../carModel';
-import { createProbe, makeMaterials, type CarMaterials } from './generator';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { CarModel, DeformableMeshData, WheelNodes } from '../carModel';
+import { makeCrackable, tunePaint } from './paint';
 
-/** Cars exported by `art/build_cars.py` (Blender) are loaded once as templates and cloned per car. */
+/**
+ * Cars exported by art/build_cars.py (Blender), compressed with meshopt.
+ * A template is parsed once; every car instance rebuilds its own hierarchy from it with float,
+ * chassis-space geometry (meshopt quantisation folds scales into node transforms, so geometry is
+ * baked and every part is re-centred on the `pivot` stored in the node extras).
+ */
 const templates = new Map<string, THREE.Group>();
 
 export function getCarTemplate(id: string): THREE.Group | undefined {
   return templates.get(id);
 }
 
+export function registerCarTemplate(id: string, scene: THREE.Group): void {
+  templates.set(id, scene);
+}
+
 export async function parseCarGLB(buffer: ArrayBuffer): Promise<THREE.Group> {
-  const gltf = await new GLTFLoader().parseAsync(buffer, '');
+  await MeshoptDecoder.ready;
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  const gltf = await loader.parseAsync(buffer, '');
+  gltf.scene.updateMatrixWorld(true);
   return gltf.scene;
 }
 
-/** Fetch and register the GLB of each car; a failure leaves that car on the procedural fallback. */
-export async function loadCarTemplates(ids: string[], baseUrl: string): Promise<string[]> {
+export async function loadCarTemplates(ids: string[], baseUrl: string, onProgress?: (done: number) => void): Promise<string[]> {
   const loaded: string[] = [];
+  let done = 0;
   await Promise.all(
     ids.map(async (id) => {
-      try {
-        const res = await fetch(`${baseUrl}models/${id}.glb`);
-        if (!res.ok) throw new Error(`${res.status}`);
-        templates.set(id, await parseCarGLB(await res.arrayBuffer()));
-        loaded.push(id);
-      } catch (e) {
-        console.warn(`Car model "${id}" not loaded, using the procedural fallback`, e);
-      }
+      const res = await fetch(`${baseUrl}models/${id}.glb`);
+      if (!res.ok) throw new Error(`Car model ${id}: HTTP ${res.status}`);
+      templates.set(id, await parseCarGLB(await res.arrayBuffer()));
+      loaded.push(id);
+      onProgress?.(++done);
     }),
   );
   return loaded;
 }
 
-export function registerCarTemplate(id: string, scene: THREE.Group): void {
-  templates.set(id, scene);
+const WHEEL_RE = /^(tire|rim|disc|nuts|caliper)_(FL|FR|RL|RR)$/;
+
+function partName(o: THREE.Object3D): string | null {
+  const n = o.userData['part_name'];
+  return typeof n === 'string' ? n : null;
 }
 
-const SHELL = /^(body|hood|trunk|door_[A-Z]{2}|bumper_[FR]|glass_(front|rear|L|R))$/;
-const SMALL = /^(light_[FR][LR]|mirror_[LR])$/;
-
-function materialFor(name: string, m: CarMaterials): THREE.Material {
-  if (name.startsWith('glass')) return m.glass;
-  if (name === 'light_FL' || name === 'light_FR') return m.headlight;
-  if (name.startsWith('light_')) return m.taillight;
-  if (name.startsWith('mirror_') || SHELL.test(name)) return m.paint;
-  if (name === 'interior') return m.interior;
-  if (name.startsWith('tire_')) return m.tire;
-  if (name.startsWith('rim_') || name.startsWith('exhaust')) return m.rim;
-  if (name.startsWith('disc_')) return m.disc;
-  return m.trim;
+function pivotOf(o: THREE.Object3D): THREE.Vector3 | null {
+  const p = o.userData['chassis_pivot'] as number[] | undefined;
+  return p && p.length === 3 ? new THREE.Vector3(p[0], p[1], p[2]) : null;
 }
 
-/** Build a CarModel (same interface as the procedural generator) from a Blender-exported template. */
-export function modelFromTemplate(template: THREE.Group, cfg: VehicleConfig, paint?: number): CarModel {
-  const mats = makeMaterials(paint ?? 0xb3170d);
-  if (paint === undefined) {
-    // Keep the colour the artist chose in Blender.
-    template.traverse((o) => {
-      if (o instanceof THREE.Mesh && o.name === 'body') {
-        const src = (Array.isArray(o.material) ? o.material[0] : o.material) as THREE.MeshStandardMaterial;
-        mats.paint.color.copy(src.color);
-      }
-    });
+/** Float, chassis-space copy of a (possibly quantised) mesh geometry. */
+function bakeGeometry(src: THREE.Mesh, toChassis: THREE.Matrix4): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  for (const [name, attr] of Object.entries(src.geometry.attributes)) {
+    const a = attr as THREE.BufferAttribute;
+    const n = a.count;
+    const size = a.itemSize;
+    const arr = new Float32Array(n * size);
+    for (let i = 0; i < n; i++) {
+      arr[i * size] = a.getX(i);
+      if (size > 1) arr[i * size + 1] = a.getY(i);
+      if (size > 2) arr[i * size + 2] = a.getZ(i);
+      if (size > 3) arr[i * size + 3] = a.getW(i);
+    }
+    g.setAttribute(name, new THREE.BufferAttribute(arr, size));
   }
-  const root = new THREE.Group();
-  const clone = template.clone(true);
-  for (const child of [...clone.children]) root.add(child);
-  const disposables: { dispose(): void }[] = [...Object.values(mats)];
-  const parts = new Map<string, THREE.Mesh>();
-  const wheelMeshes: Record<string, THREE.Mesh[]> = { FL: [], FR: [], RL: [], RR: [] };
+  if (src.geometry.index) g.setIndex(new THREE.BufferAttribute(new Uint32Array(src.geometry.index.array), 1));
+  g.applyMatrix4(toChassis);
+  const nrm = g.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  if (nrm) {
+    // Re-normalise after quantisation / non-uniform node scales.
+    const a = nrm.array as Float32Array;
+    for (let i = 0; i < a.length; i += 3) {
+      const l = Math.hypot(a[i]!, a[i + 1]!, a[i + 2]!) || 1;
+      a[i]! /= l;
+      a[i + 1]! /= l;
+      a[i + 2]! /= l;
+    }
+  }
+  return g;
+}
 
-  root.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) return;
-    const name = o.name;
-    // Every car gets its own geometry for panels that deform; the rest is shared with the template.
-    if (SHELL.test(name)) {
-      o.geometry = o.geometry.clone();
-      disposables.push(o.geometry);
-      const pos = o.geometry.getAttribute('position') as THREE.BufferAttribute;
+/** Own meshes of a node: itself when it is a Mesh, plus everything below it that is not another part
+ *  (primitive groups and the extra nodes meshopt inserts to hold quantised meshes). */
+function ownMeshes(o: THREE.Object3D): THREE.Mesh[] {
+  const out: THREE.Mesh[] = [];
+  if (o instanceof THREE.Mesh) out.push(o);
+  const walk = (n: THREE.Object3D): void => {
+    for (const c of n.children) {
+      if (partName(c)) continue;
+      if (c instanceof THREE.Mesh) out.push(c);
+      walk(c);
+    }
+  };
+  walk(o);
+  return out;
+}
+
+/** Child parts of a node (possibly nested below helper nodes). */
+function childParts(o: THREE.Object3D): THREE.Object3D[] {
+  const out: THREE.Object3D[] = [];
+  const walk = (n: THREE.Object3D): void => {
+    for (const c of n.children) {
+      if (partName(c)) out.push(c);
+      else walk(c);
+    }
+  };
+  walk(o);
+  return out;
+}
+
+export interface BuildOptions {
+  /** Body colour override (dummy cars). */
+  paint?: number;
+}
+
+/** Build one car instance from a template. */
+/** Glass keeps its transparency settings after cloning (onBeforeCompile is replaced by the crack shader). */
+function tunePaintGlass(m: THREE.Material): void {
+  m.transparent = true;
+  m.depthWrite = false;
+  m.side = THREE.DoubleSide;
+}
+
+export function modelFromTemplate(template: THREE.Group, opts: BuildOptions = {}): CarModel {
+  const root = new THREE.Group();
+  root.name = 'car';
+  const parts = new Map<string, THREE.Object3D>();
+  const meshes: THREE.Mesh[] = [];
+  const disposables: { dispose(): void }[] = [];
+  const wheelMeshes: Record<string, THREE.Mesh[]> = { FL: [], FR: [], RL: [], RR: [] };
+  const matCache = new Map<THREE.Material, THREE.Material>();
+  const cracks = new Map<string, ReturnType<typeof makeCrackable>>();
+
+  const material = (m: THREE.Material): THREE.Material => {
+    let out = matCache.get(m);
+    if (!out) {
+      out = m.name === 'paint' && opts.paint !== undefined ? m.clone() : m;
+      if (out !== m) {
+        (out as THREE.MeshPhysicalMaterial).color.setHex(opts.paint!);
+        disposables.push(out);
+      }
+      tunePaint(out);
+      matCache.set(m, out);
+    }
+    return out;
+  };
+
+  const rebuild = (src: THREE.Object3D, parentPivot: THREE.Vector3, parent: THREE.Object3D): void => {
+    const pv = pivotOf(src) ?? parentPivot.clone();
+    const srcName = partName(src) ?? src.name;
+    const wheel = WHEEL_RE.exec(srcName);
+    if (wheel) {
+      // Wheels are built at the origin in Blender; keep their geometry centred on the hub.
+      for (const m of ownMeshes(src)) {
+        const g = bakeGeometry(m, m.matrixWorld);
+        const mesh = new THREE.Mesh(g, material(m.material as THREE.Material));
+        mesh.name = srcName;
+        mesh.castShadow = wheel[1] === 'tire';
+        wheelMeshes[wheel[2]!]!.push(mesh);
+        disposables.push(g);
+      }
+      return;
+    }
+    const node = new THREE.Group();
+    const name = srcName;
+    node.name = name;
+    node.position.copy(pv).sub(parentPivot);
+    parent.add(node);
+    parts.set(name, node);
+    const toLocal = new THREE.Matrix4().makeTranslation(-pv.x, -pv.y, -pv.z);
+    for (const m of ownMeshes(src)) {
+      const toChassis = m.matrixWorld;
+      const g = bakeGeometry(m, toChassis);
+      g.applyMatrix4(toLocal);
+      const pos = g.getAttribute('position') as THREE.BufferAttribute;
       pos.setUsage(THREE.DynamicDrawUsage);
-      (o.geometry.getAttribute('normal') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
-      o.userData['rest'] = new Float32Array(pos.array as Float32Array);
-      o.userData['pivot'] = [o.position.x, o.position.y, o.position.z];
-      o.castShadow = !name.startsWith('glass');
+      const nrm = g.getAttribute('normal') as THREE.BufferAttribute | undefined;
+      nrm?.setUsage(THREE.DynamicDrawUsage);
+      let mat = material(m.material as THREE.Material);
+      if (/^glass/.test(name) && /^glass(_dark)?$/.test(mat.name)) {
+        // Each pane gets its own material so it can crack on its own.
+        mat = mat.clone();
+        disposables.push(mat);
+        const nrmArr = g.getAttribute('normal')?.array as Float32Array | undefined;
+        const avg = new THREE.Vector3();
+        if (nrmArr) for (let k = 0; k < nrmArr.length; k += 3) avg.x += nrmArr[k]!, avg.y += nrmArr[k + 1]!, avg.z += nrmArr[k + 2]!;
+        if (avg.lengthSq() === 0) avg.set(0, 0, 1);
+        const uniforms = makeCrackable(mat, avg);
+        tunePaintGlass(mat);
+        cracks.set(name, uniforms);
+      }
+      const mesh = new THREE.Mesh(g, mat);
+      mesh.name = `${name}:${mat.name}`;
+      const glassLike = /glass|lens/.test(mat.name);
+      mesh.castShadow = /^(paint|carbon|trim_matte|underbody)$/.test(mat.name);
+      mesh.receiveShadow = !glassLike;
+      mesh.frustumCulled = false;
+      const data: DeformableMeshData = {
+        rest: new Float32Array(pos.array as Float32Array),
+        restNormal: nrm ? new Float32Array(nrm.array as Float32Array) : new Float32Array(pos.count * 3),
+        restMatrix: new THREE.Matrix4().makeTranslation(pv.x, pv.y, pv.z).toArray(),
+        part: name,
+        painted: mat.name === 'paint' || mat.name === 'carbon',
+      };
+      Object.assign(mesh.userData, data);
+      node.add(mesh);
+      meshes.push(mesh);
+      disposables.push(g);
     }
-    o.material = materialFor(name, mats);
-    // Materials that multiply vertex colours need the attribute on every mesh that uses them.
-    if ((o.material as THREE.Material & { vertexColors?: boolean }).vertexColors && !o.geometry.getAttribute('color')) {
-      const n = o.geometry.getAttribute('position').count;
-      o.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
-    }
-    if (SHELL.test(name) || SMALL.test(name) || name === 'interior') parts.set(name, o);
-    const m = /^(tire|rim|disc)_(FL|FR|RL|RR)$/.exec(name);
-    if (m) wheelMeshes[m[2]!]!.push(o);
-  });
+    for (const c of childParts(src)) rebuild(c, pv, node);
+  };
+
+  template.updateMatrixWorld(true);
+  const origin = new THREE.Vector3();
+  for (const c of childParts(template)) rebuild(c, origin, root);
+
+  mergeStatic(root, parts, meshes, disposables);
 
   const mk = (tag: string): WheelNodes => {
     const pivot = new THREE.Group();
     const spin = new THREE.Group();
-    for (const mesh of wheelMeshes[tag]!) {
-      mesh.removeFromParent();
-      mesh.position.set(0, 0, 0);
-      mesh.castShadow = mesh.name.startsWith('tire');
-      spin.add(mesh);
+    pivot.name = `wheel_${tag}`;
+    for (const m of wheelMeshes[tag]!) {
+      if (m.name.startsWith('caliper')) pivot.add(m);
+      else spin.add(m);
     }
     pivot.add(spin);
     root.add(pivot);
     return { pivot, spin };
   };
   const wheels: CarModel['wheels'] = [mk('FL'), mk('FR'), mk('RL'), mk('RR')];
-  const probe = createProbe(parts, disposables);
-  void cfg;
+  root.updateMatrixWorld(true);
+
+  // Probe against the painted shell and glass (what the crumple rays measure).
+  const shell = meshes.filter((m) => {
+    const n = (m.material as THREE.Material).name;
+    return n === 'paint' || n === 'carbon' || n === 'glass' || n === 'glass_dark' || n === 'trim_matte' || n === 'honeycomb';
+  });
+  const probeMat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+  disposables.push(probeMat);
+  const probeMeshes = shell.map((m) => {
+    const pm = new THREE.Mesh(m.geometry, probeMat);
+    m.updateWorldMatrix(true, false);
+    pm.matrixAutoUpdate = false;
+    pm.matrix.copy(m.matrixWorld);
+    pm.matrixWorld.copy(m.matrixWorld);
+    pm.userData['part'] = m.userData['part'];
+    return pm;
+  });
+  const rc = new THREE.Raycaster();
+  const o = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  const probe: CarModel['probe'] = (origin3, dir, maxDist) => {
+    rc.set(o.set(origin3[0], origin3[1], origin3[2]), d.set(dir[0], dir[1], dir[2]).normalize());
+    rc.near = 0;
+    rc.far = maxDist;
+    const hit = rc.intersectObjects(probeMeshes, false)[0];
+    return hit ? { dist: hit.distance, part: String(hit.object.userData['part']) } : null;
+  };
+
   return {
     root,
-    probe,
     wheels,
     parts,
+    meshes,
+    cracks,
+    probe,
     dispose() {
-      for (const d of disposables) d.dispose();
+      for (const x of disposables) x.dispose();
     },
   };
+}
+
+
+/** Parts that move on their own (open, break, tear off) keep their own meshes. */
+const KEEP = /^(body|hood|trunk|door_[FR][LR]|bumper_[FR]|glass_.+|light_[FR][LR]|mirror_[LR]|spare_wheel)$/;
+
+/**
+ * Cut draw calls: every mesh that does not belong to a part that moves on its own is merged, per
+ * material, into the nearest such part above it (root-level fixed parts go into the body).
+ */
+function mergeStatic(root: THREE.Group, parts: Map<string, THREE.Object3D>, meshes: THREE.Mesh[], disposables: { dispose(): void }[]): void {
+  root.updateMatrixWorld(true);
+  const body = parts.get('body');
+  if (!body) return;
+  const keepOf = (o: THREE.Object3D): THREE.Object3D => {
+    let n: THREE.Object3D | null = o;
+    while (n && n !== root) {
+      if (KEEP.test(n.name) && parts.get(n.name) === n) return n;
+      n = n.parent;
+    }
+    return body;
+  };
+  // Group meshes by (target part, material, attribute layout).
+  const groupsMap = new Map<string, { target: THREE.Object3D; mat: THREE.Material; list: THREE.Mesh[] }>();
+  for (const m of meshes) {
+    const target = keepOf(m.parent!);
+    const mat = m.material as THREE.Material;
+    if (/^glass(_dark)?$/.test(mat.name)) continue; // panes keep their own crack material
+    const sig = Object.keys(m.geometry.attributes).sort().join(',') + (m.geometry.index ? ':i' : '');
+    const key = `${target.uuid}|${mat.uuid}|${sig}`;
+    let g = groupsMap.get(key);
+    if (!g) groupsMap.set(key, (g = { target, mat, list: [] }));
+    g.list.push(m);
+  }
+  const kept = new Set<THREE.Mesh>(meshes);
+  const merged: THREE.Mesh[] = [];
+  const inv = new THREE.Matrix4();
+  const rel = new THREE.Matrix4();
+  for (const g of groupsMap.values()) {
+    if (g.list.length < 2 && g.list[0]!.parent === g.target) continue;
+    inv.copy(g.target.matrixWorld).invert();
+    const geos = g.list.map((m) => {
+      const geo = m.geometry.clone();
+      rel.multiplyMatrices(inv, m.matrixWorld);
+      geo.applyMatrix4(rel);
+      return geo;
+    });
+    const geo = geos.length === 1 ? geos[0]! : mergeGeometries(geos, false);
+    for (const x of geos) if (x !== geo) x.dispose();
+    if (!geo) continue;
+    (geo.getAttribute('position') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
+    (geo.getAttribute('normal') as THREE.BufferAttribute | undefined)?.setUsage(THREE.DynamicDrawUsage);
+    const mesh = new THREE.Mesh(geo, g.mat);
+    const first = g.list[0]!;
+    mesh.name = `${g.target.name}:${g.mat.name}`;
+    // Only the big painted / trim surfaces cast shadows: small parts cost draw calls for nothing.
+    mesh.castShadow = /^(paint|carbon|trim_matte|underbody)$/.test(g.mat.name);
+    mesh.receiveShadow = first.receiveShadow;
+    mesh.frustumCulled = false;
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    const nrm = geo.getAttribute('normal') as THREE.BufferAttribute | undefined;
+    const data: DeformableMeshData = {
+      rest: new Float32Array(pos.array as Float32Array),
+      restNormal: nrm ? new Float32Array(nrm.array as Float32Array) : new Float32Array(pos.count * 3),
+      restMatrix: new THREE.Matrix4().copy(g.target.matrixWorld).premultiply(new THREE.Matrix4().copy(root.matrixWorld).invert()).toArray(),
+      part: g.target.name,
+      painted: g.mat.name === 'paint' || g.mat.name === 'carbon',
+    };
+    Object.assign(mesh.userData, data);
+    g.target.add(mesh);
+    merged.push(mesh);
+    disposables.push(geo);
+    for (const m of g.list) {
+      m.removeFromParent();
+      kept.delete(m);
+    }
+  }
+  // Drop the now-empty helper nodes of merged parts (keep named parts that still matter).
+  for (const [name, node] of [...parts]) {
+    if (KEEP.test(name)) continue;
+    let hasMesh = false;
+    node.traverse((o) => {
+      if (o instanceof THREE.Mesh) hasMesh = true;
+    });
+    if (!hasMesh && node.parent) {
+      node.removeFromParent();
+      parts.delete(name);
+    }
+  }
+  meshes.length = 0;
+  for (const m of kept) meshes.push(m);
+  for (const m of merged) meshes.push(m);
 }

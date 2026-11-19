@@ -1,34 +1,31 @@
 # Art pipeline (Blender)
 
-The cars are built in **Blender 5.x** by a parametric Python script and exported as GLB. The game loads the GLBs from `public/models/`.
+The cars are modelled by Python scripts running in **Blender 5.x**, exported to glTF and compressed with meshopt.
 
 ```bash
-npm run models                      # all three cars
-blender -b --factory-startup -P art/build_cars.py -- --only sport   # one car
+npm run models                                                   # all cars, then compression
+blender -b --factory-startup -P art/build_cars.py -- --only sedan --preview /tmp/pv   # one car + preview renders
+blender -b --factory-startup -P art/preview_body.py -- sedan /tmp/body.png 2         # quick body-only check
 ```
 
-Files:
+## Layout
 
-- `art/specs.py`: body keyframes (length profile, belt line, roof, widths, wheel arches), panel rules and extras for each car. Edit and re-run to reshape a car.
-- `art/carlib.py`: loft along Z with a B-spline cross-section, smooth normals, helpers (runs in Blender's Python with numpy).
-- `art/build_cars.py`: builds the shell (about 37k triangles), splits it into panels, adds lights, mirrors, exhausts, wheels and an interior block, saves `art/blend/<car>.blend` and exports `public/models/<car>.glb`.
-- `art/blend/*.blend`: the generated scenes, for inspection or hand editing.
+- `cars/<id>.py`: one design per car. `COLUMNS` (the control cage, see below), the panel layout, wheel arches, wheel spec, paint, interior, engine bay and a `details()` function that places lamps, mirrors, handles, exhausts and so on.
+- `lib/section.py`: one cross-section (15 control points from the bottom centre to the roof centre) from a few named heights and widths.
+- `lib/cage.py`: columns to a closed control cage with creases, end caps closed with quad grids, a material slot per panel.
+- `lib/body.py`: subdivision surface, wheel-arch booleans (the cutter leaves the wheel-well liners), split by material into panels.
+- `lib/assemble.py`, `lib/panels.py`: real panel gaps with flanges, sunk glass with rubber edges, honeycomb grilles, pivots on hinges, hierarchy.
+- `lib/lights.py`, `lib/wheels.py`, `lib/details.py`, `lib/interior.py`, `lib/engine_bay.py`: the parts.
+- `lib/materials.py`, `lib/textures.py`: paint (clear coat), carbon weave, honeycomb, tyre tread normal maps, number plates, gauges; all generated, nothing downloaded.
+- `blend/`: the generated `.blend` scenes.
+- `build/`: raw exports (ignored by git); `scripts/optimize-models.mjs` writes `public/models/`.
 
-Wheel sizes come from `src/vehicle/cars/<car>.json`, so the model always matches the physics.
+## What the game expects
 
-## What the game needs from a car model
+- Chassis frame: +Y up, +Z forward, +X left, metres. The scripts design in this frame (`lib.util.C` converts to Blender's Z-up), and the glTF exporter converts back.
+- Every object carries two custom properties exported as glTF extras: `part_name` (its name, which survives glTF de-duplication and meshopt node splits) and `chassis_pivot` (its hinge or bolt point). Do not call it `pivot`: three.js r187 reads that key itself.
+- Named parts: `body`, `hood`, `trunk`, `door_FL/FR/RL/RR`, `bumper_F/R`, `glass_*`, `light_FL/FR/RL/RR`, `mirror_L/R`; wheels as `tire_XX`, `rim_XX`, `nuts_XX`, `disc_XX`, `caliper_XX` built at the origin with the axle along X.
+- Material names matter (`paint`, `carbon`, `glass`, `glass_dark`, `honeycomb`...): the game adds the scuff and crack shaders by name.
+- The hard collision core, the outline boxes and the crumple-ray grids live in `src/vehicle/cars/<id>.json`, not in the model.
 
-Part names (meshes; each part's origin sits at its hinge or fixation point, in the chassis frame):
-
-`body`, `hood`, `trunk`, `door_FL`, `door_FR`, `bumper_F`, `bumper_R`, `glass_front`, `glass_rear`, `glass_L`, `glass_R`, `light_FL/FR/RL/RR`, `mirror_L`, `mirror_R`, `interior`, plus per wheel `tire_XX`, `rim_XX`, `disc_XX` (XX = FL, FR, RL, RR) built around the hub at the origin with the axle along X. Extras (exhausts, wing, splitter, grille) are parented to the panel they ride on, so they follow it when it dents or detaches.
-
-Rules:
-
-- +Y up, +Z forward, +X left, 1 unit = 1 m, scale applied. (The script builds in this frame and converts to Blender's Z-up; the glTF exporter converts back.)
-- Shell panels dense enough to dent: about 20 to 40k triangles in total.
-- Panels share vertices along their borders when pristine. Border vertices get a darker vertex colour (`Col`) so panel gaps read as seams. The game ignores material colours from the GLB except the paint colour of `body`; it re-skins parts by name.
-- The hard collision core and the crumple-ray grids live in the car's JSON (`colliders`, `outline`, `crush`), not in the model.
-
-## Fallback
-
-`src/render/car/generator.ts` is a TypeScript port of the same generator. It produces the same parts and is used when a GLB is missing or fails to load. `tests/glb.test.ts` checks that both give the same panels, triangle counts, pivots and bounds.
+When the game loads a car, it bakes each mesh to the chassis frame, re-centres it on its pivot and merges everything that does not move on its own into the nearest part that does, per material.

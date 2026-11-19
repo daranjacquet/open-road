@@ -25,6 +25,8 @@ export interface TireParams {
   longGripRatio: number;
   /** Rolling resistance coefficient on asphalt. */
   rollingResistance: number;
+  /** Grip multiplier on loose surfaces (dirt, grass): all-terrain tyres > 1. */
+  looseGrip?: number;
 }
 
 export interface AxleSuspension {

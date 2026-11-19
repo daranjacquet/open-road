@@ -1,99 +1,65 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { CARS } from '../src/game/catalog';
 import { buildCarModel } from '../src/render/car';
-import { parseCarGLB, registerCarTemplate } from '../src/render/car/glb';
 import { buildCrushRays } from '../src/damage/rays';
-import { Deformer } from '../src/damage/Deformer';
-import { FIXED_DT, GROUP, groups } from '../src/core/physics';
-import { makeSim } from './helpers/sim';
+import type { DeformableMeshData } from '../src/render/carModel';
+import { loadModels } from './helpers/models';
 
-function bytes(id: string): ArrayBuffer {
-  const b = readFileSync(new URL(`../public/models/${id}.glb`, import.meta.url));
-  return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
-}
+beforeAll(loadModels);
 
-describe('Blender-exported cars (GLB)', () => {
+const NEEDED = ['body', 'hood', 'trunk', 'door_FL', 'door_FR', 'bumper_F', 'bumper_R', 'glass_front', 'light_FL', 'light_FR', 'light_RL', 'light_RR', 'mirror_L', 'mirror_R'];
+
+describe('Blender cars (GLB)', () => {
   for (const def of CARS) {
     describe(def.id, () => {
-      it('loads, has the same panels and triangle counts as the procedural model, in the chassis frame', async () => {
-        const scene = await parseCarGLB(bytes(def.id));
-        registerCarTemplate(def.id, scene);
-        const glb = buildCarModel(def.cfg, def.body, undefined, def.id);
-        const proc = buildCarModel(def.cfg, def.body);
-        for (const [name, mesh] of proc.parts) {
-          const g = glb.parts.get(name);
-          expect(g, `GLB missing part ${name}`).toBeDefined();
-          if (mesh.userData['rest']) {
-            expect((g!.geometry.getIndex()?.count ?? 0) / 3, `${name} triangles`).toBe((mesh.geometry.getIndex()?.count ?? 0) / 3);
-            expect(g!.position.distanceTo(mesh.position), `${name} pivot`).toBeLessThan(1e-4);
-          }
-        }
-        // Bounds of the shell match (length along +Z, width along X, height along Y).
+      it('has the named parts the damage system needs', () => {
+        const m = buildCarModel(def.id);
+        for (const n of NEEDED) expect(m.parts.has(n), `${def.id} missing ${n}`).toBe(true);
+        expect([...m.parts.keys()].some((n) => n.startsWith('glass_F'))).toBe(true);
+      });
+
+      it('is in the chassis frame, sized like the physics, with wheels and a detailed body', () => {
+        const m = buildCarModel(def.id);
         const box = new THREE.Box3();
-        for (const [, m] of glb.parts) {
-          if (!m.userData['rest']) continue;
-          m.geometry.computeBoundingBox();
-          box.union(m.geometry.boundingBox!.clone().translate(m.position));
+        let tris = 0;
+        m.root.updateMatrixWorld(true);
+        for (const mesh of m.meshes) {
+          mesh.geometry.computeBoundingBox();
+          box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(mesh.matrixWorld));
+          tris += (mesh.geometry.getIndex()?.count ?? 0) / 3;
         }
-        const box2 = new THREE.Box3();
-        for (const [, m] of proc.parts) {
-          if (!m.userData['rest']) continue;
-          m.geometry.computeBoundingBox();
-          box2.union(m.geometry.boundingBox!.clone().translate(m.position));
-        }
-        for (const k of ['x', 'y', 'z'] as const) {
-          expect(box.min[k]).toBeCloseTo(box2.min[k], 2);
-          expect(box.max[k]).toBeCloseTo(box2.max[k], 2);
-        }
-        expect(glb.wheels).toHaveLength(4);
-        for (const w of glb.wheels) expect(w.spin.children.length).toBe(3);
+        const size = box.getSize(new THREE.Vector3());
+        console.log(def.id, 'size', size.toArray().map((v) => v.toFixed(2)).join(' x '), 'body tris', tris);
+        // The car points along +Z: longer than wide, wheels inside the length.
+        expect(size.z).toBeGreaterThan(4.2);
+        expect(size.z).toBeLessThan(5.6);
+        expect(size.x).toBeGreaterThan(1.8);
+        expect(size.x).toBeLessThan(2.4);
+        expect(tris).toBeGreaterThan(80000);
+        // Outline box of the physics fits the visual body within a few centimetres.
+        const o = def.cfg.outline[0]!;
+        expect(Math.abs(o.center[2] + o.half[2] - box.max.z)).toBeLessThan(0.12);
+        for (const w of m.wheels) expect(w.spin.children.length).toBeGreaterThanOrEqual(3);
       });
 
-      it('gives dentable geometry with vertex colours and normals, owned per car instance', () => {
-        const a = buildCarModel(def.cfg, def.body, undefined, def.id);
-        const b = buildCarModel(def.cfg, def.body, 0x3355aa, def.id);
-        const ha = a.parts.get('hood')!;
-        const hb = b.parts.get('hood')!;
+      it('gives every car instance its own deformable geometry with rest data', () => {
+        const a = buildCarModel(def.id);
+        const b = buildCarModel(def.id, 0x3355aa);
+        const ha = a.meshes.find((m) => (m.userData as DeformableMeshData).part === 'hood')!;
+        const hb = b.meshes.find((m) => (m.userData as DeformableMeshData).part === 'hood')!;
         expect(ha.geometry).not.toBe(hb.geometry);
-        expect(ha.geometry.getAttribute('color')).toBeDefined();
-        expect(ha.geometry.getAttribute('normal')).toBeDefined();
-        expect(ha.userData['rest']).toBeInstanceOf(Float32Array);
+        expect((ha.userData as DeformableMeshData).rest).toBeInstanceOf(Float32Array);
+        expect((ha.geometry.getAttribute('position').array as Float32Array)).toBeInstanceOf(Float32Array);
       });
 
-      it('yields a usable crumple-ray set', () => {
-        const rays = buildCrushRays(def.cfg, buildCarModel(def.cfg, def.body, undefined, def.id));
-        const proc = buildCrushRays(def.cfg, buildCarModel(def.cfg, def.body));
-        expect(Math.abs(rays.length - proc.length)).toBeLessThanOrEqual(3);
+      it('yields a crumple-ray set that covers every side', () => {
+        const rays = buildCrushRays(def.cfg, buildCarModel(def.id));
+        const kinds = new Set(rays.map((r) => r.kind));
+        for (const k of ['front', 'rear', 'left', 'right', 'roof'] as const) expect(kinds.has(k), `${def.id} no ${k}`).toBe(true);
+        expect(rays.length).toBeGreaterThan(90);
+        for (const r of rays) expect(r.length).toBeLessThan(1.1);
       });
     });
   }
-
-  it('a 100 km/h wall crash with the GLB sport car dents the nose like the procedural one', async () => {
-    const def = CARS[0]!;
-    registerCarTemplate(def.id, await parseCarGLB(bytes(def.id)));
-    const model = buildCarModel(def.cfg, def.body, undefined, def.id);
-    const rays = buildCrushRays(def.cfg, model);
-    const { physics, car } = await makeSim(def.cfg, 0, 0, 0);
-    const { RAPIER, world } = physics;
-    const wb = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, 3, 151.5));
-    world.createCollider(RAPIER.ColliderDesc.cuboid(40, 3, 1.5).setCollisionGroups(groups(GROUP.WORLD, 0xffff)), wb);
-    car.assists.esp = false;
-    const crush = car.attachCrush(rays);
-    const deformer = new Deformer(crush, model.parts);
-    const input = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
-    let hit = false;
-    for (let i = 0; i < 120 * 25; i++) {
-      input.throttle = !hit && car.speedKmh < 100 ? 1 : 0;
-      car.fixedUpdate(FIXED_DT, input);
-      physics.step();
-      car.afterPhysicsStep();
-      if (i % 2 === 0) deformer.update(i * 8);
-      if (crush.active > 0) hit = true;
-    }
-    deformer.update(1e9);
-    expect(crush.energy / 1000).toBeGreaterThan(300);
-    expect(deformer.maxDisplacement('bumper_F')).toBeGreaterThan(0.4);
-  });
 });

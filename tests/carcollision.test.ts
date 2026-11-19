@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { loadModels } from './helpers/models';
 import * as THREE from 'three';
 import { FIXED_DT, GROUP, groups, createPhysics } from '../src/core/physics';
 import { CARS } from '../src/game/catalog';
@@ -18,6 +19,8 @@ function finite(n: number): boolean {
   return Number.isFinite(n) && Math.abs(n) < 1e6;
 }
 
+beforeAll(loadModels);
+
 describe('car vs car collisions', () => {
   it('head-on at 50 km/h into a parked car: both crumple, nothing explodes, both come to rest', async () => {
     const physics = await world();
@@ -32,8 +35,8 @@ describe('car vs car collisions', () => {
     for (let i = 0; i < 120 * 30; i++) {
       const t = i * FIXED_DT;
       input.throttle = !hit && a.vehicle.speedKmh < 50 ? 1 : 0;
-      a.vehicle.fixedUpdate(FIXED_DT, input);
-      b.vehicle.fixedUpdate(FIXED_DT, IDLE);
+      a.fixedUpdate(FIXED_DT, input);
+      b.fixedUpdate(FIXED_DT, IDLE);
       physics.step();
       a.vehicle.afterPhysicsStep();
       b.vehicle.afterPhysicsStep();

@@ -606,7 +606,7 @@ export class Vehicle {
 
       const surface: Surface = this.physics.groundColliders.has(w.groundHandle) ? surfaceAt(w.contactPoint.x, w.contactPoint.z) : 'asphalt';
       w.surface = surface;
-      const grip = SURFACE_GRIP[surface] * w.gripScale * (w.isFront ? 1 : cfg.rearGripScale) * (w.flat ? 0.45 : 1);
+      const grip = SURFACE_GRIP[surface] * (surface === 'asphalt' ? 1 : (cfg.tire.looseGrip ?? 1)) * w.gripScale * (w.isFront ? 1 : cfg.rearGripScale) * (w.flat ? 0.45 : 1);
 
       const wheelSpeed = w.omega * R;
       const denom = Math.max(Math.abs(vx), V_MIN_SLIP);

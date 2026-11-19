@@ -1,16 +1,19 @@
 # Open Road
 
-A browser driving sandbox built around **realistic car physics and crash damage**. A flat open test world, obstacles to wreck cars on, three very different cars. Everything runs client-side: Three.js for rendering, Rapier (WASM) for rigid-body physics, and custom code for the tyres, drivetrain and crumple zones.
+A browser driving sandbox built around **realistic car physics and crash damage**. A flat open test world, obstacles to wreck cars on, three detailed cars modelled in Blender. Everything runs client-side: Three.js for rendering, Rapier (WASM) for rigid-body physics, and custom code for the tyres, drivetrain, crumple zones and crash deformation.
 
 **Play:** https://daranjacquet.github.io/open-road/
 
-| Sport coupe (RWD) | City hatch (FWD) | Pickup (AWD, heavy) |
+| Sport saloon (rear-biased AWD) | Off-roader (4x4) | Supercar (mid-engine, AWD) |
 | --- | --- | --- |
-| ![sport](docs/sport.jpg) | ![hatch](docs/hatch.jpg) | ![pickup](docs/pickup.jpg) |
+| ![sedan](docs/sedan.jpg) | ![offroad](docs/offroad.jpg) | ![supercar](docs/supercar.jpg) |
+| ![sedan rear](docs/sedan_rear.jpg) | ![offroad rear](docs/offroad_rear.jpg) | ![supercar rear](docs/supercar_rear.jpg) |
 
-| 100 km/h into a parked car | Crumpled nose, bonnet torn open, engine smoking |
+| 65 km/h into a wall: bonnet folded open, wing crumpled, engine bay exposed | 55 km/h into a pillar: the pillar's shape is pushed into the nose |
 | --- | --- |
-| ![crash wide](docs/crash-wide.jpg) | ![crumpled nose](docs/crumpled-nose.png) |
+| ![wall](docs/crash-sedan-wall.jpg) | ![pillar](docs/crash-offroad-pillar.jpg) |
+| **Torn-off bumper with scraped paint** | **Side impact: doors pushed in and sprung, windows cracked** |
+| ![bumper](docs/crash-sedan-bumper.jpg) | ![side](docs/crash-offroad-side.jpg) |
 
 ## Controls
 
@@ -37,7 +40,7 @@ npm install
 npm run dev        # http://localhost:5173
 npm test           # Vitest: tyre model, drivetrain, headless driving and crash simulations
 npm run build      # typecheck + production build into dist/
-npm run models     # rebuild the car models in Blender (needs `blender` on the PATH)
+npm run models     # rebuild the cars in Blender and compress them into public/models (needs `blender`)
 ```
 
 ## How it works
@@ -47,7 +50,7 @@ src/
   core/      fixed-step loop, Rapier setup, input, math
   vehicle/   Vehicle.ts (suspension, tyres, drivetrain, assists), pure helpers, car JSON configs
   damage/    crumple zones, dents, mechanical damage, detachable parts
-  render/    scene, camera, procedural car generator, effects, particles
+  render/    scene, camera, GLB car loader and paint/glass shaders, effects, particles
   world/     ground surfaces and test-world props
   game/      GameCar (one complete car) and the car catalogue
   audio/     procedural Web Audio
@@ -55,7 +58,8 @@ src/
 tests/       unit tests plus headless simulations of driving, crashes and collisions
 docs/        screenshots and TUNING.md
 public/models/  the exported cars (GLB)
-art/         Blender scripts (build_cars.py, specs.py), .blend sources, model conventions
+art/         Blender modelling library (lib/), one design file per car (cars/), .blend sources
+scripts/     optimize-models.mjs (meshopt compression of the Blender exports)
 ```
 
 ### Driving
@@ -66,41 +70,51 @@ art/         Blender scripts (build_cars.py, specs.py), .blend sources, model co
 - Aids: traction control, ABS and a yaw-rate ESP.
 - Every car is a JSON file in `src/vehicle/cars/`. See [docs/TUNING.md](docs/TUNING.md) for what each value does.
 
-### Crash damage (hybrid approach)
-Full soft-body simulation (BeamNG style) is out of scope for a browser, so damage is hybrid:
+### Cars and models
+The three cars are built by Python scripts in Blender (`art/`), not hand-placed boxes:
 
-1. **Crumple zones.** Each car has a small hard core (the rigid body that Rapier solves) and about 110 to 140 *crush rays* fired outwards through the visible shell. A ray that meets an obstacle pushes back like a plastic spring: force ramps up, saturates, then the zone yields permanently and the ray remembers how deep it was crushed. This gives crash pulses that last tens of milliseconds instead of a one-frame stop, and the per-ray crush depth is the damage field.
-2. **Dents.** The ~37k-triangle shell is split into named panels. Each vertex is pushed back along the crush direction of the rays near it, with deterministic crumple noise. The same crash always gives the same dents.
-3. **Mechanical damage.** Absorbed energy near the engine bay, a wheel or a body zone becomes power loss, bent wheels (toe pulls the car sideways), softer suspension, less grip and flat tyres.
-4. **Detachable parts.** Bonnet, boot lid and doors pop open then tear off as real rigid bodies that tumble and collide. Bumpers, lights, mirrors and glass break by how far they have been dented. Front wheels come off in the hardest hits.
-5. **Car vs car.** Cars expose their visible outline only to crush rays (never to the solver), so two cars crumple against each other's real shape.
+- **Body**: a control cage of cross-sections (rocker, character line, shoulder, belt line, roof rail...) turned into a smooth subdivision surface with creased character lines, about 120k triangles per body. Wheel arches are cut with booleans, which also leaves the wheel-well liners.
+- **Panels**: the body is split along edge loops into bonnet, boot, doors, wings, bumpers, roof, glass. Every panel has a real gap and a folded flange, so seams are actual geometry, and every part pivots on its hinge.
+- **Details**: light units (lens, chrome bowl, LED signature, projectors or round lamps), honeycomb grilles, mirrors, handles, wipers, exhaust tips, diffusers, wings, splitters, skirts, roof rack, snorkel, spare wheel, number plates, a cabin (dashboard, gauges, wheel, seats) and an engine bay.
+- **Wheels**: modelled tyres with tread (normal-mapped road tyres or block all-terrain tyres), multi-spoke rims, discs and calipers.
+- Exported to glTF and compressed with meshopt (about 1 MB per car). See [art/README.md](art/README.md).
+
+### Crash damage
+Full soft-body simulation (BeamNG style) is too heavy for a browser, so damage is split in two:
+
+1. **Crumple zones (physics).** Each car has a small hard core (the rigid body Rapier solves) and about 100 to 140 *crush rays* fired outwards through the visible shell. A ray that meets an obstacle pushes back like a plastic spring: the force ramps up, saturates, then the zone yields for good. Crash pulses last tens of milliseconds instead of one frame, and the absorbed energy drives the mechanical damage.
+2. **Deformation field (visuals).** A 10 cm lattice covers the car. Whenever the crumple zones yield, lattice nodes that ended up inside the obstacle are pushed back out to its surface along the crush direction, so the car takes the **imprint of what it hit**: a pillar leaves a V, a wall flattens the nose, another car leaves its shape (capped to what the crumple zone really took). A screened Laplace relaxation drags the surrounding metal along, and the passenger cell stays pinned.
+3. **Crumpling.** Where the field squeezes a panel in its own plane, the sheet has to fold because its length is conserved. Each vertex gets a wrinkle whose amplitude follows from the local compression, which gives accordion bonnets and rippled wings instead of a shrunken car.
+4. **Paint and glass.** Badly dented metal loses its paint in patches (scuff shader), and windows crack in a spider web around the deepest point before they shatter.
+5. **Mechanical damage.** Energy absorbed near the engine bay, a wheel or a body zone becomes power loss, bent wheels (toe pulls the car sideways), softer suspension, less grip and flat tyres.
+6. **Parts.** The bonnet, boot and doors spring open, then tear off as rigid bodies that keep their dents. Bumpers, lights, mirrors and glass break by how far they have been dented. Front wheels come off in the hardest hits.
+
+Everything is deterministic: the same crash gives the same damage.
 
 ## Measured performance
 
-Measured on a Mac with a 120 Hz display (dev server, Chromium in the Claude desktop app), scene with the player car and two parked cars plus all props:
+Measured on a Mac with a 120 Hz display (dev server, Chromium in the Claude desktop app), with the player car, two parked cars and all props:
 
 | Metric | Result |
 | --- | --- |
-| Frame rate | 120 fps (display limit) |
-| Physics + vehicle step | 0.05 to 0.2 ms per 120 Hz step for 3 cars |
-| Draw calls | 127 to 267 depending on the view |
-| Triangles | about 350k |
-| Production build | 113 kB app + 560 kB three + 4.3 MB rapier (WASM inlined), about 2 MB gzipped |
+| Frame rate | 120 fps (display limit) while driving |
+| Physics + vehicles | 0.05 to 0.3 ms per 120 Hz step for 3 cars |
+| Crash frame | about 40 ms for the single worst frame of a 80 km/h crash (dent field + normals), then back to normal |
+| Draw calls | about 580 with three cars in view (meshes merged per material at load, small parts cast no shadow) |
+| Triangles | about 740k with three cars in view |
+| Download | 113 kB app + 560 kB three + 4.3 MB Rapier + 3.4 MB of cars (meshopt) |
 
-I have not measured on a modest PC or on mobile. Mobile controls are out of scope.
+I have not measured on a modest PC. Draw calls are above what I would aim for on weak hardware; the next step would be merging the wheel meshes and the test-world props.
 
 ## Known limits
 
-Honest list of what this is not:
-
-- **Not a soft-body.** Deformation is panel-level and driven by crush rays. There is no internal structure, no chassis bending and no part-to-part load path.
+- **Not a soft-body.** The car does not bend as a structure: the deformation field shapes the panels, the rigid body keeps its mass and inertia, and the passenger cell never deforms.
 - **Very hard hits bottom out.** At 100 km/h into a wall the crumple depth runs out and the rigid core stops the car abruptly (peak deceleration well above real life).
-- **Car vs car energy is approximate.** Each car sees the other's undeformed outline, so absorbed energy is overestimated.
-- **Models are Blender-generated but stylised.** `art/build_cars.py` builds each car parametrically (lofted shell, panels, wheels) and exports GLB; the shapes are simple (box lights, no interior detail) and were not hand-sculpted. A TypeScript generator with identical part names stays as a fallback if a GLB fails to load.
-- **Handling was tuned with headless simulations** (0-100, braking, skid pad, high-speed stability, steering response), not by a human driver. Expect to adjust the feel; the knobs are in the JSON files.
-- **World.** A flat 2 km x 2 km plane with three surfaces and a test area. The prompt asked for a chunk system to be prepared; it is not implemented, the `world/` module is simply isolated.
-- Glass shatters in one step (no crack stage). Skid marks only on asphalt. Audio is synthesised and simple.
-- Rapier 0.21 ships experimental soft bodies; they were not evaluated.
+- **Car vs car is approximate.** Each car sees the other's undeformed outline box; dents are capped by its own crush, so impacts look plausible but not exact.
+- **Models are procedural.** They come from scripts, not a car designer: proportions are right, but surfaces are simpler than a real car's.
+- **Handling was tuned with headless simulations** (0-100, braking, skid pad, stability, steering response), not by a human driver.
+- **World.** A flat 2 km x 2 km plane with three surfaces and a test area. There is no chunk system.
+- Skid marks only on asphalt. Audio is synthesised and simple.
 
 ## License
 

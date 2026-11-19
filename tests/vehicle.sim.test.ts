@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import sport from '../src/vehicle/cars/sport.json';
+import sedan from '../src/vehicle/cars/sedan.json';
 import type { VehicleConfig } from '../src/vehicle/types';
 import { makeSim, run } from './helpers/sim';
 
-const cfg = sport as unknown as VehicleConfig;
+const cfg = sedan as unknown as VehicleConfig;
 
-describe('sport coupe: headless driving simulation', () => {
+describe('sport saloon: headless driving simulation', () => {
   it('has the configured mass and centre of mass', async () => {
     const { physics, car } = await makeSim(cfg);
     physics.step();
@@ -34,8 +34,8 @@ describe('sport coupe: headless driving simulation', () => {
     const x400 = s.find((p) => p.z >= 400)?.t;
     console.log('0-100 at', t100?.toFixed(2), 's; 400 m at', x400?.toFixed(2), 's; final', s[s.length - 1]!.speedKmh.toFixed(0), 'km/h; gears', [...new Set(s.map((p) => p.gear))].join(','));
     expect(t100).toBeDefined();
-    expect(t100! - 1).toBeGreaterThan(4.2);
-    expect(t100! - 1).toBeLessThan(6.5);
+    expect(t100! - 1).toBeGreaterThan(3.3);
+    expect(t100! - 1).toBeLessThan(6.0);
     expect(Math.abs(car.body.translation().x)).toBeLessThan(1.0);
   });
 
@@ -44,7 +44,7 @@ describe('sport coupe: headless driving simulation', () => {
     const s = run(physics, car, 45, () => ({ throttle: 1 }), 1);
     const top = Math.max(...s.map((p) => p.speedKmh));
     console.log('top speed', top.toFixed(0), 'km/h at gear', s[s.length - 1]!.gear);
-    expect(top).toBeGreaterThan(200);
+    expect(top).toBeGreaterThan(240);
     expect(top).toBeLessThan(330);
   });
 

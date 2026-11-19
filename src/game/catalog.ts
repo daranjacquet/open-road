@@ -1,16 +1,13 @@
-import hatchCfg from '../vehicle/cars/hatch.json';
-import pickupCfg from '../vehicle/cars/pickup.json';
-import sportCfg from '../vehicle/cars/sport.json';
-import { hatchSpec } from '../render/car/hatchSpec';
-import { pickupSpec } from '../render/car/pickupSpec';
-import { sportSpec } from '../render/car/sportSpec';
+import offroadCfg from '../vehicle/cars/offroad.json';
+import sedanCfg from '../vehicle/cars/sedan.json';
+import supercarCfg from '../vehicle/cars/supercar.json';
 import type { VehicleConfig } from '../vehicle/types';
 import type { CarDef } from './GameCar';
 
 export const CARS: CarDef[] = [
-  { id: 'sport', name: 'Sport Coupe (RWD)', cfg: sportCfg as unknown as VehicleConfig, body: sportSpec },
-  { id: 'hatch', name: 'City Hatch (FWD)', cfg: hatchCfg as unknown as VehicleConfig, body: hatchSpec },
-  { id: 'pickup', name: 'Pickup (AWD, heavy)', cfg: pickupCfg as unknown as VehicleConfig, body: pickupSpec },
+  { id: 'sedan', name: 'Sport saloon (rear-biased AWD)', cfg: sedanCfg as unknown as VehicleConfig },
+  { id: 'offroad', name: 'Off-roader (4x4)', cfg: offroadCfg as unknown as VehicleConfig },
+  { id: 'supercar', name: 'Supercar (AWD)', cfg: supercarCfg as unknown as VehicleConfig },
 ];
 
 export function carById(id: string): CarDef {

@@ -3,6 +3,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { clamp } from '../core/math';
 import { GROUP, groups, type Physics } from '../core/physics';
 import type { CrushRay } from './rays';
+import type { ImprintContact } from './Deformer';
 
 export interface CrushEvent {
   ray: CrushRay;
@@ -63,6 +64,9 @@ export class CrushSystem {
   /** Rays touched this step (for debug). */
   active = 0;
   onCrush: ((e: CrushEvent) => void) | null = null;
+  /** Plastic contacts of the last step (obstacles the car actually yielded against). */
+  readonly contacts: ImprintContact[] = [];
+  private readonly contactPool: ImprintContact[] = [];
 
   private readonly ray: RAPIER.Ray;
   private readonly envelope: RAPIER.Cuboid;
@@ -91,6 +95,20 @@ export class CrushSystem {
 
   private readonly envCenter: THREE.Vector3;
 
+  /** Largest crush depth (m) of the rays whose surface point is within `r` of a chassis-frame point. */
+  crushNear(x: number, y: number, z: number, r = 0.5): number {
+    let m = 0;
+    const r2 = r * r;
+    for (let i = 0; i < this.rays.length; i++) {
+      const s = this.rays[i]!.surface;
+      const dx = s[0] - x;
+      const dy = s[1] - y;
+      const dz = s[2] - z;
+      if (dx * dx + dy * dy + dz * dz < r2 && this.crush[i]! > m) m = this.crush[i]!;
+    }
+    return m;
+  }
+
   /** Total crush fraction of a ray (0 = pristine, 1 = fully crushed). */
   depthFraction(i: number): number {
     return this.crush[i]! / this.rays[i]!.length;
@@ -103,9 +121,27 @@ export class CrushSystem {
     this.energy = 0;
   }
 
+  private addContact(collider: RAPIER.Collider, point: THREE.Vector3, dir: THREE.Vector3, shared: boolean): void {
+    for (const c of this.contacts) {
+      if (c.collider.handle === collider.handle && c.point.distanceToSquared(point) < 0.04) return;
+    }
+    if (this.contacts.length >= 48) return;
+    let c = this.contactPool[this.contacts.length];
+    if (!c) {
+      c = { collider, point: new THREE.Vector3(), dir: new THREE.Vector3(), shared };
+      this.contactPool.push(c);
+    }
+    c.collider = collider;
+    c.point.copy(point);
+    c.dir.copy(dir);
+    c.shared = shared;
+    this.contacts.push(c);
+  }
+
   step(dt: number, posIn: THREE.Vector3, quatIn: THREE.Quaternion): void {
     this.stepForce = 0;
     this.active = 0;
+    this.contacts.length = 0;
     const world = this.physics.world;
     const body = this.host.body;
     _pos.copy(posIn);
@@ -227,6 +263,7 @@ export class CrushSystem {
         other!.applyImpulseAtPoint(_imp, _p, true);
       }
 
+      if (dc > 0) this.addContact(h.collider, _hp, this.localDir[i]!, hitOther !== null && this.physics.crushBodies.has(hitOther.handle));
       if (dc > 0 && this.onCrush) {
         const e = this.ev;
         e.ray = rd;

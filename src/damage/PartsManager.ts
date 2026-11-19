@@ -11,64 +11,61 @@ import type { DamageModel } from './DamageModel';
 type PartKind = 'panel' | 'glass' | 'small';
 
 interface PartRule {
-  name: string;
+  test: RegExp;
   kind: PartKind;
-  /** Displacement (m) where the panel starts to pop open / where it comes off / breaks. */
+  /** Dent depth (m) where the panel starts to pop open, where it is fully ajar, where it tears off. */
   ajarFrom?: number;
   ajarTo?: number;
-  /** Open angle at `ajarTo` (rad) about `axis` (local to the part). */
-  ajarAngle?: number;
-  axis?: [number, number, number];
   breakAt: number;
-  /** Mass once detached (kg). */
   mass: number;
 }
 
+/** Hinge axis and opening angle per part, from its name. */
+function hinge(name: string): { axis: THREE.Vector3; angle: number } | null {
+  if (name === 'hood') return { axis: new THREE.Vector3(1, 0, 0), angle: -0.55 };
+  if (name === 'trunk') return { axis: new THREE.Vector3(1, 0, 0), angle: 0.5 };
+  const m = /^door_([FR])([LR])$/.exec(name);
+  if (m) return { axis: new THREE.Vector3(0, 1, 0), angle: (m[2] === 'L' ? -1 : 1) * 0.3 };
+  return null;
+}
+
 const RULES: PartRule[] = [
-  { name: 'hood', kind: 'panel', ajarFrom: 0.04, ajarTo: 0.14, ajarAngle: -0.55, axis: [1, 0, 0], breakAt: 0.15, mass: 16 },
-  { name: 'trunk', kind: 'panel', ajarFrom: 0.05, ajarTo: 0.16, ajarAngle: 0.5, axis: [1, 0, 0], breakAt: 0.2, mass: 12 },
-  { name: 'door_FL', kind: 'panel', ajarFrom: 0.035, ajarTo: 0.11, ajarAngle: -0.28, axis: [0, 1, 0], breakAt: 0.125, mass: 22 },
-  { name: 'door_FR', kind: 'panel', ajarFrom: 0.035, ajarTo: 0.11, ajarAngle: 0.28, axis: [0, 1, 0], breakAt: 0.125, mass: 22 },
-  { name: 'bumper_F', kind: 'panel', breakAt: 0.4, mass: 14 },
-  { name: 'bumper_R', kind: 'panel', breakAt: 0.4, mass: 12 },
-  { name: 'glass_front', kind: 'glass', breakAt: 0.06, mass: 0 },
-  { name: 'glass_rear', kind: 'glass', breakAt: 0.06, mass: 0 },
-  { name: 'glass_L', kind: 'glass', breakAt: 0.045, mass: 0 },
-  { name: 'glass_R', kind: 'glass', breakAt: 0.045, mass: 0 },
-  { name: 'light_FL', kind: 'small', breakAt: 0.09, mass: 0.6 },
-  { name: 'light_FR', kind: 'small', breakAt: 0.09, mass: 0.6 },
-  { name: 'light_RL', kind: 'small', breakAt: 0.09, mass: 0.6 },
-  { name: 'light_RR', kind: 'small', breakAt: 0.09, mass: 0.6 },
-  { name: 'mirror_L', kind: 'small', breakAt: 0.06, mass: 0.8 },
-  { name: 'mirror_R', kind: 'small', breakAt: 0.06, mass: 0.8 },
+  { test: /^hood$/, kind: 'panel', ajarFrom: 0.08, ajarTo: 0.3, breakAt: 0.55, mass: 16 },
+  { test: /^trunk$/, kind: 'panel', ajarFrom: 0.06, ajarTo: 0.25, breakAt: 0.5, mass: 14 },
+  { test: /^door_[FR][LR]$/, kind: 'panel', ajarFrom: 0.05, ajarTo: 0.14, breakAt: 0.22, mass: 24 },
+  { test: /^bumper_[FR]$/, kind: 'panel', breakAt: 0.5, mass: 14 },
+  { test: /^glass_/, kind: 'glass', breakAt: 0.07, mass: 0 },
+  { test: /^light_[FR][LR]$/, kind: 'small', breakAt: 0.07, mass: 1 },
+  { test: /^mirror_[LR]$/, kind: 'small', breakAt: 0.05, mass: 1.2 },
 ];
 
 interface PartState {
+  name: string;
   rule: PartRule;
-  mesh: THREE.Mesh;
+  node: THREE.Object3D;
   homeParent: THREE.Object3D;
   homePos: THREE.Vector3;
   homeQuat: THREE.Quaternion;
-  homeScale: THREE.Vector3;
+  /** Chassis-frame position of the part's origin at rest. */
+  restPos: THREE.Vector3;
   broken: boolean;
-  /** Debris body when physically detached. */
   body: RAPIER.RigidBody | null;
   ajar: number;
 }
 
 interface WheelDebris {
   body: RAPIER.RigidBody;
-  mesh: THREE.Object3D;
+  node: THREE.Object3D;
 }
 
 const _w = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
-const _p = new THREE.Vector3();
 const _ax = new THREE.Vector3();
 const _box = new THREE.Box3();
 const _c = new THREE.Vector3();
 const _size = new THREE.Vector3();
+const _inv = new THREE.Matrix4();
 
 function hashSigned(name: string, k: number): number {
   let h = 2166136261 + k * 16777619;
@@ -77,18 +74,17 @@ function hashSigned(name: string, k: number): number {
 }
 
 /**
- * Panels that pop open, hang, and tear off; glass that shatters; lights and mirrors that break;
- * wheels that come off. Driven by how far each panel has been dented, so a given crash always
- * breaks the same things. Detached panels become real rigid bodies that tumble and collide.
+ * Panels that pop open, hang, and tear off; glass that shatters; lights and mirrors that break off;
+ * wheels that come away. Driven by how far each part has been dented, so a given crash always breaks
+ * the same things. Detached parts become rigid bodies that tumble and collide (keeping their dents).
  */
 export class PartsManager {
   private readonly parts: PartState[] = [];
   private readonly wheels: WheelDebris[] = [];
-  private readonly debris: PartState[] = [];
   private lastEnergy = -1;
   onGlassBreak: ((p: THREE.Vector3) => void) | null = null;
   onDetach: ((name: string, p: THREE.Vector3) => void) | null = null;
-  /** Number of parts that have come off (for HUD/tests). */
+  /** Number of parts that have come off (HUD/tests). */
   detached = 0;
 
   constructor(
@@ -100,60 +96,48 @@ export class PartsManager {
     private readonly deformer: Deformer,
     private readonly damage: DamageModel,
   ) {
-    for (const rule of RULES) {
-      const mesh = model.parts.get(rule.name);
-      if (!mesh) continue;
+    model.root.updateMatrixWorld(true);
+    _inv.copy(model.root.matrixWorld).invert();
+    for (const [name, node] of model.parts) {
+      const rule = RULES.find((r) => r.test.test(name));
+      if (!rule) continue;
+      node.updateWorldMatrix(true, false);
+      const restPos = new THREE.Vector3().setFromMatrixPosition(node.matrixWorld).applyMatrix4(_inv);
       this.parts.push({
+        name,
         rule,
-        mesh,
-        homeParent: mesh.parent!,
-        homePos: mesh.position.clone(),
-        homeQuat: mesh.quaternion.clone(),
-        homeScale: mesh.scale.clone(),
+        node,
+        homeParent: node.parent!,
+        homePos: node.position.clone(),
+        homeQuat: node.quaternion.clone(),
+        restPos,
         broken: false,
         body: null,
         ajar: 0,
       });
     }
-    this.addInnerShells();
   }
 
-  /** Dark inner faces so a torn-off panel shows a hollow, not the ground through the car. */
-  private addInnerShells(): void {
-    const mat = new THREE.MeshStandardMaterial({ color: 0x23252a, roughness: 0.9, side: THREE.BackSide });
-    for (const [name, mesh] of this.model.parts) {
-      if (!mesh.userData['rest'] || name.startsWith('glass')) continue;
-      const inner = new THREE.Mesh(mesh.geometry, mat);
-      inner.frustumCulled = false;
-      mesh.add(inner);
-    }
+  /** Names of the parts that are currently broken or detached (tests, HUD). */
+  brokenParts(): string[] {
+    return this.parts.filter((p) => p.broken).map((p) => p.name);
   }
 
-  /** Displacement of a small separate part, estimated from the rays around it. */
-  private smallDisplacement(mesh: THREE.Mesh): number {
-    const c = this.crush;
-    // Position in chassis space: parts are children of the car root or of another part.
-    _p.copy(mesh.position);
-    if (mesh.parent && mesh.parent !== this.model.root) _p.add(mesh.parent.position);
-    let d = 0;
-    for (let i = 0; i < c.rays.length; i++) {
-      const cr = c.crush[i]!;
-      if (cr <= 0) continue;
-      const s = c.rays[i]!.surface;
-      const dist = Math.hypot(_p.x - s[0], _p.y - s[1], _p.z - s[2]);
-      if (dist < 0.55) d = Math.max(d, cr * (1 - dist / 0.55));
-    }
-    return d;
+  ajarParts(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const p of this.parts) if (p.ajar > 0 && !p.broken) out[p.name] = p.ajar;
+    return out;
   }
 
   update(): void {
-    // Only re-evaluate when something new was crushed.
     const e = this.crush.energy;
     if (e !== this.lastEnergy) {
       this.lastEnergy = e;
       for (const p of this.parts) {
         if (p.broken) continue;
-        const disp = p.rule.kind === 'small' ? this.smallDisplacement(p.mesh) : this.deformer.maxDisplacement(p.rule.name);
+        // A part attached to a broken parent goes with it (e.g. lights in a torn-off bumper).
+        let disp = this.deformer.maxDisplacement(p.name);
+        if (p.rule.kind === 'small') disp = Math.max(disp, this.deformer.sample(p.restPos.x, p.restPos.y, p.restPos.z));
         this.evaluate(p, disp);
       }
       this.evaluateWheels();
@@ -163,37 +147,54 @@ export class PartsManager {
 
   private evaluate(p: PartState, disp: number): void {
     const r = p.rule;
+    if (r.kind === 'glass') {
+      const crack = this.model.cracks.get(p.name);
+      if (crack && disp > 0.006) {
+        const c = clamp((disp - 0.006) / 0.04, 0, 1);
+        if (c > crack.uCrack.value) {
+          crack.uCrack.value = c;
+          this.deformer.maxDisplacementPoint(p.name, crack.uCrackCenter.value);
+        }
+      }
+    }
     if (disp >= r.breakAt) {
       this.breakPart(p);
       return;
     }
-    if (r.kind === 'panel' && r.ajarFrom !== undefined && r.ajarTo !== undefined && r.axis) {
+    const hg = hinge(p.name);
+    if (hg && r.ajarFrom !== undefined && r.ajarTo !== undefined) {
       const t = clamp((disp - r.ajarFrom) / (r.ajarTo - r.ajarFrom), 0, 1);
       if (t > p.ajar) {
         p.ajar = t;
-        _ax.set(r.axis[0], r.axis[1], r.axis[2]);
-        p.mesh.quaternion.copy(p.homeQuat).multiply(_q.setFromAxisAngle(_ax, (r.ajarAngle ?? 0) * t));
+        p.node.quaternion.copy(p.homeQuat).multiply(_q.setFromAxisAngle(hg.axis, hg.angle * t));
       }
     }
   }
 
   private breakPart(p: PartState): void {
     p.broken = true;
-    const mesh = p.mesh;
-    mesh.updateWorldMatrix(true, false);
-    mesh.matrixWorld.decompose(_w, _q, _s);
+    const node = p.node;
+    node.updateWorldMatrix(true, true);
+    node.matrixWorld.decompose(_w, _q, _s);
     if (p.rule.kind === 'glass') {
-      mesh.visible = false;
+      node.visible = false;
       this.onGlassBreak?.(_w.clone());
       return;
     }
-    // Detach as a rigid body.
-    const { RAPIER, world } = this.physics;
-    mesh.geometry.computeBoundingBox();
-    _box.copy(mesh.geometry.boundingBox!);
+    // Collider from the part's bounding box in its own frame.
+    _inv.copy(node.matrixWorld).invert();
+    _box.makeEmpty();
+    node.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        o.geometry.computeBoundingBox();
+        const bb = o.geometry.boundingBox!.clone().applyMatrix4(o.matrixWorld).applyMatrix4(_inv);
+        _box.union(bb);
+      }
+    });
+    if (_box.isEmpty()) _box.set(new THREE.Vector3(-0.1, -0.1, -0.1), new THREE.Vector3(0.1, 0.1, 0.1));
     _box.getCenter(_c);
     _box.getSize(_size);
-    const half = [Math.max(_size.x / 2, 0.04), Math.max(_size.y / 2, 0.03), Math.max(_size.z / 2, 0.04)];
+    const { RAPIER, world } = this.physics;
     const body = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(_w.x, _w.y, _w.z)
@@ -203,7 +204,7 @@ export class PartsManager {
         .setAngularDamping(0.15),
     );
     world.createCollider(
-      RAPIER.ColliderDesc.cuboid(half[0]!, half[1]!, half[2]!)
+      RAPIER.ColliderDesc.cuboid(Math.max(_size.x / 2, 0.04), Math.max(_size.y / 2, 0.03), Math.max(_size.z / 2, 0.04))
         .setTranslation(_c.x, _c.y, _c.z)
         .setMass(p.rule.mass)
         .setFriction(0.5)
@@ -211,34 +212,23 @@ export class PartsManager {
         .setCollisionGroups(groups(GROUP.PART, GROUP.WORLD | GROUP.PROP | GROUP.PART)),
       body,
     );
-    // Launch with the car's velocity plus a deterministic kick.
     const v = this.vehicle.body.velocityAtPoint({ x: _w.x, y: _w.y, z: _w.z });
     const k = clamp(this.vehicle.speed / 12, 0.4, 2.2);
-    const up = p.rule.name === 'hood' || p.rule.name === 'trunk' ? 4 : 1.5;
-    body.setLinvel(
-      { x: v.x * 0.85 + hashSigned(p.rule.name, 1) * 2.5 * k, y: v.y + up * k * 0.6, z: v.z * 0.85 + hashSigned(p.rule.name, 2) * 2.5 * k },
-      true,
-    );
-    body.setAngvel({ x: hashSigned(p.rule.name, 3) * 4 * k, y: hashSigned(p.rule.name, 4) * 4 * k, z: hashSigned(p.rule.name, 5) * 4 * k }, true);
+    const up = p.name === 'hood' || p.name === 'trunk' ? 4 : 1.5;
+    body.setLinvel({ x: v.x * 0.85 + hashSigned(p.name, 1) * 2.5 * k, y: v.y + up * k * 0.6, z: v.z * 0.85 + hashSigned(p.name, 2) * 2.5 * k }, true);
+    body.setAngvel({ x: hashSigned(p.name, 3) * 4 * k, y: hashSigned(p.name, 4) * 4 * k, z: hashSigned(p.name, 5) * 4 * k }, true);
     p.body = body;
-    this.scene.attach(mesh);
-    mesh.castShadow = true;
-    this.debris.push(p);
+    this.scene.attach(node);
     this.detached++;
-    this.onDetach?.(p.rule.name, _w.clone());
+    this.onDetach?.(p.name, _w.clone());
   }
 
   private evaluateWheels(): void {
     const v = this.vehicle;
     for (let i = 0; i < 4; i++) {
       const w = v.wheels[i]!;
-      if (w.detached) continue;
-      if (this.damage.wheel[i]! >= 0.995 && this.crush.energy > 800e3) this.detachWheel(i);
-    }
-    // Flat tyres squash the visible wheel.
-    for (let i = 0; i < 4; i++) {
-      const w = v.wheels[i]!;
-      this.model.wheels[i]!.spin.scale.set(1, w.flat ? 0.86 : 1, w.flat ? 0.86 : 1);
+      if (!w.detached && this.damage.wheel[i]! >= 0.995 && this.crush.energy > 800e3) this.detachWheel(i);
+      this.model.wheels[i]!.spin.scale.set(1, w.flat ? 0.88 : 1, w.flat ? 0.88 : 1);
     }
   }
 
@@ -252,17 +242,13 @@ export class PartsManager {
     nodes.pivot.matrixWorld.decompose(_w, _q, _s);
     const R = v.cfg.wheel.radius;
     const body = world.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(_w.x, _w.y, _w.z)
-        .setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w })
-        .setCcdEnabled(true)
-        .setAngularDamping(0.05),
+      RAPIER.RigidBodyDesc.dynamic().setTranslation(_w.x, _w.y, _w.z).setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w }).setCcdEnabled(true).setAngularDamping(0.05),
     );
     const rot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
     world.createCollider(
       RAPIER.ColliderDesc.cylinder(v.cfg.wheel.width / 2, R)
         .setRotation({ x: rot.x, y: rot.y, z: rot.z, w: rot.w })
-        .setMass(22)
+        .setMass(24)
         .setFriction(0.8)
         .setRestitution(0.35)
         .setCollisionGroups(groups(GROUP.PART, GROUP.WORLD | GROUP.PROP | GROUP.PART)),
@@ -270,33 +256,32 @@ export class PartsManager {
     );
     const lv = v.body.velocityAtPoint({ x: _w.x, y: _w.y, z: _w.z });
     body.setLinvel({ x: lv.x * 0.9 + hashSigned('w', i) * 2, y: lv.y + 2, z: lv.z * 0.9 + hashSigned('w', i + 9) * 2 }, true);
-    // Keep spinning about its own axle.
     _ax.set(1, 0, 0).applyQuaternion(_q);
     body.setAngvel({ x: _ax.x * w.omega, y: _ax.y * w.omega, z: _ax.z * w.omega }, true);
     this.scene.attach(nodes.pivot);
-    this.wheels.push({ body, mesh: nodes.pivot });
+    this.wheels.push({ body, node: nodes.pivot });
     this.detached++;
     this.onDetach?.('wheel', _w.clone());
   }
 
   private syncDebris(): void {
-    for (const p of this.debris) {
+    for (const p of this.parts) {
       const b = p.body;
       if (!b) continue;
       const t = b.translation();
       const r = b.rotation();
-      p.mesh.position.set(t.x, t.y, t.z);
-      p.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+      p.node.position.set(t.x, t.y, t.z);
+      p.node.quaternion.set(r.x, r.y, r.z, r.w);
     }
     for (const w of this.wheels) {
       const t = w.body.translation();
       const r = w.body.rotation();
-      w.mesh.position.set(t.x, t.y, t.z);
-      w.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+      w.node.position.set(t.x, t.y, t.z);
+      w.node.quaternion.set(r.x, r.y, r.z, r.w);
     }
   }
 
-  /** Put every panel back, remove debris. */
+  /** Put every part back, remove debris. */
   repair(): void {
     const { world } = this.physics;
     for (const p of this.parts) {
@@ -304,24 +289,21 @@ export class PartsManager {
         world.removeRigidBody(p.body);
         p.body = null;
       }
-      if (p.mesh.parent !== p.homeParent) p.homeParent.add(p.mesh);
-      p.mesh.position.copy(p.homePos);
-      p.mesh.quaternion.copy(p.homeQuat);
-      p.mesh.scale.copy(p.homeScale);
-      p.mesh.visible = true;
+      if (p.node.parent !== p.homeParent) p.homeParent.add(p.node);
+      p.node.position.copy(p.homePos);
+      p.node.quaternion.copy(p.homeQuat);
+      p.node.visible = true;
+      const crack = this.model.cracks.get(p.name);
+      if (crack) crack.uCrack.value = 0;
       p.broken = false;
       p.ajar = 0;
     }
-    this.debris.length = 0;
-    for (const w of this.wheels) {
-      world.removeRigidBody(w.body);
-    }
+    for (const w of this.wheels) world.removeRigidBody(w.body);
     this.wheels.length = 0;
     this.vehicle.wheels.forEach((w, i) => {
       w.detached = false;
       const nodes = this.model.wheels[i]!;
       if (nodes.pivot.parent !== this.model.root) this.model.root.add(nodes.pivot);
-      nodes.pivot.scale.set(1, 1, 1);
       nodes.spin.scale.set(1, 1, 1);
     });
     this.detached = 0;

@@ -40,10 +40,11 @@ Run `npm test` after a change: the headless simulations print 0-100 time, top sp
 | --- | --- |
 | `crush[].force` | Total force (N) at which a grid of crush rays yields when fully engaged. Higher means a stiffer car and a harsher pulse. |
 | `crush[].origin`, `u`, `v`, `nu`, `nv`, `dir` | Where the rays start (on the hard core) and where they point. The distance to the visible shell is the available crush depth. |
-| `colliders` | The hard core. Keep it smaller than the visible body by the crush depth you want. |
-| `outline` | Boxes other cars' rays can hit (the visible shell). |
-| `CrushSystem.stiffening` | How much the zone stiffens as it compacts (code constant, default 4.5). |
-| `RULES` in `PartsManager.ts` | Dent depth (m) at which each panel pops open, tears off or breaks. |
+| `colliders` | The hard core, also pinned in the deformation field (the passenger cell never deforms). Keep it smaller than the body by the crush depth you want. |
+| `outline` | Boxes other cars' rays (and dents) can hit: the visible shell. |
+| `CrushSystem.stiffening` | How much the crumple zone stiffens as it compacts (default 4.5). |
+| `H`, `DECAY`, `WAVE` in `Deformer.ts` | Lattice spacing (10 cm), how far a dent drags the metal around it (smaller decay = wider dents), crumple wavelength (13 cm). |
+| `RULES` in `PartsManager.ts` | Dent depth (m) at which each part springs open, is fully open, tears off or breaks. Glass starts cracking at 6 mm and shatters at 7 cm. |
 | Capacities in `DamageModel.ts` | Energy that wrecks a zone, the engine or a wheel. |
 
-Crash calibration targets (sport coupe, wall): 20 km/h about 10 cm of crush, 50 km/h about 30 cm with the bonnet popping, 100 km/h the nose almost fully crushed, bumper and lights gone, engine dead.
+Crash calibration (saloon, rigid wall): 20 km/h about 14 cm of crush and light dents, 50 km/h about 38 cm with the bonnet springing open, 100 km/h the nose crushed to the core, bumper and lights gone, engine dead.

@@ -8,3 +8,7 @@ dist
 *.blend2
 .claude/settings.local.json
 .claude/
+art/build/
+# Sync-conflict copies (iCloud)
+* 2.blend
+* 2.*
