@@ -569,7 +569,11 @@ export class Vehicle {
     } else {
       // Shift on road speed: locked or spinning wheels say nothing about which gear fits.
       const roadRpm = Math.max(((vLong > 0 ? speed : Math.abs(vLong)) / R) * absRatio * RADS_TO_RPM, eng.idleRpm);
-      autoShift(gb, gs, cs > 0.5 ? this.rpm : roadRpm, throttleEff, dt, spin > 0.25);
+      // Hold the gear in a drift (wheelspin while sliding sideways); a straight-line burnout upshifts.
+      const drifting = spin > 0.25 && Math.abs(this.steering.slip) > 0.15;
+      // On the rev limiter the engine is past the shift point whatever the road speed says.
+      const shiftRpm = cs > 0.5 ? this.rpm : this.limiter ? Math.max(roadRpm, this.rpm) : roadRpm;
+      autoShift(gb, gs, shiftRpm, throttleEff, dt, drifting);
     }
 
     let crank = engineTorque(eng, this.rpm, throttleEff) * this.powerScale;
@@ -804,7 +808,20 @@ export class Vehicle {
       const q = 0.5 * RHO * speed;
       accumulate(dt, _com.x, _com.y, _com.z, -q * cfg.aero.cdA * _vel.x, -q * cfg.aero.cdA * _vel.y, -q * cfg.aero.cdA * _vel.z);
       const down = 0.5 * RHO * speed * speed * cfg.aero.clA;
-      accumulate(dt, _com.x, _com.y, _com.z, -_up.x * down, -_up.y * down, -_up.z * down);
+      if (cfg.aero.frontShare === undefined) {
+        accumulate(dt, _com.x, _com.y, _com.z, -_up.x * down, -_up.y * down, -_up.z * down);
+      } else {
+        // Downforce on each axle: the aero balance moves grip between front and rear at speed.
+        const fs = clamp(cfg.aero.frontShare, 0, 1);
+        for (const [z, share] of [
+          [cfg.wheels.FL[2], fs],
+          [cfg.wheels.RL[2], 1 - fs],
+        ] as const) {
+          _p.set(0, this.comLocal.y, z).applyQuaternion(_q).add(_pos);
+          const d = down * share;
+          accumulate(dt, _p.x, _p.y, _p.z, -_up.x * d, -_up.y * d, -_up.z * d);
+        }
+      }
     }
 
     // ---- crumple zones ---------------------------------------------------------------

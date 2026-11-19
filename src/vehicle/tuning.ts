@@ -245,9 +245,9 @@ export function applyTune(base: VehicleConfig, t: Tune): VehicleConfig {
 }
 
 /** Ready-made setups, built from the car's factory setup. */
-export const PRESETS: Record<string, (stock: Tune) => Tune> = {
+export const PRESETS: Record<string, (stock: Tune, cfg: VehicleConfig) => Tune> = {
   Stock: (s) => ({ ...s }),
-  Drift: (s) => ({
+  Drift: (s, cfg) => ({
     ...s,
     steerLock: 58,
     steerAssist: 90,
@@ -270,7 +270,8 @@ export const PRESETS: Record<string, (stock: Tune) => Tune> = {
     camberRear: -1,
     tireFront: s.tireFront + 10,
     tireRear: s.tireRear,
-    grip: 1,
+    // Street tyres: a drift car slides on about 1.15 of grip whatever it came with (track tyres would hold on).
+    grip: Math.min(1, 1.15 / cfg.tire.mu),
     rearGrip: 0.9,
     slideGrip: 92,
     brakeBias: 62,

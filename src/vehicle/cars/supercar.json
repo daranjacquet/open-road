@@ -1,17 +1,17 @@
 {
-  "name": "Supercar",
+  "name": "V12 Goblin",
   "drive": "AWD",
   "frontTorqueBias": 0.3,
-  "mass": 1470,
+  "mass": 1420,
   "com": [
     0,
-    -0.12,
+    -0.15,
     -0.22
   ],
   "inertiaBox": [
-    2.222,
-    0.874,
-    4.538
+    1.95,
+    0.9,
+    3.9
   ],
   "outline": [
     {
@@ -434,116 +434,125 @@
     "inertia": 2.247
   },
   "suspensionFront": {
-    "k": 32000,
-    "cBump": 2200,
-    "cRebound": 3400,
-    "arb": 22000,
+    "k": 42000,
+    "cBump": 2700,
+    "cRebound": 4200,
+    "arb": 18000,
     "maxLen": 0.22,
     "minLen": 0.05
   },
   "suspensionRear": {
-    "k": 44000,
-    "cBump": 3000,
-    "cRebound": 4600,
-    "arb": 16000,
+    "k": 52000,
+    "cBump": 3200,
+    "cRebound": 5000,
+    "arb": 20000,
     "maxLen": 0.22,
     "minLen": 0.05
   },
   "tire": {
-    "mu": 1.25,
+    "mu": 1.4,
     "refLoad": 3600,
-    "loadSensitivity": 0.14,
+    "loadSensitivity": 0.12,
     "peakSlipRatio": 0.11,
-    "peakSlipAngle": 0.13,
-    "slideRatio": 0.82,
+    "peakSlipAngle": 0.12,
+    "slideRatio": 0.85,
     "longGripRatio": 1.03,
     "rollingResistance": 0.011
   },
-  "rearGripScale": 1.04,
+  "rearGripScale": 1.02,
   "rearStiffnessScale": 1.12,
   "tireForceHeight": 0.06,
   "steering": {
     "lock": 0.55,
     "speedRef": 25,
-    "rate": 5,
+    "rate": 6,
     "assist": 0.8,
-    "stability": 0.5,
-    "slideControl": 0.4
+    "stability": 0.8,
+    "slideControl": 0.6
   },
   "brakes": {
-    "torque": 7657,
+    "torque": 9000,
     "frontBias": 0.6,
     "handbrakeTorque": 3104
   },
   "engine": {
     "idleRpm": 1000,
-    "redlineRpm": 8500,
+    "redlineRpm": 8700,
     "torqueCurve": [
       [
-        500,
-        220
-      ],
-      [
-        1000,
+        800,
         330
       ],
       [
-        2000,
-        430
+        1500,
+        420
       ],
       [
-        3000,
-        500
+        2500,
+        520
+      ],
+      [
+        3500,
+        620
       ],
       [
         4500,
-        560
+        700
+      ],
+      [
+        5500,
+        745
       ],
       [
         6500,
-        600
+        760
       ],
       [
         7500,
-        590
+        735
       ],
       [
         8250,
-        560
+        700
       ],
       [
-        8700,
-        520
+        8800,
+        650
       ]
     ],
     "engineBrake": 120,
-    "inertia": 0.18,
-    "launchRpm": 5000
+    "inertia": 0.16,
+    "launchRpm": 4500
   },
   "gearbox": {
     "ratios": [
       3.13,
-      2.59,
-      1.96,
-      1.55,
-      1.24,
-      1,
-      0.79
+      2.48,
+      1.92,
+      1.53,
+      1.25,
+      1.0,
+      0.72
     ],
     "reverse": 2.9,
     "finalDrive": 4.657,
     "efficiency": 0.9,
-    "shiftTime": 0.08,
-    "upshiftRpm": 8300,
+    "shiftTime": 0.05,
+    "upshiftRpm": 8550,
     "upshiftRpmLight": 4000,
-    "downshiftRpm": 2800
+    "downshiftRpm": 3000
   },
   "diff": {
     "lsdK": 90,
     "lsdMax": 1400
   },
   "aero": {
-    "cdA": 0.62,
-    "clA": 0.9
+    "cdA": 0.66,
+    "clA": 2.0,
+    "frontShare": 0.36
+  },
+  "camber": {
+    "front": -3,
+    "rear": -1
   }
 }

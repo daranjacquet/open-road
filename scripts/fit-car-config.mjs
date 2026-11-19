@@ -85,8 +85,7 @@ cfg.crush.forEach((g, i) => {
   g.force = forces[i] ?? forces[forces.length - 1];
   if (elastics[i] !== undefined) g.elastic = elastics[i];
 });
-// The hard core gives the inertia box.
-cfg.inertiaBox = vec(out0.hx * 2, out0.hy * 2 + out1.hy, out0.hz * 2);
+// inertiaBox is a handling value (mass distribution), not geometry: kept.
 
 writeFileSync(path, JSON.stringify(cfg, null, 2) + '\n');
 console.log(`${id}: wheelbase ${r3(cfg.wheels.FL[2] - cfg.wheels.RL[2])} m, track ${r3(cfg.wheels.FL[0] * 2)} m, wheel r ${cfg.wheel.radius} m, length ${r3(out0.hz * 2)} m, core ${JSON.stringify(cfg.colliders)}`);

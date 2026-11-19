@@ -93,7 +93,7 @@ describe('garage setups', () => {
     for (const def of CARS) {
       const held: Record<string, number> = {};
       for (const name of ['Stock', 'Drift']) {
-        const tune = PRESETS[name]!(stockTune(def.cfg));
+        const tune = PRESETS[name]!(stockTune(def.cfg), def.cfg);
         const { physics, car } = await makeSim(applyTune(def.cfg, tune));
         Object.assign(car.assists, { tc: tune.tc, abs: tune.abs, esp: tune.esp });
         const r = driftRun(physics, car);

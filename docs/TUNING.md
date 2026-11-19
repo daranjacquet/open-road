@@ -40,6 +40,7 @@ The in-game garage (`G`) edits the same values live; `src/vehicle/tuning.ts` map
 | `diff.lsdK`, `lsdMax` | Limited-slip coupling (N m per rad/s, cap). 0 is an open differential. |
 | `brakes.torque`, `frontBias` | Total brake torque and front share. More front bias is stable, more rear bias rotates the car. |
 | `aero.cdA`, `clA` | Drag area and downforce area. Drag sets top speed. |
+| `aero.frontShare` | Share of the downforce on the front axle. Below the static front weight share the car gains understeer (stability) with speed, above it the rear gets light at speed. Absent: downforce at the centre of mass. |
 
 ## Damage
 
@@ -55,6 +56,8 @@ The in-game garage (`G`) edits the same values live; `src/vehicle/tuning.ts` map
 | `H`, `DECAY`, `WAVE` in `Deformer.ts` | Lattice spacing (10 cm), how far a dent drags the metal around it (smaller decay = wider dents), crumple wavelength (13 cm). |
 | `RULES` in `PartsManager.ts` | Dent depth (m) at which each part springs open, is fully open, tears off or breaks. Glass starts cracking at 15 mm and shatters at 7 cm. |
 | Capacities in `DamageModel.ts` | Energy that wrecks a zone, the engine or a wheel. |
+
+Supercar reference (`tests/supercar.test.ts`): 0-100 km/h 2.7 s, 0-200 km/h 6.6 s, 347 km/h, 100-0 km/h in 29 m, keyboard full-lock cornering 1.37 g at 80 km/h up to 1.76 g at 220 km/h, rear never sliding more than the front.
 
 Crash calibration (saloon, rigid wall):
 

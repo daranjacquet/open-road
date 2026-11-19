@@ -145,7 +145,7 @@ export class Garage {
   private preset(name: string): void {
     const car = this.getCar();
     const keepBox = this.tune.gearbox;
-    Object.assign(this.tune, PRESETS[name]!(stockTune(car.def.cfg)), { gearbox: keepBox });
+    Object.assign(this.tune, PRESETS[name]!(stockTune(car.def.cfg), car.def.cfg), { gearbox: keepBox });
     this.changed();
   }
 

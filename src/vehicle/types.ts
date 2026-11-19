@@ -175,6 +175,8 @@ export interface VehicleConfig {
     /** Drag area Cd*A (m^2) and lift area Cl*A (positive = downforce). */
     cdA: number;
     clA: number;
+    /** Share of the downforce on the front axle (aero balance). Absent: applied at the centre of mass. */
+    frontShare?: number;
   };
   /** Static camber per axle (degrees, negative = top of the wheel leans in). */
   camber?: { front: number; rear: number };
