@@ -5,9 +5,9 @@ import type { VehicleConfig } from '../vehicle/types';
 import type { CarDef } from './GameCar';
 
 export const CARS: CarDef[] = [
-  { id: 'sedan', name: 'Sport saloon (rear-biased AWD)', cfg: sedanCfg as unknown as VehicleConfig },
-  { id: 'offroad', name: 'Off-roader (4x4)', cfg: offroadCfg as unknown as VehicleConfig },
-  { id: 'supercar', name: 'Supercar (AWD)', cfg: supercarCfg as unknown as VehicleConfig },
+  { id: 'sedan', name: "Thunderbolt '96 rally saloon (AWD)", cfg: sedanCfg as unknown as VehicleConfig },
+  { id: 'offroad', name: "Bokaroo '67 off-roader (4x4)", cfg: offroadCfg as unknown as VehicleConfig },
+  { id: 'supercar', name: 'V12 Goblin supercar (AWD)', cfg: supercarCfg as unknown as VehicleConfig },
 ];
 
 export function carById(id: string): CarDef {

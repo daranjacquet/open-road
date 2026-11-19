@@ -1,0 +1,232 @@
+{
+  "source": "art/sources/offroad/bokaroo_67.glb",
+  "credit": "\"Bokaroo '67 - Low poly model\" by Daniel Zhabotinsky (https://sketchfab.com/3d-models/bokaroo-67-low-poly-model-22015d1863d6455aa31cfd738b972c50), CC BY 4.0, modified",
+  "forward": "+X",
+  "length": 4.6,
+  "drop": [
+    "(?i)badges"
+  ],
+  "materials": {
+    "paint": [
+      "^BUCKAROO_67_Bodymat$"
+    ],
+    "glass": [
+      "(?i)transperent"
+    ],
+    "lights": [
+      "^UCB_Lights_and_Glass$"
+    ],
+    "underbody": [
+      "^UCB_BOTTOM$"
+    ],
+    "interior": [
+      "(?i)interiors"
+    ],
+    "plate": [
+      "(?i)numberplates"
+    ],
+    "tire": [
+      "(?i)tire"
+    ]
+  },
+  "object_materials": {
+    "Bumper_(Front|rear)": "trim_matte"
+  },
+  "wheels": {
+    "FL": [
+      "WheelStock_FL"
+    ],
+    "FR": [
+      "WheelStock_FR"
+    ],
+    "RL": [
+      "WheelStock_RL"
+    ],
+    "RR": [
+      "WheelStock_RR"
+    ]
+  },
+  "parts": {
+    "hood": [
+      "_Hood_",
+      "Hood_inner"
+    ],
+    "trunk": [
+      "rear_door_inner",
+      "rear_door_doorcard"
+    ],
+    "bumper_F": [
+      "Bumper_Front",
+      "Numberplate_Front"
+    ],
+    "bumper_R": [
+      "Bumper_rear",
+      "Numberplate_Rear"
+    ],
+    "glass_front": [
+      "Windshield"
+    ],
+    "glass_rear": [
+      "rear_door_glass"
+    ],
+    "glass_FL": [
+      "Glass_Driver"
+    ],
+    "glass_FR": [
+      "Glass_Passenger"
+    ],
+    "glass_R": [
+      "Bodyglass"
+    ],
+    "lights_F": [
+      "Headlight_Glass"
+    ],
+    "lights_R": [
+      "Brakelights_Glass",
+      "Reverse"
+    ]
+  },
+  "split_sides": {
+    "glass_R": [
+      "glass_RL",
+      "glass_RR"
+    ],
+    "lights_F": [
+      "light_FL",
+      "light_FR"
+    ],
+    "lights_R": [
+      "light_RL",
+      "light_RR"
+    ]
+  },
+  "max_triangles": 80000,
+  "max_texture": 1024,
+  "split": {
+    "door_FL": {
+      "from": "body",
+      "material": "paint",
+      "box": [
+        0.6,
+        1.3,
+        -0.12,
+        1.08,
+        -0.26,
+        0.72
+      ]
+    },
+    "door_FR": {
+      "from": "body",
+      "material": "paint",
+      "box": [
+        -1.3,
+        -0.6,
+        -0.12,
+        1.08,
+        -0.26,
+        0.72
+      ]
+    },
+    "mirror_L": {
+      "from": "body",
+      "box": [
+        0.88,
+        1.5,
+        0.38,
+        0.86,
+        0.42,
+        0.7
+      ]
+    },
+    "mirror_R": {
+      "from": "body",
+      "box": [
+        -1.5,
+        -0.88,
+        0.38,
+        0.86,
+        0.42,
+        0.7
+      ]
+    },
+    "trunk_skin": {
+      "from": "body",
+      "material": "paint",
+      "box": [
+        -0.78,
+        0.78,
+        -0.12,
+        1.1,
+        -2.5,
+        -2.05
+      ]
+    }
+  },
+  "merge": {
+    "trunk": [
+      "trunk_skin"
+    ]
+  },
+  "restyle": [
+    {
+      "material": "underbody",
+      "to": "trim_matte",
+      "box": [
+        -1.2,
+        1.2,
+        1.12,
+        1.6,
+        -2.4,
+        1.0
+      ]
+    },
+    {
+      "material": "underbody",
+      "to": "trim_matte",
+      "box": [
+        -1.2,
+        1.2,
+        -0.45,
+        0.75,
+        2.0,
+        2.5
+      ]
+    },
+    {
+      "material": "underbody",
+      "to": "trim_matte",
+      "box": [
+        -1.2,
+        1.2,
+        -0.45,
+        1.2,
+        -2.5,
+        -2.1
+      ]
+    },
+    {
+      "material": "underbody",
+      "to": "trim_matte",
+      "box": [
+        0.86,
+        1.3,
+        -0.45,
+        0.7,
+        -2.3,
+        2.3
+      ]
+    },
+    {
+      "material": "underbody",
+      "to": "trim_matte",
+      "box": [
+        -1.3,
+        -0.86,
+        -0.45,
+        0.7,
+        -2.3,
+        2.3
+      ]
+    }
+  ]
+}

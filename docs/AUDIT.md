@@ -27,7 +27,19 @@ Looked at from three-quarter views in the game:
 
 Conclusion: the procedural pipeline was a good way to get cars with correct part structure for crashes, but it does not produce good-looking cars. Better results come from a hand-made model, reworked into our part structure.
 
-### Plan
+### Done
+
+The three cars were replaced by hand-made CC BY 4.0 models (section 4), reworked by `art/import_car.py`:
+
+| Car | Model | Triangles | Meshes in game | GLB |
+| --- | --- | --- | --- | --- |
+| Rally saloon | Thunderbolt '96 | 18.8k (was 149k) | 43 (was 108) | 1.48 MB |
+| Off-roader | Bokaroo '67 | 28.2k (was 144k) | 35 (was 106) | 1.39 MB |
+| Supercar | V12 Goblin | 65.7k (was 163k) | 30 (was 97) | 1.45 MB |
+
+Draw calls with the three cars in view: 276 in the city (was 443), 341 in the test area (was 554). Every crash, damage, driving and handling test passes with the new cars, after a front-stiffness calibration per car (`crush[0].force`, `elastic`).
+
+### Original plan
 
 1. Take freely licensed models made by people (licence must allow redistribution in a public repo: CC0 or CC-BY). Candidates are listed in section 4.
 2. Rework each one in Blender: split into the parts the crash system needs (body, bonnet, boot, four doors, bumpers, glass panes, lights, mirrors, wheels), set hinge pivots, remove logos, reduce materials to about 8 (paint, glass, chrome, black trim, rubber, rim, lights, interior), aim for 40k to 80k triangles.
@@ -52,7 +64,7 @@ Halving the resolution only saved 1.2 ms on this machine (draw-call bound), but 
 | # | Problem | Impact | Status |
 | --- | --- | --- | --- |
 | P1 | Pixel ratio up to 2 on high-DPI screens | Up to 4x the pixel work | Fixed: capped at 1.5 and adaptive (down to 0.6 when frames run long); garage setting to pin it |
-| P2 | About 100 draw calls and 150k triangles per car, 3 cars always drawn at full detail | Main render cost | Planned: new models with about 8 materials and 40k to 80k triangles |
+| P2 | About 100 draw calls and 150k triangles per car, 3 cars always drawn at full detail | Main render cost | Fixed: new models, 30 to 43 meshes and 19k to 66k triangles per car; draw calls down by about 40 % |
 | P3 | Normals of every dented mesh recomputed in one go | About 40 ms stall on a big crash frame | Fixed: vertex budget per frame, round-robin |
 | P4 | `all()` built a new array 3 times per physics step | Garbage-collector pauses | Fixed: one stable array |
 | P5 | Street furniture sync built a `Set` every frame | Garbage | Fixed |

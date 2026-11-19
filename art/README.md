@@ -1,9 +1,26 @@
 # Art pipeline (Blender)
 
-The cars are modelled by Python scripts running in **Blender 5.x**, exported to glTF and compressed with meshopt.
+## Game cars: third-party models
+
+The cars in the game come from hand-made models (CC BY 4.0, see `../CREDITS.md`) in `sources/<id>/`, reworked by **Blender 5.x** scripts:
 
 ```bash
-npm run models                                                   # all cars, then compression
+npm run models                                         # every car with a mapping: import, compress, fit physics
+node scripts/build-models.mjs sedan                    # one car
+blender -b --factory-startup -P art/inspect_model.py -- art/sources/sedan/thunderbolt_96.glb --render /tmp/m.png
+blender -b --factory-startup -P art/import_car.py -- sedan --views /tmp/views   # + side/top/front grid renders
+```
+
+- `inspect_model.py`: meshes, materials, triangles and sizes of any .glb/.gltf/.fbx/.obj/.blend.
+- `import_car.py` + `imports/<id>.json`: the mapping says which source objects make which part, which boxes (game frame: x left, y up, z forward, metres) to cut doors, mirrors or lids out of the body, how to rename materials (`paint`, `glass`, `trim_matte`, `underbody`... the names the game reacts to; textures are kept), which faces to `restyle` so the outer shell counts for the crumple rays, and where the wheels are. `--views DIR` renders orthographic views with a 0.25 m grid (red lines every metre) to place the boxes.
+- It writes `blend/<id>.blend`, `build/<id>.glb` and `build/<id>.measure.json`; `scripts/optimize-models.mjs` compresses into `public/models/`, `scripts/fit-car-config.mjs` fits the physics geometry of `src/vehicle/cars/<id>.json` to the measurements.
+
+## Earlier procedural cars
+
+The first cars were modelled entirely by Python scripts (below). They are kept for reference; `npm run models:procedural` rebuilds them and overwrites the game cars.
+
+```bash
+npm run models:procedural
 blender -b --factory-startup -P art/build_cars.py -- --only sedan --preview /tmp/pv   # one car + preview renders
 blender -b --factory-startup -P art/preview_body.py -- sedan /tmp/body.png 2         # quick body-only check
 ```

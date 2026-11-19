@@ -36,11 +36,12 @@ describe('Blender cars (GLB)', () => {
         expect(size.z).toBeLessThan(5.6);
         expect(size.x).toBeGreaterThan(1.8);
         expect(size.x).toBeLessThan(2.4);
-        expect(tris).toBeGreaterThan(80000);
+        expect(tris).toBeGreaterThan(12000); // hand-made models: detail from shape and textures, not triangles
+        expect(tris).toBeLessThan(120000);
         // Outline box of the physics fits the visual body within a few centimetres.
         const o = def.cfg.outline[0]!;
         expect(Math.abs(o.center[2] + o.half[2] - box.max.z)).toBeLessThan(0.12);
-        for (const w of m.wheels) expect(w.spin.children.length).toBeGreaterThanOrEqual(3);
+        for (const w of m.wheels) expect(w.spin.children.length).toBeGreaterThanOrEqual(1);
       });
 
       it('gives every car instance its own deformable geometry with rest data', () => {

@@ -111,6 +111,15 @@ export class Garage {
     aids.add(t, 'abs').name('ABS').onChange(() => this.changed());
     aids.add(t, 'esp').name('ESP').onChange(() => this.changed());
 
+    const credits = gui.addFolder('Credits (CC BY 4.0)');
+    for (const [car, author] of [
+      ["Thunderbolt '96", 'Daniel Zhabotinsky'],
+      ["Bokaroo '67", 'Daniel Zhabotinsky'],
+      ['V12 Goblin', 'ollitei'],
+    ]) {
+      credits.add({ [car]: `${author} (Sketchfab)` }, car).disable();
+    }
+
     for (const f of gui.folders) f.close();
     presets.open();
     gui.close();

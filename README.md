@@ -103,13 +103,14 @@ Layering: `core` <- `vehicle`, `damage` (simulation, no rendering) <- `render`, 
 - Every car is a JSON file in `src/vehicle/cars/`. See [docs/TUNING.md](docs/TUNING.md) for what each value does.
 
 ### Cars and models
-The three cars are built by Python scripts in Blender (`art/`), not hand-placed boxes:
+The three cars are hand-made models from Sketchfab (CC BY 4.0, see [CREDITS.md](CREDITS.md)), reworked for crashes by a Blender pipeline (`art/import_car.py`, one mapping per car in `art/imports/`):
 
-- **Body**: a control cage of cross-sections (rocker, character line, shoulder, belt line, roof rail...) turned into a smooth subdivision surface with creased character lines, about 120k triangles per body. Wheel arches are cut with booleans, which also leaves the wheel-well liners.
-- **Panels**: the body is split along edge loops into bonnet, boot, doors, wings, bumpers, roof, glass. Every panel has a real gap and a folded flange, so seams are actual geometry, and every part pivots on its hinge.
-- **Details**: light units (lens, chrome bowl, LED signature, projectors or round lamps), honeycomb grilles, mirrors, handles, wipers, exhaust tips, diffusers, wings, splitters, skirts, roof rack, snorkel, spare wheel, number plates, a cabin (dashboard, gauges, wheel, seats) and an engine bay.
-- **Wheels**: modelled tyres with tread (normal-mapped road tyres or block all-terrain tyres), multi-spoke rims, discs and calipers.
-- Exported to glTF and compressed with meshopt (about 1 MB per car). See [art/README.md](art/README.md).
+- **Rally saloon** (Evo-style 90s four-door, wing and bonnet scoop): Thunderbolt '96 by Daniel Zhabotinsky, 19k triangles.
+- **Off-roader**: Bokaroo '67 by Daniel Zhabotinsky, 28k triangles.
+- **Supercar**: V12 Goblin by ollitei, 66k triangles.
+- The pipeline orients and scales each model, removes badges, cuts it into the crash parts (doors, bonnet, boot or engine cover, bumpers, every glass pane, lights, mirrors) with their hinges, rebuilds the wheels around their hubs, keeps the original textures (resized, WebP) under the material names the game reacts to, and places the chassis origin where the suspension expects it.
+- `scripts/fit-car-config.mjs` then fits the physics geometry to the model (wheel positions and size, the hard core, the outline and the crumple-ray grids), keeping every handling value.
+- 30 to 43 meshes per car (the old procedural cars had about 100) and 1.4 to 1.5 MB per car with textures.
 
 ### Crash damage
 Full soft-body simulation (BeamNG style) is too heavy for a browser, so damage is split in two:
@@ -150,4 +151,4 @@ I have not measured on a modest PC. Draw calls are above what I would aim for on
 
 ## License
 
-MIT
+Code: MIT. Car models: CC BY 4.0 by their authors, see [CREDITS.md](CREDITS.md).

@@ -1,0 +1,188 @@
+{
+  "source": "art/sources/sedan/thunderbolt_96.glb",
+  "credit": "\"Thunderbolt '96 - Low Poly Model\" by Daniel Zhabotinsky (https://sketchfab.com/3d-models/thunderbolt-96-low-poly-model-25a4ff2002834ec1b4441c57ecd7ca9f), CC BY 4.0, modified",
+  "forward": "+X",
+  "length": 4.49,
+  "drop": [
+    "(?i)badges"
+  ],
+  "materials": {
+    "paint": [
+      "^thunderbolt96_body$"
+    ],
+    "glass": [
+      "(?i)transperent"
+    ],
+    "lights": [
+      "^UCB_Lights_and_Glass$"
+    ],
+    "underbody": [
+      "^UCB_BOTTOM$"
+    ],
+    "interior": [
+      "(?i)interiors"
+    ],
+    "plate": [
+      "(?i)numberplates"
+    ],
+    "tire": [
+      "(?i)tire"
+    ]
+  },
+  "wheels": {
+    "FL": [
+      "WheelStock_FL",
+      "CaliperStock_FL"
+    ],
+    "FR": [
+      "WheelStock_FR",
+      "CaliperStock_FR"
+    ],
+    "RL": [
+      "WheelStock_RL",
+      "CaliperStock_RL"
+    ],
+    "RR": [
+      "WheelStock_RR",
+      "CaliperStock_RR"
+    ]
+  },
+  "calipers": [
+    "(?i)caliper"
+  ],
+  "parts": {
+    "hood": [
+      "_Hood_",
+      "Hood_Inner"
+    ],
+    "trunk": [
+      "Trunk_door",
+      "Spoiler",
+      "Numberplates_Rear"
+    ],
+    "bumper_F": [
+      "Bumper_Front",
+      "Numberplates_Front"
+    ],
+    "bumper_R": [
+      "Bumper_rear"
+    ],
+    "glass_front": [
+      "Windshield"
+    ],
+    "glass_rear": [
+      "Rear_Glass"
+    ],
+    "glass_FL": [
+      "Glass_Driver"
+    ],
+    "glass_FR": [
+      "Glass_Passenger"
+    ],
+    "glass_R": [
+      "Thunderbolt96_Glass_UCB"
+    ],
+    "lights_F": [
+      "Headlights",
+      "Headlight_Glass"
+    ],
+    "lights_R": [
+      "Taillights",
+      "Brakelights",
+      "Reverse"
+    ]
+  },
+  "split_sides": {
+    "glass_R": [
+      "glass_RL",
+      "glass_RR"
+    ],
+    "lights_F": [
+      "light_FL",
+      "light_FR"
+    ],
+    "lights_R": [
+      "light_RL",
+      "light_RR"
+    ]
+  },
+  "max_triangles": 80000,
+  "max_texture": 1024,
+  "split": {
+    "door_FL": {
+      "from": "body",
+      "material": "paint",
+      "box": [
+        0.55,
+        1.3,
+        -0.32,
+        0.345,
+        -0.24,
+        0.9
+      ]
+    },
+    "door_RL": {
+      "from": "body",
+      "material": "paint",
+      "box": [
+        0.55,
+        1.3,
+        -0.32,
+        0.345,
+        -1.15,
+        -0.24
+      ]
+    },
+    "door_FR": {
+      "from": "body",
+      "material": "paint",
+      "box": [
+        -1.3,
+        -0.55,
+        -0.32,
+        0.345,
+        -0.24,
+        0.9
+      ]
+    },
+    "door_RR": {
+      "from": "body",
+      "material": "paint",
+      "box": [
+        -1.3,
+        -0.55,
+        -0.32,
+        0.345,
+        -1.15,
+        -0.24
+      ]
+    },
+    "mirror_L": {
+      "from": "body",
+      "box": [
+        0.8,
+        1.4,
+        0.3,
+        0.52,
+        0.52,
+        0.82
+      ]
+    },
+    "mirror_R": {
+      "from": "body",
+      "box": [
+        -1.4,
+        -0.8,
+        0.3,
+        0.52,
+        0.52,
+        0.82
+      ]
+    }
+  },
+  "paint_color": [
+    1.0,
+    0.38,
+    0.0
+  ]
+}

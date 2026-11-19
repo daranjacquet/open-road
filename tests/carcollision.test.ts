@@ -58,8 +58,9 @@ describe('car vs car collisions', () => {
     console.log('A energy', (a.crush.energy / 1000).toFixed(0), 'kJ; B energy', (b.crush.energy / 1000).toFixed(0), 'kJ; max speed', (maxV * 3.6).toFixed(0), 'km/h; A z', pa.z.toFixed(1), 'B z', pb.z.toFixed(1), 'A speed', a.vehicle.speedKmh.toFixed(1), 'B speed', b.vehicle.speedKmh.toFixed(1));
     expect(hit).toBe(true);
     expect([pa.x, pa.y, pa.z, pb.x, pb.y, pb.z].every(finite)).toBe(true);
-    expect(a.crush.energy).toBeGreaterThan(20e3);
-    expect(b.crush.energy).toBeGreaterThan(20e3);
+    // Both crumple; the off-roader's stiffer front (bull-bar travel) takes the smaller share.
+    expect(a.crush.energy).toBeGreaterThan(15e3);
+    expect(b.crush.energy).toBeGreaterThan(15e3);
     expect(maxV * 3.6).toBeLessThan(80);
     expect(a.vehicle.speedKmh).toBeLessThan(15);
     // The cars did not pass through each other.

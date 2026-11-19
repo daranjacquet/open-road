@@ -35,7 +35,7 @@ const RULES: PartRule[] = [
   { test: /^door_[FR][LR]$/, kind: 'panel', ajarFrom: 0.05, ajarTo: 0.14, breakAt: 0.22, mass: 24 },
   { test: /^bumper_[FR]$/, kind: 'panel', breakAt: 0.41, mass: 14 },
   { test: /^glass_/, kind: 'glass', breakAt: 0.07, mass: 0 },
-  { test: /^light_[FR][LR]$/, kind: 'small', breakAt: 0.09, mass: 1 },
+  { test: /^light_[FR][LR]$/, kind: 'small', breakAt: 0.12, mass: 1 },
   { test: /^mirror_[LR]$/, kind: 'small', breakAt: 0.05, mass: 1.2 },
 ];
 
