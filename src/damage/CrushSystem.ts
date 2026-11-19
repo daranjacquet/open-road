@@ -66,7 +66,7 @@ export class CrushSystem {
 
   private readonly ray: RAPIER.Ray;
   private readonly envelope: RAPIER.Cuboid;
-  private readonly filter = groups(0xffff, GROUP.WORLD | GROUP.PROP | GROUP.CHASSIS);
+  private readonly filter = groups(GROUP.RAY, GROUP.WORLD | GROUP.PROP | GROUP.OUTLINE);
   private readonly ev: CrushEvent;
   private readonly local: THREE.Vector3[];
   private readonly localDir: THREE.Vector3[];
@@ -159,6 +159,8 @@ export class CrushSystem {
       _vp.crossVectors(_ang, _r).add(_vel);
       const other = h.collider.parent();
       const otherDynamic = other !== null && other.isDynamic();
+      // Cars run their own crumple zones against us: do not double the reaction on them.
+      const otherPassive = otherDynamic && !this.physics.crushBodies.has(other!.handle);
       if (otherDynamic) {
         const gv = other!.velocityAtPoint({ x: _hp.x, y: _hp.y, z: _hp.z });
         _vp.x -= gv.x;
@@ -211,7 +213,7 @@ export class CrushSystem {
         tz = (-_vt.z / vtLen) * ft;
       }
       this.host.applyForce(dt, _hp.x, _hp.y, _hp.z, fx + tx, fy + ty, fz + tz);
-      if (otherDynamic) {
+      if (otherPassive) {
         _p.x = _hp.x;
         _p.y = _hp.y;
         _p.z = _hp.z;

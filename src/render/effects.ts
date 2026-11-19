@@ -167,4 +167,12 @@ export class Effects {
     this.sparks.update(dt, viewportHeight);
     this.smoke.update(dt, viewportHeight);
   }
+
+  dispose(): void {
+    this.sparks.dispose();
+    this.smoke.dispose();
+    this.skids.mesh.geometry.dispose();
+    (this.skids.mesh.material as THREE.Material).dispose();
+    this.skids.mesh.dispose();
+  }
 }

@@ -1,4 +1,4 @@
-import type { Vehicle } from '../vehicle/Vehicle';
+import type { GameCar } from '../game/GameCar';
 
 /** Minimal driving HUD: speed, gear, rpm bar, assist lights. Updated at ~20 Hz. */
 export class Hud {
@@ -39,9 +39,10 @@ export class Hud {
     };
   }
 
-  update(car: Vehicle, now: number): void {
+  update(gc: GameCar, now: number): void {
     if (now - this.last < 50) return;
     this.last = now;
+    const car = gc.vehicle;
     this.speed.textContent = Math.round(car.speedKmh).toString();
     const g = car.gear;
     this.gear.textContent = g < 0 ? 'R' : g === 0 ? 'N' : String(g);

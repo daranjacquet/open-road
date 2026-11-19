@@ -109,6 +109,8 @@ export interface VehicleConfig {
   com: Vec3;
   /** Box (w, h, l) used to derive the principal inertia. */
   inertiaBox: Vec3;
+  /** Visible-shell boxes (what other cars' crumple rays can hit). */
+  outline: { center: Vec3; half: Vec3 }[];
   /** Crumple-zone ray grids (damage milestone). */
   crush: CrushGrid[];
   /** Compound chassis colliders: the HARD CORE, smaller than the visible body by the crush depths. */

@@ -212,6 +212,16 @@ export class Vehicle {
       );
     }
 
+    for (const o of cfg.outline) {
+      world.createCollider(
+        RAPIER.ColliderDesc.cuboid(...o.half)
+          .setTranslation(...o.center)
+          .setDensity(0)
+          .setCollisionGroups(groups(GROUP.OUTLINE, GROUP.RAY)),
+        this.body,
+      );
+    }
+
     const mounts = [cfg.wheels.FL, cfg.wheels.FR, cfg.wheels.RL, cfg.wheels.RR];
     this.mountLocal = mounts.map((v) => new THREE.Vector3(...v));
     this.wheels = mounts.map((v, i) => {
@@ -253,6 +263,7 @@ export class Vehicle {
     const center: [number, number, number] = [(min[0]! + max[0]!) / 2, (min[1]! + max[1]!) / 2, (min[2]! + max[2]!) / 2];
     const half: [number, number, number] = [(max[0]! - min[0]!) / 2 + m, (max[1]! - min[1]!) / 2 + m, (max[2]! - min[2]!) / 2 + m];
     this.crush = new CrushSystem(this.physics, this, rays, { center, half });
+    this.physics.crushBodies.add(this.body.handle);
     return this.crush;
   }
 

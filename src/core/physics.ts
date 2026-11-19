@@ -8,6 +8,8 @@ export interface Physics {
   events: RAPIER.EventQueue;
   /** Handles of the colliders that make up the open ground (surface grip comes from `surfaceAt`). */
   groundColliders: Set<number>;
+  /** Handles of rigid bodies that run their own crumple zones (no double reaction on them). */
+  crushBodies: Set<number>;
   step(): void;
 }
 
@@ -17,6 +19,10 @@ export const GROUP = {
   CHASSIS: 0x0002,
   PART: 0x0004,
   PROP: 0x0008,
+  /** Visible-shell colliders of cars: only crumple-zone rays can see them (never the solver). */
+  OUTLINE: 0x0010,
+  /** Membership of crumple-zone rays. */
+  RAY: 0x8000,
   /** Ray queries for suspension only hit these. */
   GROUND_RAY: 0x0001 | 0x0008,
 } as const;
@@ -37,6 +43,7 @@ export async function createPhysics(): Promise<Physics> {
     world,
     events,
     groundColliders: new Set<number>(),
+    crushBodies: new Set<number>(),
     step() {
       world.step(events);
     },
