@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import * as THREE from 'three';
+import { FIXED_DT, GROUP, groups } from '../src/core/physics';
+import { GameCar } from '../src/game/GameCar';
+import { applyTune, stockTune } from '../src/vehicle/tuning';
+import { loadModels } from './helpers/models';
 import { CARS } from '../src/game/catalog';
 import { LapTimer } from '../src/game/laps';
 import { DRIFT, RACE } from '../src/world/map';
@@ -18,6 +23,34 @@ describe('parked cars stay put', () => {
       expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeLessThan(0.02);
     });
   }
+});
+
+describe('city kerbs', () => {
+  beforeAll(loadModels);
+  it('a lowered supercar drives up an 8 cm bevelled kerb at walking pace without stopping or denting', async () => {
+    const def = CARS.find((c) => c.id === 'supercar')!;
+    const { physics, car: tmp } = await makeSim(def.cfg);
+    physics.world.removeRigidBody(tmp.body);
+    const { RAPIER, world } = physics;
+    // Same prism as src/world/city.ts: 8 cm high, sides sloping over 30 cm.
+    const [h, b, x0, x1, z0, z1] = [0.08, 0.3, -30, 30, 20, 70];
+    const pts = new Float32Array([x0 - b, -0.02, z0 - b, x1 + b, -0.02, z0 - b, x1 + b, -0.02, z1 + b, x0 - b, -0.02, z1 + b, x0, h, z0, x1, h, z0, x1, h, z1, x0, h, z1]);
+    world.createCollider(RAPIER.ColliderDesc.convexHull(pts)!.setCollisionGroups(groups(GROUP.WORLD, 0xffff)), world.createRigidBody(RAPIER.RigidBodyDesc.fixed()));
+    const lowered = { ...def, cfg: applyTune(def.cfg, { ...stockTune(def.cfg), rideHeight: -6 }) };
+    const car = new GameCar(physics, new THREE.Scene(), lowered, 0, 8, 0);
+    let minKmh = 99;
+    for (let i = 0; i < 120 * 6; i++) {
+      const v = car.vehicle.speedKmh;
+      car.fixedUpdate(FIXED_DT, { throttle: Math.min(Math.max((12 - v) * 0.3, 0), 1), brake: 0, steer: 0, handbrake: 0 });
+      physics.step();
+      car.vehicle.afterPhysicsStep();
+      const z = car.vehicle.body.translation().z;
+      if (i > 240 && z > 15 && z < 26) minKmh = Math.min(minKmh, v);
+    }
+    expect(car.vehicle.body.translation().z).toBeGreaterThan(26);
+    expect(minKmh).toBeGreaterThan(8);
+    expect(Math.max(...car.crush.crush)).toBe(0);
+  }, 30_000);
 });
 
 describe('circuits', () => {

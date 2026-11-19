@@ -9,7 +9,9 @@ export const STREETS = [-840, -720, -600, -480, -360, -240, -120, 0, 120, 240];
 const ROAD = 14;
 const HALF = ROAD / 2;
 const WALK = 3;
-const CURB = 0.12;
+/** Kerb height and the width of its bevel: low and chamfered so cars can drive up onto it. */
+const CURB = 0.08;
+const BEVEL = 0.3;
 const CENTRE = { x: 575, z: -300 };
 
 /** Deterministic random numbers (the city is the same on every load). */
@@ -104,6 +106,17 @@ class BoxBatch {
     quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1], x1 - x0);
     quad([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [1, 0, 0], z1 - z0);
     quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0], z1 - z0);
+  }
+
+  /** Chamfered sides: from the rectangle grown by `b` at ground level up to the top edge at `h`. */
+  bevel(x0: number, x1: number, z0: number, z1: number, h: number, b: number): void {
+    const n = Math.hypot(b, h);
+    const up = b / n;
+    const out = h / n;
+    this.quad([x0 - b, 0, z1 + b], [x1 + b, 0, z1 + b], [x1, h, z1], [x0, h, z1], [0, up, out], 1, 0.1);
+    this.quad([x1 + b, 0, z0 - b], [x0 - b, 0, z0 - b], [x0, h, z0], [x1, h, z0], [0, up, -out], 1, 0.1);
+    this.quad([x1 + b, 0, z1 + b], [x1 + b, 0, z0 - b], [x1, h, z0], [x1, h, z1], [out, up, 0], 1, 0.1);
+    this.quad([x0 - b, 0, z0 - b], [x0 - b, 0, z1 + b], [x0, h, z1], [x0, h, z0], [-out, up, 0], 1, 0.1);
   }
 
   top(x0: number, x1: number, y: number, z0: number, z1: number, tile: number): void {
@@ -217,6 +230,15 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
       staticBody,
     );
   };
+  /** The block slab: a prism with sloped sides (wheels roll up it, the chassis slides over it). */
+  const kerb = (ax0: number, ax1: number, az0: number, az1: number): void => {
+    const b = BEVEL;
+    const pts = new Float32Array([
+      ax0 - b, -0.02, az0 - b, ax1 + b, -0.02, az0 - b, ax1 + b, -0.02, az1 + b, ax0 - b, -0.02, az1 + b,
+      ax0, CURB, az0, ax1, CURB, az0, ax1, CURB, az1, ax0, CURB, az1,
+    ]);
+    world.createCollider(RAPIER.ColliderDesc.convexHull(pts)!.setFriction(0.8).setCollisionGroups(groups(GROUP.WORLD, 0xffff)), staticBody);
+  };
   const trees: { x: number; z: number; s: number }[] = [];
   const stalls: THREE.Matrix4[] = [];
 
@@ -228,8 +250,8 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
       const bz1 = STREETS[j + 1]! - HALF;
       // Kerb and pavement: the whole block is a slab 12 cm high.
       pavement.top(bx0, bx1, CURB, bz0, bz1, 3);
-      pavement.walls(bx0, bx1, 0, CURB, bz0, bz1, 3, 3);
-      solid((bx0 + bx1) / 2, CURB / 2, (bz0 + bz1) / 2, (bx1 - bx0) / 2, CURB / 2, (bz1 - bz0) / 2);
+      pavement.bevel(bx0, bx1, bz0, bz1, CURB, BEVEL);
+      kerb(bx0, bx1, bz0, bz1);
 
       const lx0 = bx0 + WALK;
       const lx1 = bx1 - WALK;
@@ -467,7 +489,8 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
       const b = STREETS[j + 1]! - HALF - 10;
       for (let z = a; z <= b; z += 43) {
         if (i > 0) lamp(ax - HALF - 0.8, z, Math.PI / 2);
-        if (i < AVENUES.length - 1) lamp(ax + HALF + 0.8, z + 21, -Math.PI / 2);
+        // Staggered on the other side, but never past the end of the pavement.
+        if (i < AVENUES.length - 1 && z + 21 <= b) lamp(ax + HALF + 0.8, z + 21, -Math.PI / 2);
       }
       if (j % 2 === 0 && i > 0) sign(ax - HALF - 0.8, STREETS[j]! + HALF + 18, faceYaw(0, 1), 'speed');
     }
@@ -479,7 +502,7 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
       const b = AVENUES[i + 1]! - HALF - 10;
       for (let x = a; x <= b; x += 45) {
         if (j < STREETS.length - 1) lamp(x, sz + HALF + 0.8, Math.PI);
-        if (j > 0) lamp(x + 22, sz - HALF - 0.8, 0);
+        if (j > 0 && x + 22 <= b) lamp(x + 22, sz - HALF - 0.8, 0);
       }
     }
   }
