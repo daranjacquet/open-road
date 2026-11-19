@@ -92,7 +92,7 @@ export class CameraRig {
 
     const fov = lerp(62, 82, clamp(speed / 60, 0, 1));
     if (Math.abs(this.camera.fov - fov) > 0.05) {
-      this.camera.fov += (fov - this.camera.fov) * damp(4, dt);
+      this.camera.fov = clamp(this.camera.fov + (fov - this.camera.fov) * damp(4, Math.max(dt, 0)), 40, 90);
       this.camera.updateProjectionMatrix();
     }
   }

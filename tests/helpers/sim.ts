@@ -7,11 +7,11 @@ export async function makeSim(cfg: VehicleConfig, x = 0, z = 0, yaw = 0): Promis
   const physics = await createPhysics();
   const { RAPIER, world } = physics;
   const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, -1, 0));
-  const col = world.createCollider(
+  world.createCollider(
     RAPIER.ColliderDesc.cuboid(5000, 1, 5000).setFriction(1).setCollisionGroups(groups(GROUP.WORLD, 0xffff)),
     body,
   );
-  physics.groundColliders.add(col.handle);
+  // Not registered as world ground: the whole test plane is asphalt (no grass outside the zones).
   const car = new Vehicle(physics, cfg, x, z, yaw);
   return { physics, car };
 }

@@ -5,7 +5,7 @@ export class Hud {
   private readonly speed: HTMLElement;
   private readonly gear: HTMLElement;
   private readonly rpmFill: HTMLElement;
-  private readonly lights: Record<'tc' | 'abs' | 'esp', HTMLElement>;
+  private readonly lights: Record<'tc' | 'abs' | 'esp' | 'man', HTMLElement>;
   private last = 0;
   private readonly zones: Record<'front' | 'rear' | 'left' | 'right' | 'roof', HTMLElement>;
   private readonly eng: HTMLElement;
@@ -35,13 +35,13 @@ export class Hud {
       <div class="hud-box">
         <div><span class="hud-speed" id="hud-speed">0</span><span class="hud-unit">km/h</span></div>
         <div class="hud-row"><div class="hud-rpm"><i id="hud-rpm"></i></div><div class="hud-gear" id="hud-gear">1</div></div>
-        <div class="hud-lights"><b id="hud-tc">TC</b><b id="hud-abs">ABS</b><b id="hud-esp">ESP</b></div>
+        <div class="hud-lights"><b id="hud-man">MANUAL</b><b id="hud-tc">TC</b><b id="hud-abs">ABS</b><b id="hud-esp">ESP</b></div>
       </div>
       <div class="hud-dmg">DAMAGE
         <div class="hud-car"><i class="f" id="dz-front"></i><i class="r" id="dz-rear"></i><i class="l" id="dz-left"></i><i class="rt" id="dz-right"></i><i class="roof" id="dz-roof"></i></div>
         <div class="hud-eng" id="dz-eng">ENGINE 100%</div>
       </div>
-      <div class="hud-help">W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V car &middot; B reset targets &middot; M mute &middot; F3 debug</div>`;
+      <div class="hud-help">W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; Q/E shift (manual) &middot; G garage &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V car &middot; B targets &middot; M mute</div>`;
     this.speed = root.querySelector('#hud-speed')!;
     this.gear = root.querySelector('#hud-gear')!;
     this.rpmFill = root.querySelector('#hud-rpm')!;
@@ -57,6 +57,7 @@ export class Hud {
       tc: root.querySelector('#hud-tc')!,
       abs: root.querySelector('#hud-abs')!,
       esp: root.querySelector('#hud-esp')!,
+      man: root.querySelector('#hud-man')!,
     };
   }
 
@@ -80,5 +81,6 @@ export class Hud {
     this.lights.tc.classList.toggle('on', car.tcActive);
     this.lights.abs.classList.toggle('on', car.absActive);
     this.lights.esp.classList.toggle('on', car.espActivity > 0.05);
+    this.lights.man.style.display = car.manual ? '' : 'none';
   }
 }

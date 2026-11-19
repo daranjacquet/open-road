@@ -135,13 +135,28 @@ export interface VehicleConfig {
   /** Height above the contact patch where tyre forces are applied (m). Controls load transfer feel. */
   tireForceHeight: number;
   steering: {
-    /** Max wheel angle at standstill (rad). */
+    /** Max wheel angle (rad). */
     lock: number;
-    /** Speed (m/s) at which the available lock is divided by 2. */
+    /** Without assist: speed (m/s) at which the available lock is divided by 2. */
     speedRef: number;
-    /** Steering rate at low / high speed (rad/s). */
-    rateLow: number;
-    rateHigh: number;
+    /** How fast the driver's input travels, in full-lock fractions per second. */
+    rate: number;
+    /**
+     * Steering assist, 0..1. At 1 the stick asks for front-tyre slip angle (up to the tyre's peak)
+     * relative to where the front axle is actually going, so the car never ploughs on full lock
+     * and the wheels countersteer by themselves in a slide. At 0 it is a plain speed-sensitive rack.
+     */
+    assist: number;
+    /**
+     * Stability assist, 0..1: when the rear slides past its grip peak, the steering stops asking
+     * the front tyres for more rotation in the same direction. 0 for drifting.
+     */
+    stability?: number;
+    /**
+     * Slide control, 0..1: damps how fast the slip angle swings (not how far it can go), so a
+     * slide or a drift settles instead of snapping back or spinning. An arcade aid.
+     */
+    slideControl?: number;
   };
   brakes: {
     /** Total brake torque at the wheels (N m). */
@@ -161,6 +176,10 @@ export interface VehicleConfig {
     cdA: number;
     clA: number;
   };
+  /** Static camber per axle (degrees, negative = top of the wheel leans in). */
+  camber?: { front: number; rear: number };
+  /** Tyre section width per axle (m). Defaults to wheel.width. */
+  tireWidth?: { front: number; rear: number };
   /** Detachable parts (damage milestone). */
   parts?: CarPartConfig[];
 }

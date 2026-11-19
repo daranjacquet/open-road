@@ -25,7 +25,8 @@ export interface GearState {
 
 /**
  * Automatic gear selection with hysteresis and anti-hunting: an upshift is refused if the
- * resulting rpm would immediately trigger a downshift, and the reverse.
+ * resulting rpm would immediately trigger a downshift, and the reverse. No upshift while the
+ * driven wheels spin.
  */
 export function autoShift(
   g: GearboxConfig,
@@ -33,12 +34,14 @@ export function autoShift(
   rpm: number,
   throttle: number,
   dt: number,
+  wheelspin = false,
 ): void {
   if (st.shiftTimer > 0) st.shiftTimer = Math.max(0, st.shiftTimer - dt);
   if (st.gear <= 0 || st.shiftTimer > 0) return;
   const top = g.ratios.length;
   const upRpm = lerp(g.upshiftRpmLight, g.upshiftRpm, clamp(throttle, 0, 1));
-  if (st.gear < top && rpm > upRpm) {
+  // Hold the gear while the driven wheels spin (burnouts, drifts): the revs are not road speed.
+  if (st.gear < top && rpm > upRpm && !wheelspin) {
     const next = (g.ratios[st.gear] ?? 1) / (g.ratios[st.gear - 1] ?? 1);
     if (rpm * next > g.downshiftRpm + 600) {
       st.gear++;

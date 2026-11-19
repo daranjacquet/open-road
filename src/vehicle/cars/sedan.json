@@ -458,14 +458,16 @@
     "longGripRatio": 1.02,
     "rollingResistance": 0.012
   },
-  "rearGripScale": 1.0,
+  "rearGripScale": 1.04,
   "rearStiffnessScale": 1.25,
   "tireForceHeight": 0.1,
   "steering": {
     "lock": 0.6,
     "speedRef": 22,
-    "rateLow": 2.5,
-    "rateHigh": 1.1
+    "rate": 5,
+    "assist": 0.8,
+    "stability": 0.5,
+    "slideControl": 0.4
   },
   "brakes": {
     "torque": 7200,

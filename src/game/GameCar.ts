@@ -11,6 +11,7 @@ import { Effects } from '../render/effects';
 import { VehicleView } from '../render/VehicleView';
 import { Vehicle, type DriveInput } from '../vehicle/Vehicle';
 import type { VehicleConfig } from '../vehicle/types';
+import { applyTune, stockTune, type Tune } from '../vehicle/tuning';
 
 export interface CarDef {
   id: string;
@@ -30,6 +31,8 @@ export class GameCar {
   readonly damage: DamageModel;
   readonly parts: PartsManager;
   readonly effects: Effects;
+  /** Current garage setup (stock until `applyTune`). */
+  tune: Tune;
   private readonly spawn: { x: number; z: number; yaw: number };
   private readonly crushNear = (x: number, y: number, z: number): number => this.crush.crushNear(x, y, z);
 
@@ -43,6 +46,7 @@ export class GameCar {
     paint?: number,
   ) {
     this.spawn = { x, z, yaw };
+    this.tune = stockTune(def.cfg);
     this.vehicle = new Vehicle(physics, def.cfg, x, z, yaw);
     this.model = buildCarModel(def.id, paint);
     scene.add(this.model.root);
@@ -70,6 +74,15 @@ export class GameCar {
     this.parts.update();
     this.effects.update(frameDt, viewportHeight);
     this.view.update(alpha);
+  }
+
+  /** Apply a garage setup live: physics, gearbox mode, driving aids, wheel stance. */
+  applyTune(tune: Tune): void {
+    this.tune = { ...tune };
+    this.vehicle.applyConfig(applyTune(this.def.cfg, tune));
+    this.vehicle.manual = tune.gearbox === 'manual';
+    if (!this.vehicle.manual && this.vehicle.gear === 0) this.vehicle.gearState.gear = 1;
+    Object.assign(this.vehicle.assists, { tc: tune.tc, abs: tune.abs, esp: tune.esp });
   }
 
   repair(): void {

@@ -9,7 +9,7 @@ import { absScale, espControl, tcScale, type EspOut } from './assists';
 import { autoShift, engineTorque, totalRatio, type GearState } from './drivetrain';
 import { ackermann, maxSteerAngle } from './steering';
 import { tireForces, type TireOut } from './tire';
-import type { AxleSuspension, VehicleConfig } from './types';
+import type { AxleSuspension, TireParams, VehicleConfig } from './types';
 
 export interface DriveInput {
   /** 0..1 */
@@ -37,7 +37,10 @@ export class WheelState {
   readonly isFront: boolean;
   readonly isLeft: boolean;
   readonly mount = new THREE.Vector3();
-  readonly susp: AxleSuspension;
+  susp: AxleSuspension;
+  /** Static camber (rad, negative = top leans in) and tyre width (m), for the view. */
+  camber = 0;
+  width = 0.25;
   /** Spin speed (rad/s), positive = rolling forward. */
   omega = 0;
   spin = 0;
@@ -129,17 +132,52 @@ function accumulate(dt: number, px: number, py: number, pz: number, fx: number, 
 }
 const _o2 = { x: 0, y: 0, z: 0 };
 
+/** Lateral grip factor from static camber (deg): a little negative camber helps in corners. */
+export function camberLateral(deg: number): number {
+  const c = -deg;
+  if (c >= 0) return 1 + 0.03 * Math.min(c, 3.5) - 0.012 * Math.max(c - 3.5, 0);
+  return 1 + 0.05 * c; // positive camber hurts quickly
+}
+/** Longitudinal grip factor from static camber (deg): a leaning tyre has less patch to brake and drive on. */
+export function camberLongitudinal(deg: number): number {
+  return clamp(1 - 0.022 * Math.abs(deg), 0.75, 1);
+}
+
+/** Tyre parameters for one axle after width, camber and stiffness. */
+export function axleTire(base: TireParams, widthRatio: number, camberDeg: number, stiffness: number): TireParams {
+  const lat = camberLateral(camberDeg);
+  const lon = camberLongitudinal(camberDeg);
+  return {
+    ...base,
+    mu: base.mu * Math.pow(widthRatio, 0.22) * lat,
+    longGripRatio: (base.longGripRatio * lon) / lat,
+    peakSlipAngle: base.peakSlipAngle / (stiffness * Math.pow(widthRatio, 0.45)),
+    rollingResistance: base.rollingResistance * Math.pow(widthRatio, 0.5),
+  };
+}
+
 export class Vehicle {
   readonly body: RAPIER.RigidBody;
   readonly wheels: WheelState[];
-  readonly wheelbase: number;
-  readonly trackFront: number;
+  wheelbase = 0;
+  trackFront = 0;
   readonly assists: Assists = { tc: true, abs: true, esp: true };
+  /** Manual gearbox: the driver shifts with shiftUp / shiftDown. */
+  manual = false;
 
   // Drivetrain state.
   readonly gearState: GearState = { gear: 1, shiftTimer: 0 };
   rpm: number;
   steerAngle = 0;
+  /** Driver input after the steering rate limit (-1..1). */
+  steerInput = 0;
+  /** Filtered direction of travel of the front axle relative to the heading (rad, + = left). */
+  private frontTravel = 0;
+  /** Body slip angle (rad) of the last step and its filtered rate, for slide control. */
+  private slip = 0;
+  private slipRate = 0;
+  /** Inertia about the up axis (kg m^2). */
+  private yawInertia = 1;
   limiter = false;
 
   // Telemetry (read by HUD / debug).
@@ -155,7 +193,7 @@ export class Vehicle {
   powerScale = 1;
   /** Crumple zones (null until `attachCrush`). */
   crush: CrushSystem | null = null;
-  readonly mass: number;
+  mass: number;
 
   // Interpolation snapshots for the chassis.
   readonly prevPos = new THREE.Vector3();
@@ -164,17 +202,20 @@ export class Vehicle {
   readonly currQuat = new THREE.Quaternion();
 
   private readonly ray: RAPIER.Ray;
-  private readonly rearTire: VehicleConfig['tire'];
-  private readonly drivenShare: [number, number, number, number];
+  private frontTire!: TireParams;
+  private rearTire!: TireParams;
+  private drivenShare: [number, number, number, number] = [0, 0, 0, 0];
   private readonly comLocal = new THREE.Vector3();
   private readonly mountLocal: THREE.Vector3[];
-  private readonly wheelIdleInertia: number;
+  private wheelIdleInertia = 1;
+  /** Distance from the centre of mass to the front axle (m). */
+  private lf = 1.3;
   private first = true;
   private readonly invG = 1 / G;
 
   constructor(
     private readonly physics: Physics,
-    readonly cfg: VehicleConfig,
+    public cfg: VehicleConfig,
     x = 0,
     z = 0,
     yaw = 0,
@@ -182,12 +223,7 @@ export class Vehicle {
     const { RAPIER, world } = physics;
     const m = cfg.mass;
     this.mass = m;
-    const [w, h, l] = cfg.inertiaBox;
-    const principal = {
-      x: (m / 12) * (h * h + l * l),
-      y: (m / 12) * (w * w + l * l),
-      z: (m / 12) * (w * w + h * h),
-    };
+    const principal = Vehicle.principal(cfg);
     this.comLocal.set(...cfg.com);
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
     const rideHeight = cfg.wheel.radius + cfg.suspensionFront.maxLen * 0.65 + 0.02;
@@ -222,29 +258,82 @@ export class Vehicle {
       );
     }
 
+    this.mountLocal = [0, 1, 2, 3].map(() => new THREE.Vector3());
+    this.wheels = [0, 1, 2, 3].map((i) => new WheelState(i, i < 2 ? cfg.suspensionFront : cfg.suspensionRear));
+    this.deriveFromConfig();
+    this.rpm = cfg.engine.idleRpm;
+    this.ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+    this.syncFromBody();
+    this.prevPos.copy(this.currPos);
+    this.prevQuat.copy(this.currQuat);
+  }
+
+  private static principal(cfg: VehicleConfig): { x: number; y: number; z: number } {
+    const m = cfg.mass;
+    const [w, h, l] = cfg.inertiaBox;
+    return { x: (m / 12) * (h * h + l * l), y: (m / 12) * (w * w + l * l), z: (m / 12) * (w * w + h * h) };
+  }
+
+  /** Everything cached from the config (geometry, tyres per axle, driveline split). */
+  private deriveFromConfig(): void {
+    const cfg = this.cfg;
     const mounts = [cfg.wheels.FL, cfg.wheels.FR, cfg.wheels.RL, cfg.wheels.RR];
-    this.mountLocal = mounts.map((v) => new THREE.Vector3(...v));
-    this.wheels = mounts.map((v, i) => {
-      const wh = new WheelState(i, i < 2 ? cfg.suspensionFront : cfg.suspensionRear);
-      wh.mount.set(...v);
-      return wh;
-    });
+    const camber = cfg.camber ?? { front: 0, rear: 0 };
+    const width = cfg.tireWidth ?? { front: cfg.wheel.width, rear: cfg.wheel.width };
+    for (let i = 0; i < 4; i++) {
+      const w = this.wheels[i]!;
+      this.mountLocal[i]!.set(...mounts[i]!);
+      w.mount.set(...mounts[i]!);
+      w.susp = i < 2 ? cfg.suspensionFront : cfg.suspensionRear;
+      w.camber = ((i < 2 ? camber.front : camber.rear) * Math.PI) / 180;
+      w.width = i < 2 ? width.front : width.rear;
+    }
     this.wheelbase = cfg.wheels.FL[2] - cfg.wheels.RL[2];
     this.trackFront = cfg.wheels.FL[0] - cfg.wheels.FR[0];
+    this.lf = cfg.wheels.FL[2] - cfg.com[2];
     this.wheelIdleInertia = cfg.wheel.inertia;
+    this.yawInertia = Vehicle.principal(cfg).y;
     this.drivenShare =
       cfg.drive === 'FWD'
         ? [0.5, 0.5, 0, 0]
         : cfg.drive === 'RWD'
           ? [0, 0, 0.5, 0.5]
           : [cfg.frontTorqueBias / 2, cfg.frontTorqueBias / 2, (1 - cfg.frontTorqueBias) / 2, (1 - cfg.frontTorqueBias) / 2];
-    // Wider rear tyres: more cornering stiffness (lower peak slip angle) without more peak grip.
-    this.rearTire = { ...cfg.tire, peakSlipAngle: cfg.tire.peakSlipAngle / cfg.rearStiffnessScale };
-    this.rpm = cfg.engine.idleRpm;
-    this.ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
-    this.syncFromBody();
-    this.prevPos.copy(this.currPos);
-    this.prevQuat.copy(this.currQuat);
+    // Wider tyres: more grip and cornering stiffness; camber trades braking grip for cornering grip.
+    // rearStiffnessScale: stiffer rear tyres (lower peak slip angle) without more peak grip.
+    this.frontTire = axleTire(cfg.tire, width.front / cfg.wheel.width, camber.front, 1);
+    this.rearTire = axleTire(cfg.tire, width.rear / cfg.wheel.width, camber.rear, cfg.rearStiffnessScale);
+  }
+
+  /** Swap in a new configuration on the fly (garage tuning). Keeps position, speed and damage. */
+  applyConfig(cfg: VehicleConfig): void {
+    this.cfg = cfg;
+    this.deriveFromConfig();
+    this.comLocal.set(...cfg.com);
+    if (cfg.mass !== this.mass || this.body.localCom().y !== cfg.com[1] || this.body.localCom().z !== cfg.com[2]) {
+      this.mass = cfg.mass;
+      this.body.setAdditionalMassProperties(cfg.mass, { x: cfg.com[0], y: cfg.com[1], z: cfg.com[2] }, Vehicle.principal(cfg), { x: 0, y: 0, z: 0, w: 1 }, true);
+    }
+    const g = this.gearState;
+    if (g.gear > cfg.gearbox.ratios.length) g.gear = cfg.gearbox.ratios.length;
+    for (const w of this.wheels) w.length = clamp(w.length, w.susp.minLen, w.susp.maxLen);
+  }
+
+  /** Manual gearbox: next gear up (from reverse goes to neutral then first). */
+  shiftUp(): void {
+    const g = this.gearState;
+    if (g.gear >= this.cfg.gearbox.ratios.length) return;
+    g.gear = g.gear === -1 ? 0 : g.gear + 1;
+    g.shiftTimer = this.cfg.gearbox.shiftTime;
+  }
+
+  /** Manual gearbox: next gear down; reverse only when (almost) stopped. */
+  shiftDown(): void {
+    const g = this.gearState;
+    if (g.gear <= -1) return;
+    if (g.gear === 0 && Math.abs(this.vLong) > 1.5) return;
+    g.gear -= 1;
+    g.shiftTimer = this.cfg.gearbox.shiftTime * 0.7;
   }
 
   /** Enable crumple zones from rays measured on the visible shell. */
@@ -304,6 +393,10 @@ export class Vehicle {
     this.gearState.shiftTimer = 0;
     this.rpm = this.cfg.engine.idleRpm;
     this.steerAngle = 0;
+    this.steerInput = 0;
+    this.frontTravel = 0;
+    this.slip = 0;
+    this.slipRate = 0;
     this.first = true;
     this.syncFromBody();
     this.prevPos.copy(this.currPos);
@@ -359,7 +452,12 @@ export class Vehicle {
     let throttleCmd = clamp(input.throttle, 0, 1);
     let brakeCmd = clamp(input.brake, 0, 1);
     const stopped = Math.abs(vLong) < 0.8;
-    if (gs.gear === -1) {
+    if (this.manual) {
+      // Manual: W is always the throttle, S always the brake; the driver picks the gear.
+      if (gs.gear === 0 && stopped && throttleCmd > 0.05) {
+        gs.gear = 1;
+      }
+    } else if (gs.gear === -1) {
       // Reverse: S drives, W brakes until stopped then selects first gear.
       const t = input.brake;
       const b = input.throttle;
@@ -385,10 +483,36 @@ export class Vehicle {
 
     // ---- steering ----------------------------------------------------------------
     const st = cfg.steering;
-    const targetSteer = clamp(input.steer, -1, 1) * maxSteerAngle(st.lock, st.speedRef, speed);
-    let rate = lerp(st.rateLow, st.rateHigh, clamp(speed / 30, 0, 1));
-    if (Math.abs(targetSteer) < Math.abs(this.steerAngle)) rate *= 1.6;
-    this.steerAngle = moveToward(this.steerAngle, targetSteer, rate * dt);
+    const inTarget = clamp(input.steer, -1, 1);
+    const inRate = st.rate * (Math.abs(inTarget) < Math.abs(this.steerInput) ? 1.6 : 1);
+    this.steerInput = moveToward(this.steerInput, inTarget, inRate * dt);
+    // Where the front axle is travelling, relative to the heading.
+    const vLat = _vel.dot(_left);
+    const travel = vLong > 0.5 ? Math.atan2(vLat + yawRate * this.lf, vLong) : 0;
+    this.frontTravel += (travel - this.frontTravel) * damp(30, dt);
+    // Body slip and how fast it changes (0 in a steady corner or a steady drift).
+    const slipNow = vLong > 1 ? Math.atan2(vLat, vLong) : 0;
+    const slipRate = this.first ? 0 : (slipNow - this.slip) / dt;
+    this.slip = slipNow;
+    this.slipRate += (slipRate - this.slipRate) * damp(20, dt);
+    // Assisted: aim the wheels along the front axle's path plus up to the tyre's peak slip angle.
+    // Plain: the input is a fraction of a speed-sensitive lock.
+    const w = clamp(st.assist, 0, 1) * smoothstep(2, 7, vLong);
+    const peakAngle = Math.atan(this.frontTire.peakSlipAngle) * 1.15;
+    const plainMax = maxSteerAngle(st.lock, st.speedRef, speed);
+    // Stability: when the rear axle slides past its peak, stop asking the front for more rotation
+    // in the same direction (what a driver does by unwinding the wheel).
+    let ask = this.steerInput;
+    const stab = clamp(st.stability ?? 0, 0, 1);
+    if (stab > 0 && vLong > 3 && ask * yawRate > 0) {
+      const lr = this.lf - this.wheelbase;
+      const rearTravel = Math.atan2(vLat + yawRate * lr, vLong);
+      const rearPeak = Math.atan(this.rearTire.peakSlipAngle);
+      const excess = clamp((Math.abs(rearTravel) - rearPeak) / rearPeak, 0, 1);
+      ask *= 1 - stab * excess;
+    }
+    const targetSteer = clamp(w * this.frontTravel + ask * lerp(plainMax, peakAngle, w), -st.lock, st.lock);
+    this.steerAngle = moveToward(this.steerAngle, targetSteer, 6 * dt);
     const [aL, aR] = ackermann(this.steerAngle, this.wheelbase, this.trackFront);
     wheels[0]!.steer = aL + wheels[0]!.steerBias;
     wheels[1]!.steer = aR + wheels[1]!.steerBias;
@@ -411,7 +535,11 @@ export class Vehicle {
     _esp.brake[0] = _esp.brake[1] = _esp.brake[2] = _esp.brake[3] = 0;
     _esp.activity = 0;
     if (this.assists.esp) {
-      espControl(vLong, yawRate, this.steerAngle, this.wheelbase, _esp);
+      const v = Math.max(Math.abs(vLong), 1);
+      const cap = (0.95 * G) / v;
+      const plain = (Math.sign(vLong) * v * Math.tan(this.steerInput * plainMax)) / this.wheelbase;
+      const desired = clamp(lerp(plain, this.steerInput * cap, w), -cap, cap);
+      espControl(vLong, yawRate, desired, _esp);
       throttleScale *= _esp.throttleScale;
       this.espActivity = _esp.activity;
     }
@@ -432,10 +560,13 @@ export class Vehicle {
     const avgOmega = nDriven > 0 ? sumW / nDriven : 0;
     const coupledRpm = Math.abs(avgOmega * ratio) * RADS_TO_RPM;
     const throttleEff = throttleCmd * throttleScale;
+    // Pulling the handbrake also presses the clutch: the engine revs freely and the gear is kept,
+    // and letting go "kicks" the clutch (a drift entry, not a stall).
+    const declutch = ratio !== 0 && input.handbrake > 0.1;
     // Clutch slips at launch: the engine flares towards launchRpm instead of lugging at wheel speed.
     const cs = ratio === 0 ? 0 : 1 - smoothstep(2, 7, Math.abs(vLong));
     let targetRpm: number;
-    if (ratio === 0) {
+    if (ratio === 0 || declutch) {
       targetRpm = eng.idleRpm + throttleCmd * (eng.redlineRpm - eng.idleRpm) * 0.6;
     } else {
       const launch = lerp(eng.idleRpm, eng.launchRpm, throttleEff);
@@ -448,14 +579,22 @@ export class Vehicle {
     if (this.rpm >= eng.redlineRpm) this.limiter = true;
     else if (this.rpm < eng.redlineRpm - 250) this.limiter = false;
 
-    autoShift(gb, gs, this.rpm, throttleEff, dt);
+    let spin = 0;
+    for (let i = 0; i < 4; i++) if (this.drivenShare[i]! > 0) spin = Math.max(spin, wheels[i]!.slipAssist);
+    if (this.manual) {
+      if (gs.shiftTimer > 0) gs.shiftTimer = Math.max(0, gs.shiftTimer - dt);
+    } else {
+      // Shift on road speed: locked or spinning wheels say nothing about which gear fits.
+      const roadRpm = Math.max(((vLong > 0 ? speed : Math.abs(vLong)) / R) * absRatio * RADS_TO_RPM, eng.idleRpm);
+      autoShift(gb, gs, cs > 0.5 ? this.rpm : roadRpm, throttleEff, dt, spin > 0.25);
+    }
 
     let crank = engineTorque(eng, this.rpm, throttleEff) * this.powerScale;
     if (this.limiter && crank > 0) crank = 0;
     if (crank < 0) crank *= 1 - cs;
     const shifting = gs.shiftTimer > 0;
-    const wheelTorqueTotal = shifting || ratio === 0 ? 0 : crank * ratio * gb.efficiency;
-    const reflected = ratio === 0 ? 0 : (eng.inertia * absRatio * absRatio * (1 - cs)) / Math.max(nDriven, 1);
+    const wheelTorqueTotal = shifting || ratio === 0 || declutch ? 0 : crank * ratio * gb.efficiency;
+    const reflected = ratio === 0 || declutch ? 0 : (eng.inertia * absRatio * absRatio * (1 - cs)) / Math.max(nDriven, 1);
 
     for (let i = 0; i < 4; i++) wheels[i]!.hubDrive = wheelTorqueTotal * this.drivenShare[i]!;
 
@@ -464,7 +603,9 @@ export class Vehicle {
       for (const [a, b] of AXLES) {
         if (this.drivenShare[a]! > 0 && this.drivenShare[b]! > 0) {
           const slip = wheels[a]!.omega - wheels[b]!.omega;
-          const tr = clamp(cfg.diff.lsdK * slip, -cfg.diff.lsdMax, cfg.diff.lsdMax);
+          // Coupling stiffness capped by what an explicit step can take without ringing.
+          const kMax = (0.45 * (this.wheelIdleInertia + reflected)) / dt;
+          const tr = clamp(Math.min(cfg.diff.lsdK, kMax) * slip, -cfg.diff.lsdMax, cfg.diff.lsdMax);
           wheels[a]!.hubDrive -= tr;
           wheels[b]!.hubDrive += tr;
         }
@@ -551,7 +692,6 @@ export class Vehicle {
     _jTot.set(0, 0, 0);
     _tTot.set(0, 0, 0);
 
-    const tireCfg = cfg.tire;
     for (let i = 0; i < 4; i++) {
       const w = wheels[i]!;
       const Ieff = this.wheelIdleInertia + (this.drivenShare[i]! > 0 ? reflected : 0);
@@ -617,12 +757,12 @@ export class Vehicle {
       w.slipAssist = clamp(slipSpeed / Math.max(Math.abs(vx), 5), -5, 5);
       w.slipAngle = Math.atan(tanA);
 
-      tireForces(w.isFront ? tireCfg : this.rearTire, kappa, tanA, F, grip, _tire);
+      tireForces(w.isFront ? this.frontTire : this.rearTire, kappa, tanA, F, grip, _tire);
       let fx = _tire.fx;
       let fy = _tire.fy;
 
       // Rolling resistance (smooth through zero speed).
-      fx -= tireCfg.rollingResistance * SURFACE_ROLLING[surface] * F * clamp(vx / 0.6, -1, 1);
+      fx -= (w.isFront ? this.frontTire : this.rearTire).rollingResistance * SURFACE_ROLLING[surface] * F * clamp(vx / 0.6, -1, 1);
 
       // Stability clamps: a tyre cannot remove more slip velocity in one step than exists.
       const mc = Math.max(F * this.invG, 40);
@@ -660,6 +800,15 @@ export class Vehicle {
       om = Math.abs(om) <= bt ? 0 : om - Math.sign(om) * bt;
       w.omega = om;
       w.spin += om * dt;
+    }
+
+    // ---- slide control (arcade) -----------------------------------------------------------
+    // A yaw damper on the rate of change of the slip angle: it does not change how much the car
+    // can slide, only how violently the angle swings, so slides and drifts can be held on a keyboard.
+    const sc = clamp(cfg.steering.slideControl ?? 0, 0, 1);
+    if (sc > 0 && vLong > 3 && speed > 5) {
+      const tz = clamp(sc * 3 * this.yawInertia * this.slipRate, -this.yawInertia * 4, this.yawInertia * 4) * dt;
+      _tTot.addScaledVector(_up, tz);
     }
 
     // ---- aerodynamics ------------------------------------------------------------------

@@ -16,6 +16,9 @@ export class Input {
   constructor(target: Window = window) {
     target.addEventListener('keydown', (e) => {
       if (e.repeat) return;
+      // Typing in a settings field is not driving.
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA')) return;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
       this.down.add(e.code);
       this.edges.add(e.code);
@@ -77,6 +80,8 @@ export class Input {
       };
       edge(3, 'KeyR');
       edge(1, 'KeyC');
+      edge(4, 'KeyQ'); // LB: shift down
+      edge(5, 'KeyE'); // RB: shift up
       this.padPressedPrev = pressedNow;
     }
     o.throttle = clamp(throttle, 0, 1);

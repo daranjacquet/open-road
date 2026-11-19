@@ -22,7 +22,9 @@ A browser driving sandbox built around **realistic car physics and crash damage*
 | Accelerate | `W` / `Up` | right trigger |
 | Brake, then reverse | `S` / `Down` | left trigger |
 | Steer | `A` `D` / `Left` `Right` | left stick |
-| Handbrake | `Space` | `A` or `X` |
+| Handbrake (also presses the clutch) | `Space` | `A` or `X` |
+| Shift up / down (manual gearbox) | `E` / `Q` | `RB` / `LB` |
+| Garage (setups and settings) | `G` | |
 | Flip the car upright | `R` | `Y` |
 | Repair and respawn | `Shift+R` | |
 | Camera (chase, hood, bumper) | `C` | `B` |
@@ -31,7 +33,17 @@ A browser driving sandbox built around **realistic car physics and crash damage*
 | Mute | `M` | |
 | Debug overlay | `F3` | |
 
-The gearbox is automatic. Steering lock shrinks with speed and the keyboard input is smoothed. The top-right menu toggles traction control, ABS and ESP.
+The gearbox is automatic by default (manual in the garage). The steering is assisted: holding a direction asks the front tyres for their best grip, whatever the speed, and the wheels countersteer by themselves when the rear slides. You can turn every aid down in the garage.
+
+### Garage
+
+The top-right panel (`G`) changes the car live and saves the setup per car:
+
+- **Setups**: Stock, **Drift** (RWD, welded diff, 58 degrees of lock, front camber, wider front track, soft rear grip, big handbrake, no stability aid) and **Track** (stiffer and lower, wider tyres, more grip and downforce).
+- **Steering**: lock, steering assist, stability assist, slide control, steering speed.
+- **Engine**: power, torque, rev limit. **Driveline**: FWD, RWD or AWD, AWD split, diff lock, final drive, auto or manual gearbox.
+- **Suspension**: ride height, springs, dampers, anti-roll bars. **Wheels and tyres**: track width, camber, tyre width, grip, rear grip balance, grip while sliding.
+- **Brakes**: power, bias, handbrake. **Chassis**: mass, weight distribution, downforce. **Driving aids**: TC, ABS, ESP.
 
 ## Run locally
 
@@ -66,7 +78,8 @@ scripts/     optimize-models.mjs (meshopt compression of the Blender exports)
 - Physics steps at a fixed **120 Hz** with render interpolation, independent of frame rate.
 - One Rapier rigid body per car. **Suspension is raycast**, written from scratch: spring, asymmetric damper, bump stop, anti-roll bars. Weight transfer is not scripted; it comes out of the forces.
 - **Tyre model**: slip ratio and slip angle, a Magic-Formula-style curve, a combined-slip friction ellipse, load sensitivity and surface grip. A one-step stability clamp keeps it well behaved at walking speed.
-- **Drivetrain**: engine torque curve, clutch slip at launch, automatic gearbox with anti-hunting, open or limited-slip differential, brake bias, handbrake, drag and downforce.
+- **Drivetrain**: engine torque curve, clutch slip at launch, automatic gearbox (shifts on road speed, holds the gear in wheelspin) or manual, open or limited-slip differential, brake bias, handbrake with clutch, drag and downforce.
+- **Arcade layer, each on a slider**: steering assist (the input asks for front slip angle relative to where the front axle is going, so full lock never ploughs and the wheels countersteer in a slide), stability assist (unwinds the steering when the rear slides) and slide control (a damper on how fast the slip angle changes, not on how far it can go, so slides settle instead of snapping).
 - Aids: traction control, ABS and a yaw-rate ESP.
 - Every car is a JSON file in `src/vehicle/cars/`. See [docs/TUNING.md](docs/TUNING.md) for what each value does.
 
@@ -112,7 +125,7 @@ I have not measured on a modest PC. Draw calls are above what I would aim for on
 - **Very hard hits bottom out.** At 100 km/h into a wall the crumple depth runs out and the rigid core stops the car abruptly (peak deceleration well above real life).
 - **Car vs car is approximate.** Each car sees the other's undeformed outline box; dents are capped by its own crush, so impacts look plausible but not exact.
 - **Models are procedural.** They come from scripts, not a car designer: proportions are right, but surfaces are simpler than a real car's.
-- **Handling was tuned with headless simulations** (0-100, braking, skid pad, stability, steering response), not by a human driver.
+- **Handling was tuned with headless simulations**, not by a human driver: full-lock corners from 60 to 180 km/h, slaloms, handbrake flicks and a keyboard-style drifter that only presses keys fully (`tests/handling.test.ts`).
 - **World.** A flat 2 km x 2 km plane with three surfaces and a test area. There is no chunk system.
 - Skid marks only on asphalt. Audio is synthesised and simple.
 

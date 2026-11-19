@@ -2,7 +2,9 @@
 
 Every car lives in `src/vehicle/cars/<id>.json` and is typed by `src/vehicle/types.ts`. Units are SI (metres, kilograms, newtons, radians) except engine speed in rpm. The car frame is +Y up, +Z forward, +X left.
 
-Run `npm test` after a change: the headless simulations print 0-100 time, top speed, braking distance, skid-pad lateral g, high-speed drift and steering response for each car.
+Run `npm test` after a change: the headless simulations print 0-100 time, top speed, braking distance, skid-pad lateral g, high-speed drift and steering response for each car, plus keyboard-style handling runs (full-lock corners, slalom, handbrake flick, drift hold) in `tests/handling.test.ts`.
+
+The in-game garage (`G`) edits the same values live; `src/vehicle/tuning.ts` maps its sliders to the config and holds the Drift and Track setups.
 
 ## Handling
 
@@ -18,9 +20,14 @@ Run `npm test` after a change: the headless simulations print 0-100 time, top sp
 | `tire.slideRatio` | Grip left when fully sliding. Low is snappy and punishing, high is progressive and easy to drift. | 0.78 to 0.84 |
 | `tire.loadSensitivity` | How much grip per newton is lost as load rises. Higher means weight transfer costs more grip. | 0.1 to 0.14 |
 | `rearStiffnessScale` | Rear cornering stiffness. Above 1 makes the car stable and understeering at speed (needed for hands-off stability), below 1 makes it lively. | 1.0 to 1.14 |
-| `rearGripScale` | Rear peak grip. Use with care: it also moves the limit. | 1.0 |
+| `rearGripScale` | Rear peak grip. With the steering assist the front always runs at its peak, so the rear needs a few percent more grip for the car to stay stable at the limit. | 1.04 to 1.07 |
 | `tireForceHeight` | Height above the contact patch where tyre forces act. Lower means more load transfer under braking and acceleration. | 0.1 to 0.14 |
-| `steering.lock`, `speedRef` | Wheel angle at standstill, and the speed at which available lock halves. | |
+| `steering.lock` | Maximum wheel angle. | 0.55 to 0.6 rad (drift: 1.0) |
+| `steering.assist` | 0 to 1. At 1 the input asks the front tyres for slip angle (up to their peak) relative to where the front axle is going: full lock gives the best cornering grip at any speed, and the wheels countersteer by themselves in a slide. At 0 it is a plain rack whose lock halves at `speedRef`. | 0.8 |
+| `steering.stability` | 0 to 1. When the rear slides past its peak, stop asking the front for more rotation in that direction. | 0.5 (drift: 0) |
+| `steering.slideControl` | 0 to 1. Yaw damper on the rate of change of the slip angle: slides settle instead of snapping back or spinning, without limiting the angle. 0.4 on road cars, 0.8 for drifting. | 0.3 to 0.8 |
+| `steering.rate` | How fast the input travels, in full-lock fractions per second. | 5 |
+| `camber`, `tireWidth` | Per axle. A little negative camber adds cornering grip (best near -3.5 degrees) and costs braking and traction grip. Wider tyres add grip and stiffness. | camber 0 to -3.5 |
 
 ## Drivetrain
 

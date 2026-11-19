@@ -1,4 +1,4 @@
-import { clamp, G } from '../core/math';
+import { clamp } from '../core/math';
 
 /** ABS: scale the brake torque of one wheel from its slip ratio (negative = locking). */
 export function absScale(kappa: number): number {
@@ -22,18 +22,16 @@ export interface EspOut {
 
 /**
  * Stability control. Compares the measured yaw rate with the yaw rate the driver asks for
- * (steering angle, speed, bicycle model, capped by what the tyres can give):
+ * (`desired`: from the steering input and speed, capped by what the tyres can give):
  * - oversteer (car rotates more than asked): brake the outer front wheel and cut throttle,
  * - understeer (car rotates less than asked): brake the inner rear wheel.
  */
-export function espControl(vLong: number, yawRate: number, steerAngle: number, wheelbase: number, out: EspOut): EspOut {
+export function espControl(vLong: number, yawRate: number, desired: number, out: EspOut): EspOut {
   out.throttleScale = 1;
   out.brake[0] = out.brake[1] = out.brake[2] = out.brake[3] = 0;
   out.activity = 0;
   const v = Math.abs(vLong);
   if (v < 8) return out;
-  const cap = (0.95 * G) / v;
-  const desired = clamp((Math.sign(vLong) * v * Math.tan(steerAngle)) / wheelbase, -cap, cap);
   const err = yawRate - desired;
   const dead = 0.12;
   if (Math.abs(err) <= dead) return out;

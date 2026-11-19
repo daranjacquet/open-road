@@ -1,4 +1,3 @@
-import GUI from 'lil-gui';
 import { FixedStepper, type StepResult } from './core/loop';
 import { Input } from './core/input';
 import { createPhysics, FIXED_DT } from './core/physics';
@@ -10,6 +9,7 @@ import { CARS, carById } from './game/catalog';
 import { GameCar, IDLE } from './game/GameCar';
 import { GameAudio } from './audio/audio';
 import { Hud } from './ui/hud';
+import { Garage } from './ui/garage';
 import { createGround } from './world/ground';
 import { createWorldProps } from './world/props';
 import type { DriveInput } from './vehicle/Vehicle';
@@ -55,22 +55,8 @@ async function boot(): Promise<void> {
   const hookAudio = (): void => player.damage.addImpactListener((i) => audio.impact(i));
   hookAudio();
 
-  // Driving aids menu (settings survive a car swap).
-  const assistState = { tc: true, abs: true, esp: true };
-  const applyAssists = (): void => {
-    Object.assign(player.vehicle.assists, assistState);
-  };
-  const gui = new GUI({ title: 'Driving aids' });
-  gui.add(assistState, 'tc').name('Traction control').onChange(applyAssists);
-  gui.add(assistState, 'abs').name('ABS').onChange(applyAssists);
-  gui.add(assistState, 'esp').name('ESP').onChange(applyAssists);
-  const carChoice = { car: player.def.id };
-  gui
-    .add(carChoice, 'car', Object.fromEntries(CARS.map((c) => [c.name, c.id])))
-    .name('Car')
-    .onChange((id: string) => swapCar(id));
-  gui.close();
-  applyAssists();
+  // Garage: setups and every setting, saved per car.
+  const garage = new Garage(() => player, (id) => swapCar(id));
 
   function swapCar(id: string): void {
     const t = player.vehicle.body.translation();
@@ -79,10 +65,8 @@ async function boot(): Promise<void> {
     player.dispose();
     player = new GameCar(physics, gs.scene, carById(id), t.x, t.z, yaw);
     player.vehicle.placeAt(t.x, 1.0, t.z, yaw);
-    applyAssists();
+    garage.attach();
     hookAudio();
-    carChoice.car = id;
-    gui.controllersRecursive().forEach((c) => c.updateDisplay());
     rig.mode = rig.mode; // keep the current camera
     try {
       localStorage.setItem('open-road:car', id);
@@ -145,6 +129,7 @@ async function boot(): Promise<void> {
     renderNow,
     renderFrom,
     swapCar,
+    garage,
   };
   (window as unknown as { game: unknown }).game = api;
 
@@ -153,7 +138,7 @@ async function boot(): Promise<void> {
       last = now;
       return;
     }
-    const frameDt = Math.min((now - last) / 1000, 0.1);
+    const frameDt = Math.min(Math.max((now - last) / 1000, 0), 0.1);
     last = now;
 
     const cmd = input.sample(frameDt);
@@ -165,6 +150,9 @@ async function boot(): Promise<void> {
       swapCar(CARS[(i + 1) % CARS.length]!.id);
     }
     if (input.pressed('KeyB')) dummies.forEach((d) => d.respawn());
+    if (input.pressed('KeyG')) garage.toggle();
+    if (input.pressed('KeyE')) player.vehicle.manual && player.vehicle.shiftUp();
+    if (input.pressed('KeyQ')) player.vehicle.manual && player.vehicle.shiftDown();
 
     stepper.advance(frameDt, res);
     const p0 = performance.now();
