@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { clamp, damp, G, lerp, moveToward, RADS_TO_RPM, smoothstep } from '../core/math';
+import { clamp, damp, G, lerp, RADS_TO_RPM, smoothstep } from '../core/math';
 import { GROUP, groups, SURFACE_GRIP, type Physics, type Surface } from '../core/physics';
 import { CrushSystem } from '../damage/CrushSystem';
 import type { CrushRay } from '../damage/rays';
 import { absScale, espControl, tcScale, type EspOut } from './assists';
 import { autoShift, engineTorque, totalRatio, type GearState } from './drivetrain';
-import { ackermann, maxSteerAngle } from './steering';
+import { ackermann, SteeringController, type SteerContext } from './steering';
 import { tireForces, type TireOut } from './tire';
 import type { AxleSuspension, TireParams, VehicleConfig } from './types';
 
@@ -132,6 +132,8 @@ function accumulate(dt: number, px: number, py: number, pz: number, fx: number, 
   _tTot.add(_tq);
 }
 const _o2 = { x: 0, y: 0, z: 0 };
+const _ack: [number, number] = [0, 0];
+const _steerCtx: SteerContext = { dt: 0, input: 0, vLong: 0, vLat: 0, speed: 0, yawRate: 0, lf: 0, wheelbase: 0, frontPeak: 0, rearPeak: 0, first: false };
 
 /** Lateral grip factor from static camber (deg): a little negative camber helps in corners. */
 export function camberLateral(deg: number): number {
@@ -169,14 +171,8 @@ export class Vehicle {
   // Drivetrain state.
   readonly gearState: GearState = { gear: 1, shiftTimer: 0 };
   rpm: number;
-  steerAngle = 0;
-  /** Driver input after the steering rate limit (-1..1). */
-  steerInput = 0;
-  /** Filtered direction of travel of the front axle relative to the heading (rad, + = left). */
-  private frontTravel = 0;
-  /** Body slip angle (rad) of the last step and its filtered rate, for slide control. */
-  private slip = 0;
-  private slipRate = 0;
+  /** Steering and its arcade aids (assist, stability, slide signal). */
+  readonly steering = new SteeringController();
   /** Inertia about the up axis (kg m^2). */
   private yawInertia = 1;
   limiter = false;
@@ -366,6 +362,11 @@ export class Vehicle {
     return this.speed * 3.6;
   }
 
+  /** Centre wheel angle (rad, + = left). */
+  get steerAngle(): number {
+    return this.steering.angle;
+  }
+
   get gear(): number {
     return this.gearState.gear;
   }
@@ -393,11 +394,7 @@ export class Vehicle {
     this.gearState.gear = 1;
     this.gearState.shiftTimer = 0;
     this.rpm = this.cfg.engine.idleRpm;
-    this.steerAngle = 0;
-    this.steerInput = 0;
-    this.frontTravel = 0;
-    this.slip = 0;
-    this.slipRate = 0;
+    this.steering.reset();
     this.first = true;
     this.syncFromBody();
     this.prevPos.copy(this.currPos);
@@ -483,40 +480,25 @@ export class Vehicle {
     }
 
     // ---- steering ----------------------------------------------------------------
-    const st = cfg.steering;
-    const inTarget = clamp(input.steer, -1, 1);
-    const inRate = st.rate * (Math.abs(inTarget) < Math.abs(this.steerInput) ? 1.6 : 1);
-    this.steerInput = moveToward(this.steerInput, inTarget, inRate * dt);
-    // Where the front axle is travelling, relative to the heading.
     const vLat = _vel.dot(_left);
-    const travel = vLong > 0.5 ? Math.atan2(vLat + yawRate * this.lf, vLong) : 0;
-    this.frontTravel += (travel - this.frontTravel) * damp(30, dt);
-    // Body slip and how fast it changes (0 in a steady corner or a steady drift).
-    const slipNow = vLong > 1 ? Math.atan2(vLat, vLong) : 0;
-    const slipRate = this.first ? 0 : (slipNow - this.slip) / dt;
-    this.slip = slipNow;
-    this.slipRate += (slipRate - this.slipRate) * damp(20, dt);
-    // Assisted: aim the wheels along the front axle's path plus up to the tyre's peak slip angle.
-    // Plain: the input is a fraction of a speed-sensitive lock.
-    const w = clamp(st.assist, 0, 1) * smoothstep(2, 7, vLong);
-    const peakAngle = Math.atan(this.frontTire.peakSlipAngle) * 1.15;
-    const plainMax = maxSteerAngle(st.lock, st.speedRef, speed);
-    // Stability: when the rear axle slides past its peak, stop asking the front for more rotation
-    // in the same direction (what a driver does by unwinding the wheel).
-    let ask = this.steerInput;
-    const stab = clamp(st.stability ?? 0, 0, 1);
-    if (stab > 0 && vLong > 3 && ask * yawRate > 0) {
-      const lr = this.lf - this.wheelbase;
-      const rearTravel = Math.atan2(vLat + yawRate * lr, vLong);
-      const rearPeak = Math.atan(this.rearTire.peakSlipAngle);
-      const excess = clamp((Math.abs(rearTravel) - rearPeak) / rearPeak, 0, 1);
-      ask *= 1 - stab * excess;
-    }
-    const targetSteer = clamp(w * this.frontTravel + ask * lerp(plainMax, peakAngle, w), -st.lock, st.lock);
-    this.steerAngle = moveToward(this.steerAngle, targetSteer, 6 * dt);
-    const [aL, aR] = ackermann(this.steerAngle, this.wheelbase, this.trackFront);
-    wheels[0]!.steer = aL + wheels[0]!.steerBias;
-    wheels[1]!.steer = aR + wheels[1]!.steerBias;
+    const sc = this.steering;
+    _steerCtx.dt = dt;
+    _steerCtx.input = input.steer;
+    _steerCtx.vLong = vLong;
+    _steerCtx.vLat = vLat;
+    _steerCtx.speed = speed;
+    _steerCtx.yawRate = yawRate;
+    _steerCtx.lf = this.lf;
+    _steerCtx.wheelbase = this.wheelbase;
+    _steerCtx.frontPeak = this.frontTire.peakSlipAngle;
+    _steerCtx.rearPeak = this.rearTire.peakSlipAngle;
+    _steerCtx.first = this.first;
+    sc.update(cfg.steering, _steerCtx);
+    const w = sc.assistWeight;
+    const plainMax = sc.plainMax;
+    const ack = ackermann(sc.angle, this.wheelbase, this.trackFront, _ack);
+    wheels[0]!.steer = ack[0] + wheels[0]!.steerBias;
+    wheels[1]!.steer = ack[1] + wheels[1]!.steerBias;
     wheels[2]!.steer = wheels[2]!.steerBias;
     wheels[3]!.steer = wheels[3]!.steerBias;
 
@@ -538,8 +520,8 @@ export class Vehicle {
     if (this.assists.esp) {
       const v = Math.max(Math.abs(vLong), 1);
       const cap = (0.95 * G) / v;
-      const plain = (Math.sign(vLong) * v * Math.tan(this.steerInput * plainMax)) / this.wheelbase;
-      const desired = clamp(lerp(plain, this.steerInput * cap, w), -cap, cap);
+      const plain = (Math.sign(vLong) * v * Math.tan(sc.input * plainMax)) / this.wheelbase;
+      const desired = clamp(lerp(plain, sc.input * cap, w), -cap, cap);
       espControl(vLong, yawRate, desired, _esp);
       throttleScale *= _esp.throttleScale;
       this.espActivity = _esp.activity;
@@ -811,9 +793,9 @@ export class Vehicle {
     // ---- slide control (arcade) -----------------------------------------------------------
     // A yaw damper on the rate of change of the slip angle: it does not change how much the car
     // can slide, only how violently the angle swings, so slides and drifts can be held on a keyboard.
-    const sc = clamp(cfg.steering.slideControl ?? 0, 0, 1);
-    if (sc > 0 && vLong > 3 && speed > 5) {
-      const tz = clamp(sc * 3 * this.yawInertia * this.slipRate, -this.yawInertia * 4, this.yawInertia * 4) * dt;
+    const slideK = clamp(cfg.steering.slideControl ?? 0, 0, 1);
+    if (slideK > 0 && vLong > 3 && speed > 5) {
+      const tz = clamp(slideK * 3 * this.yawInertia * this.steering.slipRate, -this.yawInertia * 4, this.yawInertia * 4) * dt;
       _tTot.addScaledVector(_up, tz);
     }
 

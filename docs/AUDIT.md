@@ -67,7 +67,7 @@ Halving the resolution only saved 1.2 ms on this machine (draw-call bound), but 
 | A1 | `main.ts` held everything: boot, garage wiring, frame loop, lap logic, teleports, debug API | Fixed: `main.ts` only builds systems; `Game` owns the loop, cars and actions; `RaceSystem` owns lap timing |
 | A2 | Ground surface was a module-level global set by the map | Fixed: injected through the physics world (`physics.surfaceAt`) |
 | A3 | Vehicle code imported the world module (surface grip) | Fixed: surface types and grip live in `core/physics` |
-| A4 | `Vehicle.ts` is 850 lines (steering, assists, drivetrain, suspension, tyres in one step function) | Open: split into steps once the new cars are in |
+| A4 | `Vehicle.ts` is 850 lines (steering, assists, drivetrain, suspension, tyres in one step function) | Partly fixed: the steering and its aids are a separate `SteeringController`; the per-step Ackermann array allocation is gone. Drivetrain and tyre steps still to split |
 | A5 | Car configs are JSON cast to the type without checks | Fixed: `tests/config.test.ts` validates every car |
 
 Layering after the changes: `core` (math, physics, input, loop) <- `vehicle` and `damage` (simulation, no rendering) <- `render`, `world`, `ui` <- `game` (orchestration) <- `main` (boot).
