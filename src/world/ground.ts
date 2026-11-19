@@ -71,13 +71,14 @@ export function createGround(physics: Physics): Ground {
   // Physics: one big static slab, top face at y = 0.
   const half = WORLD_SIZE / 2;
   const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, -1, 0));
-  world.createCollider(
+  const collider = world.createCollider(
     RAPIER.ColliderDesc.cuboid(half, 1, half)
       .setFriction(1.0)
       .setRestitution(0)
       .setCollisionGroups(groups(GROUP.WORLD, 0xffff)),
     body,
   );
+  physics.groundColliders.add(collider.handle);
 
   const group = new THREE.Group();
   group.name = 'ground';
@@ -103,7 +104,7 @@ export function createGround(physics: Physics): Ground {
 
   // Asphalt patches (decals slightly above the base).
   const asphaltTex = tileTexture((g, s) => {
-    noiseFill(g, s, [58, 60, 64], 22);
+    noiseFill(g, s, [96, 98, 104], 24);
     g.strokeStyle = 'rgba(0,0,0,0.12)';
     g.lineWidth = 1;
     for (let i = 0; i < 6; i++) {

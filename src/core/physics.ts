@@ -6,6 +6,8 @@ export interface Physics {
   RAPIER: typeof RAPIER;
   world: RAPIER.World;
   events: RAPIER.EventQueue;
+  /** Handles of the colliders that make up the open ground (surface grip comes from `surfaceAt`). */
+  groundColliders: Set<number>;
   step(): void;
 }
 
@@ -34,6 +36,7 @@ export async function createPhysics(): Promise<Physics> {
     RAPIER,
     world,
     events,
+    groundColliders: new Set<number>(),
     step() {
       world.step(events);
     },

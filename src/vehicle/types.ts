@@ -1,0 +1,136 @@
+/**
+ * Vehicle configuration. All cars are plain JSON files that satisfy this interface.
+ *
+ * Local car frame (also the glTF / Three.js convention):
+ *   +Y up, +Z forward, +X LEFT (so the right-hand side is -X).
+ * Units: metres, kilograms, seconds, newtons, radians (rpm for engine speed).
+ */
+export type Drive = 'FWD' | 'RWD' | 'AWD';
+export type Vec3 = [number, number, number];
+
+export interface TireParams {
+  /** Peak friction coefficient at `refLoad` on asphalt. */
+  mu: number;
+  /** Vertical load (N) at which `mu` applies. */
+  refLoad: number;
+  /** Fraction of mu lost per +100 % of load above refLoad (load sensitivity). */
+  loadSensitivity: number;
+  /** Slip ratio at peak longitudinal force (typical 0.10 to 0.16). */
+  peakSlipRatio: number;
+  /** tan(slip angle) at peak lateral force (typical 0.12 to 0.18). */
+  peakSlipAngle: number;
+  /** Grip at full slide relative to the peak, 0.7 (snappy loss) to 0.95 (progressive). */
+  slideRatio: number;
+  /** Longitudinal peak grip relative to lateral. */
+  longGripRatio: number;
+  /** Rolling resistance coefficient on asphalt. */
+  rollingResistance: number;
+}
+
+export interface AxleSuspension {
+  /** Spring rate (N/m) at the wheel. */
+  k: number;
+  /** Damping in compression / rebound (N s/m). */
+  cBump: number;
+  cRebound: number;
+  /** Anti-roll bar stiffness (N per m of left/right compression difference). */
+  arb: number;
+  /** Spring length at full droop (m), from the mount to the wheel centre. */
+  maxLen: number;
+  /** Length at full bump (m). */
+  minLen: number;
+}
+
+export interface EngineConfig {
+  idleRpm: number;
+  redlineRpm: number;
+  /** [rpm, N m] at full throttle. */
+  torqueCurve: [number, number][];
+  /** Engine braking torque (N m) at redline with the throttle closed. */
+  engineBrake: number;
+  /** Crankshaft + flywheel inertia (kg m^2). */
+  inertia: number;
+  /** RPM the engine flares to while the clutch slips at launch. */
+  launchRpm: number;
+}
+
+export interface GearboxConfig {
+  /** Forward ratios, first gear first. */
+  ratios: number[];
+  reverse: number;
+  finalDrive: number;
+  efficiency: number;
+  shiftTime: number;
+  /** Upshift rpm at full throttle / light throttle. */
+  upshiftRpm: number;
+  upshiftRpmLight: number;
+  downshiftRpm: number;
+}
+
+export interface CarPartConfig {
+  /** Name of the part in the model (see art conventions). */
+  name: string;
+  /** Mass in kg once detached. */
+  mass: number;
+  /** Local anchor on the chassis (metres). */
+  anchor: Vec3;
+  /** Half extents of the collider used when detached. */
+  half: Vec3;
+  /** Accumulated damage (0..1) at which the part comes off. */
+  detachAt: number;
+}
+
+export interface VehicleConfig {
+  name: string;
+  drive: Drive;
+  /** Share of drive torque sent to the front axle when AWD. */
+  frontTorqueBias: number;
+  mass: number;
+  /** Centre of mass relative to the body origin. */
+  com: Vec3;
+  /** Box (w, h, l) used to derive the principal inertia. */
+  inertiaBox: Vec3;
+  /** Compound chassis colliders (local space). */
+  colliders: { center: Vec3; half: Vec3 }[];
+  /** Suspension mount points (top of spring), local space. */
+  wheels: { FL: Vec3; FR: Vec3; RL: Vec3; RR: Vec3 };
+  wheel: { radius: number; width: number; inertia: number };
+  suspensionFront: AxleSuspension;
+  suspensionRear: AxleSuspension;
+  tire: TireParams;
+  /** Rear tyre peak grip multiplier (balance tuning). */
+  rearGripScale: number;
+  /** Rear cornering stiffness multiplier: >1 = more stable/understeering, <1 = lively rear. */
+  rearStiffnessScale: number;
+  /** Height above the contact patch where tyre forces are applied (m). Controls load transfer feel. */
+  tireForceHeight: number;
+  steering: {
+    /** Max wheel angle at standstill (rad). */
+    lock: number;
+    /** Speed (m/s) at which the available lock is divided by 2. */
+    speedRef: number;
+    /** Steering rate at low / high speed (rad/s). */
+    rateLow: number;
+    rateHigh: number;
+  };
+  brakes: {
+    /** Total brake torque at the wheels (N m). */
+    torque: number;
+    frontBias: number;
+    handbrakeTorque: number;
+  };
+  engine: EngineConfig;
+  gearbox: GearboxConfig;
+  diff: {
+    /** Limited-slip coupling stiffness (N m per rad/s) and cap (N m). 0 = open diff. */
+    lsdK: number;
+    lsdMax: number;
+  };
+  aero: {
+    /** Drag area Cd*A (m^2) and lift area Cl*A (positive = downforce). */
+    cdA: number;
+    clA: number;
+  };
+  /** Detachable parts (damage milestone). */
+  parts?: CarPartConfig[];
+}
