@@ -12,3 +12,5 @@ art/build/
 # Sync-conflict copies (iCloud)
 * 2.blend
 * 2.*
+__pycache__/
+*.pyc
