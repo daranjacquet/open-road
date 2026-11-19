@@ -7,6 +7,8 @@ export class Hud {
   private readonly rpmFill: HTMLElement;
   private readonly lights: Record<'tc' | 'abs' | 'esp', HTMLElement>;
   private last = 0;
+  private readonly zones: Record<'front' | 'rear' | 'left' | 'right' | 'roof', HTMLElement>;
+  private readonly eng: HTMLElement;
 
   constructor(root: HTMLElement) {
     root.innerHTML = `
@@ -21,17 +23,36 @@ export class Hud {
         .hud-lights{display:flex;gap:6px;margin-top:8px;justify-content:flex-end}
         .hud-lights b{font-size:11px;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,.14);opacity:.55}
         .hud-lights b.on{background:#ffb020;color:#111;opacity:1}
-        .hud-help{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;font-size:12px;opacity:.75;text-align:center;white-space:nowrap}
+        .hud-dmg{position:fixed;left:24px;bottom:22px;width:74px;text-align:center;font-size:10px;opacity:.95}
+        .hud-car{position:relative;width:46px;height:84px;margin:4px auto 0}
+        .hud-car i{position:absolute;display:block;border-radius:4px;background:#4ade80;transition:background .3s}
+        .hud-car .f{left:6px;right:6px;top:0;height:22px}.hud-car .r{left:6px;right:6px;bottom:0;height:22px}
+        .hud-car .l{left:0;top:26px;width:8px;bottom:26px}.hud-car .rt{right:0;top:26px;width:8px;bottom:26px}
+        .hud-car .roof{left:12px;right:12px;top:26px;bottom:26px;background:#4ade80}
+        .hud-eng{margin-top:4px;opacity:.9}
+        .hud-help{position:fixed;left:50%;transform:translateX(-50%);top:10px;font-size:12px;opacity:.75;text-align:center;white-space:nowrap}
       </style>
       <div class="hud-box">
         <div><span class="hud-speed" id="hud-speed">0</span><span class="hud-unit">km/h</span></div>
         <div class="hud-row"><div class="hud-rpm"><i id="hud-rpm"></i></div><div class="hud-gear" id="hud-gear">1</div></div>
         <div class="hud-lights"><b id="hud-tc">TC</b><b id="hud-abs">ABS</b><b id="hud-esp">ESP</b></div>
       </div>
-      <div class="hud-help">W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; R flip &middot; Shift+R reset &middot; C camera &middot; F3 debug</div>`;
+      <div class="hud-dmg">DAMAGE
+        <div class="hud-car"><i class="f" id="dz-front"></i><i class="r" id="dz-rear"></i><i class="l" id="dz-left"></i><i class="rt" id="dz-right"></i><i class="roof" id="dz-roof"></i></div>
+        <div class="hud-eng" id="dz-eng">ENGINE 100%</div>
+      </div>
+      <div class="hud-help">W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V car &middot; B reset targets &middot; M mute &middot; F3 debug</div>`;
     this.speed = root.querySelector('#hud-speed')!;
     this.gear = root.querySelector('#hud-gear')!;
     this.rpmFill = root.querySelector('#hud-rpm')!;
+    this.zones = {
+      front: root.querySelector('#dz-front')!,
+      rear: root.querySelector('#dz-rear')!,
+      left: root.querySelector('#dz-left')!,
+      right: root.querySelector('#dz-right')!,
+      roof: root.querySelector('#dz-roof')!,
+    };
+    this.eng = root.querySelector('#dz-eng')!;
     this.lights = {
       tc: root.querySelector('#hud-tc')!,
       abs: root.querySelector('#hud-abs')!,
@@ -48,6 +69,14 @@ export class Hud {
     this.gear.textContent = g < 0 ? 'R' : g === 0 ? 'N' : String(g);
     const frac = Math.min(1, Math.max(0, (car.rpm - car.cfg.engine.idleRpm) / (car.cfg.engine.redlineRpm - car.cfg.engine.idleRpm)));
     this.rpmFill.style.width = `${(frac * 100).toFixed(0)}%`;
+    const dm = gc.damage;
+    for (const k of Object.keys(this.zones) as (keyof typeof this.zones)[]) {
+      const v = dm.zone[k];
+      // green (0) to yellow to red (1)
+      const hue = Math.round(130 * (1 - Math.min(1, v * 1.15)));
+      this.zones[k].style.background = `hsl(${hue} 80% 50%)`;
+    }
+    this.eng.textContent = `ENGINE ${Math.round((1 - dm.engine) * 100)}%`;
     this.lights.tc.classList.toggle('on', car.tcActive);
     this.lights.abs.classList.toggle('on', car.absActive);
     this.lights.esp.classList.toggle('on', car.espActivity > 0.05);

@@ -77,7 +77,7 @@ export class Effects {
   ) {
     this.group.add(this.skids.mesh, this.smoke.points, this.sparks.points);
     this.group.renderOrder = 5;
-    damage.onImpact = (i) => this.impact(i);
+    damage.addImpactListener((i) => this.impact(i));
   }
 
   private impact(i: ImpactInfo): void {

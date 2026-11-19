@@ -37,7 +37,11 @@ export class DamageModel {
   /** Energy absorbed per visible panel (J). */
   readonly partEnergy = new Map<string, number>();
   totalEnergy = 0;
-  onImpact: ((i: ImpactInfo) => void) | null = null;
+  private readonly impactListeners: ((i: ImpactInfo) => void)[] = [];
+  /** Subscribe to crumple events (effects, audio). */
+  addImpactListener(fn: (i: ImpactInfo) => void): void {
+    this.impactListeners.push(fn);
+  }
   /** Fired when a zone/mechanical value changed (HUD, effects). */
   onChange: (() => void) | null = null;
 
@@ -67,7 +71,7 @@ export class DamageModel {
     this.totalEnergy += e.energy;
     this.partEnergy.set(e.ray.part, (this.partEnergy.get(e.ray.part) ?? 0) + e.energy);
     this.dirty = true;
-    if (this.onImpact) {
+    if (this.impactListeners.length > 0) {
       const i = this.impact;
       i.energy = e.energy;
       i.point.copy(e.point);
@@ -75,7 +79,7 @@ export class DamageModel {
       i.normal.copy(_n);
       i.speed = e.speed;
       i.part = e.ray.part;
-      this.onImpact(i);
+      for (const fn of this.impactListeners) fn(i);
     }
   }
 

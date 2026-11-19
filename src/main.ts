@@ -7,6 +7,7 @@ import { CameraRig } from './render/camera';
 import { createScene } from './render/scene';
 import { CARS, carById } from './game/catalog';
 import { GameCar, IDLE } from './game/GameCar';
+import { GameAudio } from './audio/audio';
 import { Hud } from './ui/hud';
 import { createGround } from './world/ground';
 import { createWorldProps } from './world/props';
@@ -42,6 +43,10 @@ async function boot(): Promise<void> {
 
   const rig = new CameraRig(gs.camera);
   const input = new Input();
+  const audio = new GameAudio();
+  audio.muted = false;
+  const hookAudio = (): void => player.damage.addImpactListener((i) => audio.impact(i));
+  hookAudio();
 
   // Driving aids menu (settings survive a car swap).
   const assistState = { tc: true, abs: true, esp: true };
@@ -68,6 +73,7 @@ async function boot(): Promise<void> {
     player = new GameCar(physics, gs.scene, carById(id), t.x, t.z, yaw);
     player.vehicle.placeAt(t.x, 1.0, t.z, yaw);
     applyAssists();
+    hookAudio();
     carChoice.car = id;
     gui.controllersRecursive().forEach((c) => c.updateDisplay());
     rig.mode = rig.mode; // keep the current camera
@@ -158,6 +164,7 @@ async function boot(): Promise<void> {
     gs.renderer.render(gs.scene, gs.camera);
 
     hud.update(player, now);
+    audio.update(car, now);
     if (debug.isVisible) {
       debug.set('physics', `${physMs.toFixed(2)} ms/step @ ${(1 / FIXED_DT).toFixed(0)} Hz, ${res.steps} steps/frame, ${all().length} cars`);
       debug.set('draw calls', `${gs.renderer.info.render.calls}, tris ${gs.renderer.info.render.triangles}`);

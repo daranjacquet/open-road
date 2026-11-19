@@ -1,0 +1,182 @@
+import { clamp } from '../core/math';
+import type { ImpactInfo } from '../damage/DamageModel';
+import type { Vehicle } from '../vehicle/Vehicle';
+
+/**
+ * Procedural audio (Web Audio): engine tied to rpm and throttle, tyre squeal from slip,
+ * wind from speed, crash sounds from absorbed energy. No audio files. M toggles mute.
+ */
+export class GameAudio {
+  private ctx: AudioContext | null = null;
+  private master!: GainNode;
+  private engineGain!: GainNode;
+  private engineFilter!: BiquadFilterNode;
+  private osc1!: OscillatorNode;
+  private osc2!: OscillatorNode;
+  private noiseGain!: GainNode;
+  private squealGain!: GainNode;
+  private squealFilter!: BiquadFilterNode;
+  private windGain!: GainNode;
+  private noiseBuf!: AudioBuffer;
+  muted = false;
+  private pendingImpact = 0;
+  private lastImpact = 0;
+  private started = false;
+
+  constructor() {
+    const start = (): void => {
+      if (this.started) return;
+      this.started = true;
+      this.init();
+    };
+    window.addEventListener('keydown', start, { once: true });
+    window.addEventListener('pointerdown', start, { once: true });
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyM') this.toggleMute();
+    });
+  }
+
+  private init(): void {
+    try {
+      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = (this.ctx = new Ctor());
+      this.master = ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : 0.5;
+      this.master.connect(ctx.destination);
+
+      // One second of white noise, looped by several sources.
+      this.noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const d = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+
+      // Engine: two detuned saws + intake noise through a rpm-tracking low-pass.
+      this.engineFilter = ctx.createBiquadFilter();
+      this.engineFilter.type = 'lowpass';
+      this.engineFilter.Q.value = 2;
+      this.engineGain = ctx.createGain();
+      this.engineGain.gain.value = 0;
+      this.osc1 = ctx.createOscillator();
+      this.osc1.type = 'sawtooth';
+      this.osc2 = ctx.createOscillator();
+      this.osc2.type = 'square';
+      const g1 = ctx.createGain();
+      g1.gain.value = 0.55;
+      const g2 = ctx.createGain();
+      g2.gain.value = 0.25;
+      this.osc1.connect(g1).connect(this.engineFilter);
+      this.osc2.connect(g2).connect(this.engineFilter);
+      const intake = ctx.createBufferSource();
+      intake.buffer = this.noiseBuf;
+      intake.loop = true;
+      this.noiseGain = ctx.createGain();
+      this.noiseGain.gain.value = 0;
+      intake.connect(this.noiseGain).connect(this.engineFilter);
+      this.engineFilter.connect(this.engineGain).connect(this.master);
+      this.osc1.start();
+      this.osc2.start();
+      intake.start();
+
+      // Tyre squeal.
+      const sq = ctx.createBufferSource();
+      sq.buffer = this.noiseBuf;
+      sq.loop = true;
+      this.squealFilter = ctx.createBiquadFilter();
+      this.squealFilter.type = 'bandpass';
+      this.squealFilter.frequency.value = 1500;
+      this.squealFilter.Q.value = 9;
+      this.squealGain = ctx.createGain();
+      this.squealGain.gain.value = 0;
+      sq.connect(this.squealFilter).connect(this.squealGain).connect(this.master);
+      sq.start();
+
+      // Wind / road rumble.
+      const w = ctx.createBufferSource();
+      w.buffer = this.noiseBuf;
+      w.loop = true;
+      const wf = ctx.createBiquadFilter();
+      wf.type = 'lowpass';
+      wf.frequency.value = 500;
+      this.windGain = ctx.createGain();
+      this.windGain.gain.value = 0;
+      w.connect(wf).connect(this.windGain).connect(this.master);
+      w.start();
+    } catch {
+      this.ctx = null; // no audio available: the game runs silently
+    }
+  }
+
+  toggleMute(): void {
+    this.muted = !this.muted;
+    if (this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.5, this.ctx.currentTime, 0.05);
+  }
+
+  /** Queue an impact; played (merged) from `update` so a 100 ms crash is one big sound, not 100 clicks. */
+  impact(i: ImpactInfo): void {
+    this.pendingImpact += i.energy;
+  }
+
+  update(car: Vehicle, now: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (ctx.state === 'suspended') void ctx.resume();
+    const t = ctx.currentTime;
+    const e = car.cfg.engine;
+    const rpmN = clamp((car.rpm - e.idleRpm) / (e.redlineRpm - e.idleRpm), 0, 1);
+    const throttle = car.throttleCmd;
+    // Firing frequency of a 6-cylinder four-stroke: rpm/60 * 3.
+    const f = (car.rpm / 60) * 3;
+    this.osc1.frequency.setTargetAtTime(f, t, 0.03);
+    this.osc2.frequency.setTargetAtTime(f * 2.01, t, 0.03);
+    this.engineFilter.frequency.setTargetAtTime(260 + rpmN * 1800 + throttle * 900, t, 0.05);
+    this.engineGain.gain.setTargetAtTime(0.1 + 0.18 * throttle + 0.08 * rpmN, t, 0.05);
+    this.noiseGain.gain.setTargetAtTime(0.05 + 0.12 * throttle, t, 0.08);
+
+    // Tyre squeal from the worst combined slip on asphalt.
+    let slip = 0;
+    for (const w of car.wheels) {
+      if (!w.hit) continue;
+      slip = Math.max(slip, Math.hypot(w.slipRatio, Math.tan(w.slipAngle) * 1.2));
+    }
+    const sq = car.speed > 3 ? clamp((slip - 0.3) * 1.3, 0, 1) : 0;
+    this.squealGain.gain.setTargetAtTime(sq * 0.14, t, 0.04);
+    this.squealFilter.frequency.setTargetAtTime(1100 + car.speed * 14 + slip * 300, t, 0.05);
+
+    this.windGain.gain.setTargetAtTime(clamp((car.speed / 60) ** 2, 0, 1) * 0.35, t, 0.1);
+
+    // Crash sound: merge impacts that arrive within one frame burst.
+    if (this.pendingImpact > 0 && now - this.lastImpact > 60) {
+      this.crash(this.pendingImpact);
+      this.pendingImpact = 0;
+      this.lastImpact = now;
+    }
+  }
+
+  private crash(energy: number): void {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const t = ctx.currentTime;
+    const loud = clamp(Math.sqrt(energy) / 450, 0.08, 1);
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 600 + loud * 4500;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(loud, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18 + loud * 0.5);
+    src.connect(lp).connect(g).connect(this.master);
+    src.start(t);
+    src.stop(t + 0.8);
+    // Metallic ring + low thump.
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(70 + loud * 40, t);
+    o.frequency.exponentialRampToValueAtTime(32, t + 0.25);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0.7 * loud, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    o.connect(og).connect(this.master);
+    o.start(t);
+    o.stop(t + 0.35);
+  }
+}

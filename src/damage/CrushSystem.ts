@@ -148,6 +148,10 @@ export class CrushSystem {
       let p = reach - h.timeOfImpact; // penetration into the (crushed) shell
       if (p <= 0) continue;
       this.active++;
+      // Another car crushes against us too: each side takes half of the overlap (springs in series),
+      // so the pair absorbs the right energy and conserves momentum.
+      const hitOther = h.collider.parent();
+      if (hitOther !== null && this.physics.crushBodies.has(hitOther.handle)) p *= 0.5;
 
       _hp.set(_o.x + _d.x * h.timeOfImpact, _o.y + _d.y * h.timeOfImpact, _o.z + _d.z * h.timeOfImpact);
       // Contact normal: from the obstacle towards the car. Fall back to the ray direction.

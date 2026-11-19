@@ -5,7 +5,18 @@ export default defineConfig({
   base: './',
   build: {
     target: 'es2022',
-    chunkSizeWarningLimit: 1500,
+    // Rapier ships its WASM inlined (base64), so its chunk is large by design.
+    chunkSizeWarningLimit: 4600,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'rapier', test: /rapier3d-compat/ },
+            { name: 'three', test: /node_modules[\\/]three[\\/]/ },
+          ],
+        },
+      },
+    },
   },
   test: {
     include: ['tests/**/*.test.ts'],

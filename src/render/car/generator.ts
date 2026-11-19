@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CarModel, WheelNodes } from '../carModel';
 import type { VehicleConfig } from '../../vehicle/types';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { keyCurve, loft } from './loft';
 
 /** One face of the lofted shell, described for the panel classifier. */
@@ -330,40 +331,48 @@ function buildWheels(cfg: VehicleConfig, mats: CarMaterials, root: THREE.Group, 
   tireGeo.rotateZ(Math.PI / 2);
   disposables.push(tireGeo);
 
-  const barrelGeo = new THREE.CylinderGeometry(rimR, rimR, Wd * 0.8, 28, 1, true);
-  barrelGeo.rotateZ(Math.PI / 2);
-  const faceGeo = new THREE.CylinderGeometry(rimR * 0.96, rimR * 0.96, 0.02, 28);
-  faceGeo.rotateZ(Math.PI / 2);
-  const spokeGeo = new THREE.BoxGeometry(0.03, rimR * 0.9, rimR * 0.2);
-  const capGeo = new THREE.CylinderGeometry(rimR * 0.2, rimR * 0.2, 0.05, 16);
-  capGeo.rotateZ(Math.PI / 2);
-  const discGeo = new THREE.CylinderGeometry(rimR * 0.82, rimR * 0.82, 0.025, 28);
-  discGeo.rotateZ(Math.PI / 2);
-  disposables.push(barrelGeo, faceGeo, spokeGeo, capGeo, discGeo);
+  // Rim: barrel + spokes + cap merged into one mesh; face disc + brake disc merged into another.
+  const makeRimGeos = (outerSign: number): { rim: THREE.BufferGeometry; dark: THREE.BufferGeometry } => {
+    const rimParts: THREE.BufferGeometry[] = [];
+    const darkParts: THREE.BufferGeometry[] = [];
+    const barrel = new THREE.CylinderGeometry(rimR, rimR, Wd * 0.8, 28, 1, true);
+    barrel.rotateZ(Math.PI / 2);
+    rimParts.push(barrel);
+    for (let s = 0; s < 5; s++) {
+      const sp = new THREE.BoxGeometry(0.03, rimR * 0.9, rimR * 0.2);
+      const a = (s / 5) * Math.PI * 2;
+      sp.rotateX(-a);
+      sp.translate(outerSign * (hw * 0.55 + 0.012), Math.cos(a) * rimR * 0.5, Math.sin(a) * rimR * 0.5);
+      rimParts.push(sp);
+    }
+    const cap = new THREE.CylinderGeometry(rimR * 0.2, rimR * 0.2, 0.05, 16);
+    cap.rotateZ(Math.PI / 2);
+    cap.translate(outerSign * (hw * 0.55 + 0.02), 0, 0);
+    rimParts.push(cap);
+    const face = new THREE.CylinderGeometry(rimR * 0.96, rimR * 0.96, 0.02, 28);
+    face.rotateZ(Math.PI / 2);
+    face.translate(outerSign * hw * 0.55, 0, 0);
+    darkParts.push(face);
+    const disc = new THREE.CylinderGeometry(rimR * 0.82, rimR * 0.82, 0.025, 28);
+    disc.rotateZ(Math.PI / 2);
+    disc.translate(-outerSign * hw * 0.25, 0, 0);
+    darkParts.push(disc);
+    const rim = mergeGeometries(rimParts)!;
+    const dark = mergeGeometries(darkParts)!;
+    disposables.push(rim, dark);
+    return { rim, dark };
+  };
+  const rimsL = makeRimGeos(1);
+  const rimsR = makeRimGeos(-1);
+  (mats.rim as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
 
   const make = (outerSign: number): WheelNodes => {
     const pivot = new THREE.Group();
     const spin = new THREE.Group();
+    const g = outerSign > 0 ? rimsL : rimsR;
     const tire = new THREE.Mesh(tireGeo, mats.tire);
     tire.castShadow = true;
-    const barrel = new THREE.Mesh(barrelGeo, mats.rim);
-    barrel.material = mats.rim;
-    (barrel.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
-    const face = new THREE.Mesh(faceGeo, mats.disc);
-    face.position.x = outerSign * hw * 0.55;
-    const disc = new THREE.Mesh(discGeo, mats.disc);
-    disc.position.x = -outerSign * hw * 0.25;
-    spin.add(tire, barrel, face, disc);
-    for (let s = 0; s < 5; s++) {
-      const sp = new THREE.Mesh(spokeGeo, mats.rim);
-      const a = (s / 5) * Math.PI * 2;
-      sp.position.set(outerSign * (hw * 0.55 + 0.012), Math.cos(a) * rimR * 0.5, Math.sin(a) * rimR * 0.5);
-      sp.rotation.x = -a;
-      spin.add(sp);
-    }
-    const cap = new THREE.Mesh(capGeo, mats.rim);
-    cap.position.x = outerSign * (hw * 0.55 + 0.02);
-    spin.add(cap);
+    spin.add(tire, new THREE.Mesh(g.rim, mats.rim), new THREE.Mesh(g.dark, mats.disc));
     pivot.add(spin);
     root.add(pivot);
     return { pivot, spin };
