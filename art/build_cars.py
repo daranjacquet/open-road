@@ -71,7 +71,15 @@ def build(car_id, opt):
     tris = sum(tri_count(o) for o in bpy.data.objects if o.type == "MESH")
     print(f"[cars] {car_id}: {len(bpy.data.objects)} objects, {tris} triangles, built in {time.time() - t0:.1f}s")
     os.makedirs(os.path.join(HERE, "blend"), exist_ok=True)
-    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(HERE, "blend", f"{car_id}.blend"), compress=True)
+    # No ".blend1" backups: renaming the old file fails inside synced folders (iCloud Documents).
+    bpy.context.preferences.filepaths.save_version = 0
+    blend_path = os.path.join(HERE, "blend", f"{car_id}.blend")
+    try:
+        if os.path.exists(blend_path):
+            os.remove(blend_path)
+        bpy.ops.wm.save_as_mainfile(filepath=blend_path, compress=True)
+    except Exception as e:  # the .blend is a convenience copy; never block the export on it
+        print(f"[cars] {car_id}: could not save {blend_path}: {e}")
     if opt["preview"]:
         os.makedirs(opt["preview"], exist_ok=True)
         # Put the wheels where the suspension holds them, just for the pictures.
