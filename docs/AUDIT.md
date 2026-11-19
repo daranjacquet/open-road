@@ -76,4 +76,20 @@ Tests: 64 headless tests (driving, crashes, damage, handling, garage, map, lap t
 
 ## 4. Replacement model candidates
 
-See section 4 in the reply that accompanies this audit: candidates with licence, size and download requirements are listed there and copied here once chosen.
+Searched Sketchfab, Poly Pizza, Quaternius, Kenney, Poly Haven, OpenGameArt and BlendSwap. Only models whose licence allows redistribution in a public repo are kept (CC0 or CC-BY 4.0). No realistic CC0 car was found; the good ones are CC-BY on Sketchfab, which needs a logged-in account to download.
+
+| Car | Pick | Author | Licence | Triangles | Download | Why |
+| --- | --- | --- | --- | --- | --- | --- |
+| Sport saloon (Evo IX style) | [Thunderbolt '96](https://sketchfab.com/3d-models/thunderbolt-96-low-poly-model-25a4ff2002834ec1b4441c57ecd7ca9f) | DanielZhabotinsky | CC-BY 4.0 | 18.8k | 5 MB | Unbranded 90s rally saloon with the Evo look: big wing, bonnet scoop, stance. Doors are not separate (we cut them) |
+| 4x4 | [Bokaroo '67](https://sketchfab.com/3d-models/bokaroo-67-low-poly-model-22015d1863d6455aa31cfd738b972c50) | DanielZhabotinsky | CC-BY 4.0 | 28.3k | 5 MB | Unbranded boxy off-roader, chunky tyres, same author as the saloon (consistent style) |
+| Supercar | [V12 Goblin](https://sketchfab.com/3d-models/fictional-supercar-v12-goblin-0a20e49ad5774d778567cb5c3f345786) | ollitei | CC-BY 4.0 | 86.6k | 50 MB | Original mid-engine design, no trademark risk; no interior |
+
+Alternatives:
+
+- Saloon: [Mitsubishi Lancer Evolution IX](https://sketchfab.com/3d-models/mitsubishi-lancer-evolution-ix-ee88ad9414884bdabaf0658943ac339b) by benitkibabu (CC-BY, 326k triangles, Mitsubishi badges to remove, heavy decimation needed). A real Evo replica in a public game is a trademark risk even without the badges.
+- 4x4: [Land Rover Defender 90](https://sketchfab.com/3d-models/land-rover-defender-90-lowpoly-88e5f30687ec4d508cebafa876e014d6) by kekomag (CC-BY, 100k triangles, "DEFENDER" lettering to remove).
+- Supercar: [Generic Supercar "Cheetah"](https://sketchfab.com/3d-models/generic-supercar-cheetah-f5420af7b30c4e8c874be33cc58724f2) by mk2design (CC-BY, 29k triangles, 14 MB).
+
+Rejected: other Evo IX uploads (game rips or sponsor liveries), stylised CC0 kits (Kenney, Quaternius: too low-poly), CC-BY-SA/GPL models, "royalty free" store licences (no redistribution of the files).
+
+CC-BY credit to add to the README and the game: "Model by <author> (Sketchfab), CC BY 4.0, <link>, modified (split into parts, materials, damage)".
