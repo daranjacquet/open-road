@@ -43,16 +43,35 @@ export class CameraRig {
 
   /** Right-drag orbits around the car, the wheel zooms (chase camera). */
   attachMouse(el: HTMLElement): void {
+    // While the right button is held the cursor is locked (hidden, it does not move) and the mouse
+    // only turns the camera; it reappears where it was on release.
+    const stop = (): void => {
+      this.dragging = false;
+      if (document.pointerLockElement === el) document.exitPointerLock();
+    };
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('mousedown', (e) => {
       if (e.button !== 2) return;
       this.dragging = true;
       e.preventDefault();
+      try {
+        const lock = (opts?: { unadjustedMovement: boolean }): Promise<void> | undefined =>
+          el.requestPointerLock(opts) as unknown as Promise<void> | undefined;
+        // Raw mouse input is not available everywhere: fall back to a plain lock, and if the browser
+        // refuses the lock altogether the orbit still works with a visible cursor.
+        lock({ unadjustedMovement: true })?.catch?.(() => lock()?.catch?.(() => undefined));
+      } catch {
+        /* no pointer lock (old browser): the cursor moves, the orbit still works */
+      }
     });
     window.addEventListener('mouseup', (e) => {
-      if (e.button === 2) this.dragging = false;
+      if (e.button === 2) stop();
     });
-    window.addEventListener('blur', () => (this.dragging = false));
+    window.addEventListener('blur', stop);
+    // Esc or the browser ending the lock also ends the drag.
+    document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement !== el) this.dragging = false;
+    });
     window.addEventListener('mousemove', (e) => {
       if (!this.dragging) return;
       this.orbitYaw -= e.movementX * 0.006;
