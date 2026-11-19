@@ -65,6 +65,11 @@ export class CrushSystem {
   stepForce = 0;
   /** Rays touched this step (for debug). */
   active = 0;
+  /**
+   * Steps left during which nothing crushes for good (after a repair in place, the restored shell
+   * may overlap what the car is touching: it pushes the car out instead of denting again).
+   */
+  grace = 0;
   onCrush: ((e: CrushEvent) => void) | null = null;
   /** Plastic contacts of the last step (obstacles the car actually yielded against). */
   readonly contacts: ImprintContact[] = [];
@@ -141,6 +146,7 @@ export class CrushSystem {
   }
 
   step(dt: number, posIn: THREE.Vector3, quatIn: THREE.Quaternion): void {
+    if (this.grace > 0) this.grace--;
     this.stepForce = 0;
     this.active = 0;
     this.contacts.length = 0;
@@ -227,7 +233,7 @@ export class CrushSystem {
       let dc = 0;
       if (F >= fmax) {
         F = fmax;
-        if (p > rd.yield) {
+        if (p > rd.yield && this.grace === 0) {
           dc = Math.min(p - rd.yield, reach - 0.005);
           this.crush[i] = c + dc;
           this.work[i] = this.work[i]! + fmax * dc;

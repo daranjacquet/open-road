@@ -90,6 +90,8 @@ export class GameCar {
     this.crush.reset();
     this.deformer.reset();
     this.damage.reset();
+    // Half a second for the restored body to push itself clear of whatever it was touching.
+    this.crush.grace = 60;
   }
 
   respawn(): void {

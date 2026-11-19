@@ -26,6 +26,7 @@ A browser driving sandbox built around **realistic car physics and crash damage*
 | Shift up / down (manual gearbox) | `E` / `Q` | `RB` / `LB` |
 | Garage (setups and settings) | `G` | |
 | Flip the car upright | `R` | `Y` |
+| Repair where you are | `F` (or the on-screen button) | |
 | Repair and respawn | `Shift+R` | |
 | Camera (chase, hood, bumper) | `C` | `B` |
 | Orbit the camera around the car / zoom | hold right mouse button and move / wheel | |

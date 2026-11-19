@@ -79,6 +79,13 @@ async function boot(): Promise<void> {
     timers.forEach((t) => t.reset());
     hud.toast(loc.name);
   };
+  /** Repair in place: body, glass, parts, engine and wheels, keeping position and speed. */
+  const repairCar = (): void => {
+    player.repair();
+    hud.toast('Repaired', 1200);
+  };
+  hud.onRepair = repairCar;
+  garage.gui.add({ repair: repairCar }, 'repair').name('Repair (F)');
   const go = garage.gui.addFolder('Go to (T)');
   for (const loc of map.locations) go.add({ [loc.name]: () => teleport(loc) }, loc.name);
   go.close();
@@ -158,6 +165,7 @@ async function boot(): Promise<void> {
     garage,
     map,
     teleport,
+    repairCar,
   };
   (window as unknown as { game: unknown }).game = api;
 
@@ -179,6 +187,7 @@ async function boot(): Promise<void> {
     }
     if (input.pressed('KeyB')) dummies.forEach((d) => d.respawn());
     if (input.pressed('KeyG')) garage.toggle();
+    if (input.pressed('KeyF')) repairCar();
     if (input.pressed('KeyT')) {
       locIndex = (locIndex + 1) % map.locations.length;
       teleport(map.locations[locIndex]!);
