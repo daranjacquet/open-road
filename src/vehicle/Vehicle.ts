@@ -3,6 +3,8 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { clamp, damp, G, lerp, moveToward, RADS_TO_RPM, smoothstep } from '../core/math';
 import { GROUP, groups, type Physics } from '../core/physics';
 import { SURFACE_GRIP, surfaceAt, type Surface } from '../world/ground';
+import { CrushSystem } from '../damage/CrushSystem';
+import type { CrushRay } from '../damage/rays';
 import { absScale, espControl, tcScale, type EspOut } from './assists';
 import { autoShift, engineTorque, totalRatio, type GearState } from './drivetrain';
 import { ackermann, maxSteerAngle } from './steering';
@@ -151,6 +153,9 @@ export class Vehicle {
   absActive = false;
   /** Damage multipliers (milestone 4). */
   powerScale = 1;
+  /** Crumple zones (null until `attachCrush`). */
+  crush: CrushSystem | null = null;
+  readonly mass: number;
 
   // Interpolation snapshots for the chassis.
   readonly prevPos = new THREE.Vector3();
@@ -176,6 +181,7 @@ export class Vehicle {
   ) {
     const { RAPIER, world } = physics;
     const m = cfg.mass;
+    this.mass = m;
     const [w, h, l] = cfg.inertiaBox;
     const principal = {
       x: (m / 12) * (h * h + l * l),
@@ -229,6 +235,30 @@ export class Vehicle {
     this.syncFromBody();
     this.prevPos.copy(this.currPos);
     this.prevQuat.copy(this.currQuat);
+  }
+
+  /** Enable crumple zones from rays measured on the visible shell. */
+  attachCrush(rays: CrushRay[]): CrushSystem {
+    let min = [Infinity, Infinity, Infinity];
+    let max = [-Infinity, -Infinity, -Infinity];
+    for (const r of rays) {
+      for (const p of [r.origin, r.surface]) {
+        for (let k = 0; k < 3; k++) {
+          min[k] = Math.min(min[k]!, p[k]!);
+          max[k] = Math.max(max[k]!, p[k]!);
+        }
+      }
+    }
+    const m = 0.12;
+    const center: [number, number, number] = [(min[0]! + max[0]!) / 2, (min[1]! + max[1]!) / 2, (min[2]! + max[2]!) / 2];
+    const half: [number, number, number] = [(max[0]! - min[0]!) / 2 + m, (max[1]! - min[1]!) / 2 + m, (max[2]! - min[2]!) / 2 + m];
+    this.crush = new CrushSystem(this.physics, this, rays, { center, half });
+    return this.crush;
+  }
+
+  /** Add the impulse F*dt applied at a world point (used by the crumple zones). */
+  applyForce(dt: number, px: number, py: number, pz: number, fx: number, fy: number, fz: number): void {
+    accumulate(dt, px, py, pz, fx, fy, fz);
   }
 
   get speedKmh(): number {
@@ -628,6 +658,9 @@ export class Vehicle {
       const down = 0.5 * RHO * speed * speed * cfg.aero.clA;
       accumulate(dt, _com.x, _com.y, _com.z, -_up.x * down, -_up.y * down, -_up.z * down);
     }
+
+    // ---- crumple zones ---------------------------------------------------------------
+    if (this.crush) this.crush.step(dt, this.currPos, this.currQuat);
 
     // ---- hand the accumulated impulse to the rigid body --------------------------------
     _o.x = _jTot.x;

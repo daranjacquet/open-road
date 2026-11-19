@@ -80,6 +80,25 @@ export interface CarPartConfig {
   detachAt: number;
 }
 
+/**
+ * A rectangular grid of "crush rays" fired outwards from the hard core of the car.
+ * Rays + plasticity are the crumple zones: they give soft, long crash pulses and the damage field.
+ */
+export interface CrushGrid {
+  kind: 'front' | 'rear' | 'left' | 'right' | 'roof' | 'corner';
+  /** Grid centre on the core surface (chassis frame). */
+  origin: Vec3;
+  /** Half extents of the grid along its two axes. */
+  u: Vec3;
+  v: Vec3;
+  nu: number;
+  nv: number;
+  /** Outward direction (need not be normalised). */
+  dir: Vec3;
+  /** Force (N) when the whole grid is engaged; shared between its rays. */
+  force: number;
+}
+
 export interface VehicleConfig {
   name: string;
   drive: Drive;
@@ -90,7 +109,9 @@ export interface VehicleConfig {
   com: Vec3;
   /** Box (w, h, l) used to derive the principal inertia. */
   inertiaBox: Vec3;
-  /** Compound chassis colliders (local space). */
+  /** Crumple-zone ray grids (damage milestone). */
+  crush: CrushGrid[];
+  /** Compound chassis colliders: the HARD CORE, smaller than the visible body by the crush depths. */
   colliders: { center: Vec3; half: Vec3 }[];
   /** Suspension mount points (top of spring), local space. */
   wheels: { FL: Vec3; FR: Vec3; RL: Vec3; RR: Vec3 };

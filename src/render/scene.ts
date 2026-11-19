@@ -19,7 +19,7 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.9;
+  renderer.toneMappingExposure = 0.6;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
@@ -40,7 +40,18 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   u['sunPosition']!.value.copy(SUN_DIR).multiplyScalar(1000);
   scene.add(sky);
 
-  const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x6b6a58, 1.1);
+  // Image-based lighting from the same procedural sky: gives paint and glass real reflections.
+  const envScene = new THREE.Scene();
+  const envSky = new Sky();
+  envSky.scale.setScalar(900);
+  for (const k of Object.keys(u)) envSky.material.uniforms[k]!.value = u[k]!.value;
+  envScene.add(envSky);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(envScene, 0, 1, 2000).texture;
+  scene.environmentIntensity = 0.3;
+  pmrem.dispose();
+
+  const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x6b6a58, 0.3);
   scene.add(hemi);
 
   const sun = new THREE.DirectionalLight(0xfff1dc, 3.2);

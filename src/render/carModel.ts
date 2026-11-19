@@ -17,8 +17,16 @@ export interface WheelNodes {
   spin: THREE.Group;
 }
 
+/** Result of casting a ray from inside the car out through its visible shell. */
+export interface ProbeHit {
+  dist: number;
+  part: string;
+}
+
 export interface CarModel {
   root: THREE.Group;
+  /** Distance from `origin` along `dir` to the visible shell (undeformed), and which part it is. */
+  probe(origin: [number, number, number], dir: [number, number, number], maxDist: number): ProbeHit | null;
   /** FL, FR, RL, RR */
   wheels: [WheelNodes, WheelNodes, WheelNodes, WheelNodes];
   /** Named parts for damage (dents, detachment). */

@@ -23,6 +23,8 @@ export class CameraRig {
   private yaw = 0;
   private initialised = false;
   private readonly pos = new THREE.Vector3();
+  /** Debug/photo pose relative to the car (chassis frame); overrides the mode when set. */
+  photo: { offset: THREE.Vector3; target: THREE.Vector3 } | null = null;
   /** Transient shake amplitude (metres), decays on its own. Set by crashes. */
   shake = 0;
 
@@ -40,6 +42,14 @@ export class CameraRig {
     const headingYaw = Math.atan2(_fwd.x, _fwd.z);
     const lv = car.body.linvel();
     _vel.set(lv.x, 0, lv.z);
+
+    if (this.photo) {
+      _p.copy(this.photo.offset).applyQuaternion(carQuat).add(carPos);
+      this.camera.position.copy(_p);
+      _look.copy(this.photo.target).applyQuaternion(carQuat).add(carPos);
+      this.camera.lookAt(_look);
+      return;
+    }
 
     if (this.mode === 'chase') {
       let target = headingYaw;

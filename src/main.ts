@@ -5,7 +5,7 @@ import { Input } from './core/input';
 import { createPhysics, FIXED_DT } from './core/physics';
 import { DebugOverlay } from './debug/overlay';
 import { CameraRig } from './render/camera';
-import { buildPlaceholderCar } from './render/placeholderCar';
+import { buildCarModel } from './render/car';
 import { createScene } from './render/scene';
 import { VehicleView } from './render/VehicleView';
 import { Hud } from './ui/hud';
@@ -26,7 +26,7 @@ async function boot(): Promise<void> {
 
   const cfg = sportCfg as unknown as VehicleConfig;
   const car = new Vehicle(physics, cfg, SPAWN.x, SPAWN.z, SPAWN.yaw);
-  const model = buildPlaceholderCar(cfg);
+  const model = buildCarModel(cfg);
   gs.scene.add(model.root);
   const view = new VehicleView(car, model);
   const rig = new CameraRig(gs.camera);
