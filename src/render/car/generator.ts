@@ -38,6 +38,8 @@ export interface CarBodySpec {
   extras?: (root: THREE.Group, mats: CarMaterials, parts: Map<string, THREE.Mesh>) => void;
   /** Mirrors: positions of the mirror pivots. */
   mirrors: [number, number, number][];
+  /** Re-parent small meshes onto panels so they follow them (child name -> panel name). */
+  attach?: Record<string, string>;
 }
 
 export interface CarMaterials {
@@ -260,6 +262,11 @@ export function generateCar(cfg: VehicleConfig, spec: CarBodySpec): CarModel {
   });
 
   spec.extras?.(root, mats, parts);
+  for (const [childName, parentName] of Object.entries(spec.attach ?? {})) {
+    const child = root.getObjectByName(childName);
+    const parent = parts.get(parentName);
+    if (child && parent) parent.attach(child);
+  }
 
   // Wheels.
   const wheels = buildWheels(cfg, mats, root, disposables);

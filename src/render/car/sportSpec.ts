@@ -98,6 +98,22 @@ export const sportSpec: CarBodySpec = {
     bumper_R: [0, -0.15, -2.0],
   },
   interior: { center: [0, 0.16, -0.2], half: [0.5, 0.3, 0.72] },
+  attach: {
+    light_FL: 'bumper_F',
+    light_FR: 'bumper_F',
+    splitter: 'bumper_F',
+    light_RL: 'bumper_R',
+    light_RR: 'bumper_R',
+    exhaust_0: 'bumper_R',
+    exhaust_1: 'bumper_R',
+    exhaust_2: 'bumper_R',
+    exhaust_3: 'bumper_R',
+    wing: 'trunk',
+    wing_post_0: 'trunk',
+    wing_post_1: 'trunk',
+    mirror_L: 'door_FL',
+    mirror_R: 'door_FR',
+  },
   mirrors: [
     [0.99, 0.4, 0.5],
     [-0.99, 0.4, 0.5],
@@ -105,17 +121,20 @@ export const sportSpec: CarBodySpec = {
   extras(root, mats, parts) {
     const pipe = new THREE.CylinderGeometry(0.045, 0.045, 0.16, 14);
     pipe.rotateX(Math.PI / 2);
-    for (const x of [0.5, -0.5, 0.36, -0.36]) {
+    for (const [i, x] of [0.5, -0.5, 0.36, -0.36].entries()) {
       const m = new THREE.Mesh(pipe, mats.rim);
+      m.name = `exhaust_${i}`;
       m.position.set(x, -0.3, -2.17);
       root.add(m);
     }
     const wing = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.025, 0.28), mats.trim);
+    wing.name = 'wing';
     wing.position.set(0, 0.4, -2.0);
     wing.castShadow = true;
     root.add(wing);
-    for (const x of [0.55, -0.55]) {
+    for (const [i, x] of [0.55, -0.55].entries()) {
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.08), mats.trim);
+      post.name = `wing_post_${i}`;
       post.position.set(x, 0.35, -1.98);
       root.add(post);
     }
@@ -138,6 +157,7 @@ export const sportSpec: CarBodySpec = {
     }
     // Front splitter.
     const splitter = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.015, 0.12), mats.trim);
+    splitter.name = 'splitter';
     splitter.position.set(0, -0.375, 2.12);
     root.add(splitter);
   },

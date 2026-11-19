@@ -6,6 +6,12 @@ import { createPhysics, FIXED_DT } from './core/physics';
 import { DebugOverlay } from './debug/overlay';
 import { CameraRig } from './render/camera';
 import { buildCarModel } from './render/car';
+import { buildCrushRays } from './damage/rays';
+import { DamageModel } from './damage/DamageModel';
+import { Deformer } from './damage/Deformer';
+import { Effects } from './render/effects';
+import { PartsManager } from './damage/PartsManager';
+import { createWorldProps } from './world/props';
 import { createScene } from './render/scene';
 import { VehicleView } from './render/VehicleView';
 import { Hud } from './ui/hud';
@@ -23,12 +29,27 @@ async function boot(): Promise<void> {
   const physics = await createPhysics();
   const gs = createScene(canvas);
   gs.scene.add(createGround(physics).group);
+  const props = createWorldProps(physics);
+  gs.scene.add(props.group);
 
   const cfg = sportCfg as unknown as VehicleConfig;
   const car = new Vehicle(physics, cfg, SPAWN.x, SPAWN.z, SPAWN.yaw);
   const model = buildCarModel(cfg);
   gs.scene.add(model.root);
   const view = new VehicleView(car, model);
+  const crush = car.attachCrush(buildCrushRays(cfg, model));
+  const deformer = new Deformer(crush, model.parts);
+  const damage = new DamageModel(car, crush);
+  const effects = new Effects(car, damage);
+  gs.scene.add(effects.group);
+  const parts = new PartsManager(physics, gs.scene, car, model, crush, deformer, damage);
+  parts.onGlassBreak = (p) => effects.glassBurst(p);
+  const repair = (): void => {
+    parts.repair();
+    crush.reset();
+    deformer.reset();
+    damage.reset();
+  };
   const rig = new CameraRig(gs.camera);
   const input = new Input();
 
@@ -46,15 +67,48 @@ async function boot(): Promise<void> {
 
   document.getElementById('loading')?.remove();
 
+  /** Run the simulation for `seconds` of game time without waiting for frames (automated checks). */
+  const advance = (seconds: number, drive?: () => { throttle: number; brake: number; steer: number; handbrake: number }): void => {
+    const n = Math.round(seconds / FIXED_DT);
+    for (let i = 0; i < n; i++) {
+      car.fixedUpdate(FIXED_DT, drive ? drive() : input.out);
+      physics.step();
+      car.afterPhysicsStep();
+      if (i % 4 === 0) {
+        damage.update();
+        deformer.update(performance.now() + i);
+        parts.update();
+        effects.update(FIXED_DT * 4, gs.renderer.domElement.clientHeight);
+      }
+    }
+    damage.update();
+    deformer.update(performance.now() + 1e6);
+    parts.update();
+    props.update();
+    view.update(1);
+  };
+
+  /** Force one camera update + render now (automated screenshots). */
+  const renderNow = (): void => {
+    view.update(1);
+    rig.update(0.05, car, view.pos, view.quat);
+    effects.update(0.016, gs.renderer.domElement.clientHeight);
+    gs.followSun(view.pos);
+    gs.renderer.render(gs.scene, gs.camera);
+  };
+
   // Expose for automated checks / debugging.
-  (window as unknown as { game: unknown }).game = { car, physics, input, rig };
+  (window as unknown as { game: unknown }).game = { car, physics, input, rig, crush, damage, deformer, repair, effects, parts, advance, renderNow };
 
   gs.renderer.setAnimationLoop((now: number) => {
     const frameDt = Math.min((now - last) / 1000, 0.1);
     last = now;
 
     const cmd = input.sample(frameDt);
-    if (input.pressed('Shift+KeyR')) car.placeAt(SPAWN.x, 1.0, SPAWN.z, SPAWN.yaw);
+    if (input.pressed('Shift+KeyR')) {
+      repair();
+      car.placeAt(SPAWN.x, 1.0, SPAWN.z, SPAWN.yaw);
+    }
     else if (input.pressed('KeyR')) car.recover();
     if (input.pressed('KeyC')) rig.cycle();
 
@@ -67,6 +121,13 @@ async function boot(): Promise<void> {
     }
     if (res.steps > 0) physMs = (performance.now() - p0) / res.steps;
 
+    damage.update();
+    deformer.update(now);
+    parts.update();
+    props.update();
+    effects.update(frameDt, gs.renderer.domElement.clientHeight);
+    rig.shake = Math.max(rig.shake, effects.shake);
+    effects.shake = 0;
     view.update(res.alpha);
     rig.update(frameDt, car, view.pos, view.quat);
     gs.followSun(view.pos);
