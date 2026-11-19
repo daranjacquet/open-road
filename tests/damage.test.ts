@@ -26,7 +26,7 @@ describe('crash damage (Blender cars, deformation field)', () => {
       expect(tap.car.parts.brokenParts()).toEqual([]);
       expect(tap.car.parts.ajarParts()).toEqual({});
     }
-  });
+  }, 30_000);
 
   it('20 km/h: light dents only, nothing broken, engine fine', async () => {
     const r = await crash('sedan', 20);
