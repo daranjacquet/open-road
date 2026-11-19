@@ -22,6 +22,9 @@ export interface CrushRay {
 }
 
 /** Expand the config's ray grids into individual rays, measuring each against the visible shell. */
+/** Default elastic travel per zone kind (see CrushGrid.elastic). */
+export const ELASTIC: Record<CrushGrid['kind'], number> = { front: 0.08, rear: 0.08, corner: 0.06, left: 0.03, right: 0.03, roof: 0.03 };
+
 export function buildCrushRays(cfg: VehicleConfig, model: Pick<CarModel, 'probe'>): CrushRay[] {
   const rays: CrushRay[] = [];
   for (const g of cfg.crush) {
@@ -43,7 +46,7 @@ export function buildCrushRays(cfg: VehicleConfig, model: Pick<CarModel, 'probe'
           length: hit.dist,
           part: hit.part,
           fmax: 0,
-          yield: 0.025,
+          yield: g.elastic ?? ELASTIC[g.kind],
           surface: [o[0] + d[0] * hit.dist, o[1] + d[1] * hit.dist, o[2] + d[2] * hit.dist],
         });
       }

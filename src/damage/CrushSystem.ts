@@ -51,6 +51,8 @@ const FRICTION = 0.35;
 export class CrushSystem {
   /** How much the crumple zone stiffens as it compacts (force x (1 + stiffening * depth^2)). */
   static stiffening = 4.5;
+  /** Strength of the zone before it has crushed at all, as a fraction of its full strength. */
+  static softStart = 0.85;
   /** Permanent crush depth per ray (m). */
   readonly crush: Float32Array;
   /** Energy absorbed per ray (J). */
@@ -216,7 +218,7 @@ export class CrushSystem {
       const dcTry = Math.max(p - rd.yield, 0);
       const cm = c + 0.5 * dcTry;
       const depthFrac = cm / rd.length;
-      const soft = 0.3 + 0.7 * Math.min(cm / 0.12, 1);
+      const soft = CrushSystem.softStart + (1 - CrushSystem.softStart) * Math.min(cm / 0.12, 1);
       const fmax = rd.fmax * soft * (1 + CrushSystem.stiffening * depthFrac * depthFrac);
       const k = fmax / rd.yield;
       let F = k * p + 0.025 * fmax * Math.max(vn, 0);

@@ -24,6 +24,6 @@ describe('crumple zones and crash pulses', () => {
   it('a 20 km/h tap leaves only light damage', async () => {
     const r = await crash('sedan', 20);
     console.log('sedan 20:', r.frontCrush.toFixed(3), 'm crush,', r.energyKJ.toFixed(0), 'kJ');
-    expect(r.frontCrush).toBeLessThan(0.16);
+    expect(r.frontCrush).toBeLessThan(0.1);
   });
 });

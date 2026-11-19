@@ -39,12 +39,25 @@ Run `npm test` after a change: the headless simulations print 0-100 time, top sp
 | Value | Effect |
 | --- | --- |
 | `crush[].force` | Total force (N) at which a grid of crush rays yields when fully engaged. Higher means a stiffer car and a harsher pulse. |
+| `crush[].elastic` | Elastic travel (m) before the zone crushes for good: bumper foam and crash boxes that swallow parking knocks and spring back. Defaults: front and rear 8 cm, corners 6 cm, sides and roof 3 cm. |
 | `crush[].origin`, `u`, `v`, `nu`, `nv`, `dir` | Where the rays start (on the hard core) and where they point. The distance to the visible shell is the available crush depth. |
 | `colliders` | The hard core, also pinned in the deformation field (the passenger cell never deforms). Keep it smaller than the body by the crush depth you want. |
 | `outline` | Boxes other cars' rays (and dents) can hit: the visible shell. |
 | `CrushSystem.stiffening` | How much the crumple zone stiffens as it compacts (default 4.5). |
+| `CrushSystem.softStart` | Strength of an untouched zone as a fraction of its full strength (default 0.85). Lower values let small knocks crush the metal. |
 | `H`, `DECAY`, `WAVE` in `Deformer.ts` | Lattice spacing (10 cm), how far a dent drags the metal around it (smaller decay = wider dents), crumple wavelength (13 cm). |
-| `RULES` in `PartsManager.ts` | Dent depth (m) at which each part springs open, is fully open, tears off or breaks. Glass starts cracking at 6 mm and shatters at 7 cm. |
+| `RULES` in `PartsManager.ts` | Dent depth (m) at which each part springs open, is fully open, tears off or breaks. Glass starts cracking at 15 mm and shatters at 7 cm. |
 | Capacities in `DamageModel.ts` | Energy that wrecks a zone, the engine or a wheel. |
 
-Crash calibration (saloon, rigid wall): 20 km/h about 14 cm of crush and light dents, 50 km/h about 38 cm with the bonnet springing open, 100 km/h the nose crushed to the core, bumper and lights gone, engine dead.
+Crash calibration (saloon, rigid wall):
+
+| Speed | Crush | Result |
+| --- | --- | --- |
+| 8 km/h | 0 | No mark: the bumper absorbs it. |
+| 15 km/h | about 3 cm | Small dent, nothing broken. |
+| 20 km/h | about 7 cm | Light dents, lights intact. |
+| 30 km/h | about 16 cm | Headlights broken, bonnet springs open. |
+| 50 km/h | about 33 cm | Nose crumpled, engine damaged. |
+| 70 km/h and up | to the core | Bumper torn off, engine dead. |
+
+The visible dent follows the permanent crush (`Deformer.imprint` caps it with `CrushSystem.crushNear`), so the elastic travel never shows as a dent.

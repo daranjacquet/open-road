@@ -14,13 +14,27 @@ function noseProfile(r: Awaited<ReturnType<typeof crash>>): number[] {
 }
 
 describe('crash damage (Blender cars, deformation field)', () => {
-  it('20 km/h: light dents only, nothing torn off, engine fine', async () => {
+  it('parking knocks: 8 km/h leaves no mark, 15 km/h only a small dent, on every car', async () => {
+    for (const id of ['sedan', 'offroad', 'supercar'] as const) {
+      const slow = await crash(id, 8);
+      expect(slow.frontCrush).toBe(0);
+      expect(slow.car.deformer.maxDisplacement('bumper_F')).toBe(0);
+      const tap = await crash(id, 15);
+      console.log(id, '15:', tap.frontCrush.toFixed(3), 'crush', tap.car.deformer.maxDisplacement('bumper_F').toFixed(3), 'visual');
+      expect(tap.frontCrush).toBeLessThan(0.05);
+      expect(tap.car.deformer.maxDisplacement('bumper_F')).toBeLessThan(0.07);
+      expect(tap.car.parts.brokenParts()).toEqual([]);
+      expect(tap.car.parts.ajarParts()).toEqual({});
+    }
+  });
+
+  it('20 km/h: light dents only, nothing broken, engine fine', async () => {
     const r = await crash('sedan', 20);
     console.log('20', r.car.parts.brokenParts(), r.car.parts.ajarParts(), 'engine', r.car.damage.engine.toFixed(2));
-    expect(r.car.parts.brokenParts().filter((n) => !n.startsWith('light') && !n.startsWith('glass'))).toEqual([]);
+    expect(r.car.parts.brokenParts()).toEqual([]);
     expect(r.car.vehicle.powerScale).toBeGreaterThan(0.9);
     expect(r.car.deformer.maxDisplacement('bumper_F')).toBeGreaterThan(0.02);
-    expect(r.car.deformer.maxDisplacement('bumper_F')).toBeLessThan(0.25);
+    expect(r.car.deformer.maxDisplacement('bumper_F')).toBeLessThan(0.12);
   });
 
   it('the car takes the imprint of what it hits: a pole dents the centre far more than the corners', async () => {

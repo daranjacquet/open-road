@@ -99,6 +99,11 @@ export interface CrushGrid {
   dir: Vec3;
   /** Force (N) when the whole grid is engaged; shared between its rays. */
   force: number;
+  /**
+   * Elastic travel (m) before the zone starts to crush for good: bumper foam and crash boxes that
+   * swallow parking knocks. Defaults per kind (front/rear 8 cm, corner 6 cm, sides and roof 3 cm).
+   */
+  elastic?: number;
 }
 
 export interface VehicleConfig {

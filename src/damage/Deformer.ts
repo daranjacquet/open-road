@@ -250,9 +250,10 @@ export class Deformer {
       // Contact point in the chassis frame.
       _v.copy(c.point).sub(carPos).applyQuaternion(_qi);
       const inward = _d.copy(c.dir).negate();
-      // Against another car we only see its undeformed outline: cap the dent to what our own
-      // crumple zone actually took there, so both cars share the crush like the physics did.
-      const cap = c.shared && crushNear ? crushNear(_v.x, _v.y, _v.z) * 1.15 + 0.03 : Infinity;
+      // The obstacle overlap also holds the elastic travel of the bumper (which springs back), and
+      // against another car we only see its undeformed outline: cap the dent to what our own
+      // crumple zone actually took for good there, so the metal follows the physics.
+      const cap = crushNear ? crushNear(_v.x, _v.y, _v.z) * 1.1 + 0.01 : Infinity;
       this.forBox(_v.x - R, _v.y - R, _v.z - R, _v.x + R, _v.y + R, _v.z + R, (i, ix, iy, iz) => {
         if (this.flag[i] === 1) return;
         const o = i * 3;

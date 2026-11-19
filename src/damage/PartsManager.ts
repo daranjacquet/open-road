@@ -33,9 +33,9 @@ const RULES: PartRule[] = [
   { test: /^hood$/, kind: 'panel', ajarFrom: 0.08, ajarTo: 0.3, breakAt: 0.55, mass: 16 },
   { test: /^trunk$/, kind: 'panel', ajarFrom: 0.06, ajarTo: 0.25, breakAt: 0.5, mass: 14 },
   { test: /^door_[FR][LR]$/, kind: 'panel', ajarFrom: 0.05, ajarTo: 0.14, breakAt: 0.22, mass: 24 },
-  { test: /^bumper_[FR]$/, kind: 'panel', breakAt: 0.5, mass: 14 },
+  { test: /^bumper_[FR]$/, kind: 'panel', breakAt: 0.41, mass: 14 },
   { test: /^glass_/, kind: 'glass', breakAt: 0.07, mass: 0 },
-  { test: /^light_[FR][LR]$/, kind: 'small', breakAt: 0.07, mass: 1 },
+  { test: /^light_[FR][LR]$/, kind: 'small', breakAt: 0.09, mass: 1 },
   { test: /^mirror_[LR]$/, kind: 'small', breakAt: 0.05, mass: 1.2 },
 ];
 
@@ -149,8 +149,8 @@ export class PartsManager {
     const r = p.rule;
     if (r.kind === 'glass') {
       const crack = this.model.cracks.get(p.name);
-      if (crack && disp > 0.006) {
-        const c = clamp((disp - 0.006) / 0.04, 0, 1);
+      if (crack && disp > 0.015) {
+        const c = clamp((disp - 0.015) / 0.04, 0, 1);
         if (c > crack.uCrack.value) {
           crack.uCrack.value = c;
           this.deformer.maxDisplacementPoint(p.name, crack.uCrackCenter.value);
