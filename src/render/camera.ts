@@ -16,6 +16,9 @@ const _p = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _vel = new THREE.Vector3();
+const _pivot = new THREE.Vector3();
+/** Height of the orbit pivot above the car's origin (m): the middle of the cabin. */
+const PIVOT_HEIGHT = 0.8;
 
 /** Chase camera that follows the heading, leans towards the velocity when sliding, and widens FOV with speed. */
 export class CameraRig {
@@ -108,24 +111,25 @@ export class CameraRig {
         this.orbitYaw -= angleDiff(0, this.orbitYaw) * k;
         this.orbitPitch -= this.orbitPitch * k;
       }
-      const dist = lerp(6.8, 9.2, clamp(speed / 50, 0, 1)) * this.zoom;
-      const height = lerp(2.5, 3.2, clamp(speed / 50, 0, 1)) * this.zoom;
-      // Spherical offset: base elevation of the chase view plus the mouse pitch.
-      const range = Math.hypot(dist, height - 1.1);
-      const elev = clamp(Math.atan2(height - 1.1, dist) + this.orbitPitch, -0.12, 1.35);
+      // Orbit around one point on the car: the camera sits on a sphere centred on the pivot and
+      // always looks straight at it, so turning the view (mouse or chase yaw) pivots around the car.
+      // Only the angles are smoothed, never the position, so the car stays centred.
+      _pivot.set(carPos.x, carPos.y + PIVOT_HEIGHT, carPos.z);
+      const dist = lerp(6.8, 9.2, clamp(speed / 50, 0, 1));
+      const height = lerp(2.5, 3.2, clamp(speed / 50, 0, 1)) - PIVOT_HEIGHT;
+      const range = Math.hypot(dist, height) * this.zoom;
+      const elev = clamp(Math.atan2(height, dist) + this.orbitPitch, -0.15, 1.4);
       const yaw = this.yaw + this.orbitYaw;
       const flat = Math.cos(elev) * range;
-      _p.set(carPos.x - Math.sin(yaw) * flat, carPos.y + 1.1 + Math.sin(elev) * range, carPos.z - Math.cos(yaw) * flat);
-      _p.y = Math.max(_p.y, 0.4);
-      if (this.pos.lengthSq() === 0) this.pos.copy(_p);
-      // Positional smoothing, stiffer at speed so the car does not outrun the camera.
-      const k = damp(lerp(9, 18, clamp(speed / 40, 0, 1)), dt);
-      this.pos.lerp(_p, this.dragging ? 1 : k);
-      this.camera.position.copy(this.pos);
-      // Look a little ahead of the car when chasing, straight at it when orbiting around.
-      const ahead = 4 * Math.max(Math.cos(this.orbitYaw), 0) * (1 - clamp(this.orbitPitch, 0, 1));
-      _look.set(carPos.x + Math.sin(this.yaw) * ahead, carPos.y + 1.1, carPos.z + Math.cos(this.yaw) * ahead);
-      this.camera.lookAt(_look);
+      _p.set(_pivot.x - Math.sin(yaw) * flat, _pivot.y + Math.sin(elev) * range, _pivot.z - Math.cos(yaw) * flat);
+      // Keep the camera above the ground (slide in along the ray rather than clipping).
+      if (_p.y < 0.35) {
+        const t = (_pivot.y - 0.35) / Math.max(_pivot.y - _p.y, 1e-3);
+        _p.lerpVectors(_pivot, _p, t);
+      }
+      this.pos.copy(_p);
+      this.camera.position.copy(_p);
+      this.camera.lookAt(_pivot);
     } else {
       const off = this.mode === 'hood' ? _p.set(0.0, 1.05, 0.55) : _p.set(0, 0.55, 2.35);
       off.applyQuaternion(carQuat).add(carPos);
