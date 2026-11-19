@@ -72,20 +72,26 @@ npm run models     # rebuild the cars in Blender and compress them into public/m
 
 ```
 src/
-  core/      fixed-step loop, Rapier setup, input, math
-  vehicle/   Vehicle.ts (suspension, tyres, drivetrain, assists), pure helpers, car JSON configs
+  main.ts    boot only: builds the systems below and hands them to Game
+  core/      fixed-step loop, Rapier setup (with the surface lookup), input, math
+  vehicle/   Vehicle.ts (suspension, tyres, drivetrain, assists), SteeringController, tuning, car JSON configs
   damage/    crumple zones, dents, mechanical damage, detachable parts
-  render/    scene, camera, GLB car loader and paint/glass shaders, effects, particles
-  world/     ground surfaces and test-world props
-  game/      GameCar (one complete car) and the car catalogue
+  render/    scene, camera, adaptive resolution, GLB car loader and paint/glass shaders, effects, smoke
+  world/     test area, city, circuits, surface raster, street furniture, map layout
+  game/      Game (frame loop, cars, actions), GameCar (one complete car), RaceSystem and lap timer, catalogue
   audio/     procedural Web Audio
-  ui/        HUD
-tests/       unit tests plus headless simulations of driving, crashes and collisions
-docs/        screenshots and TUNING.md
+  ui/        HUD and garage panel
+tests/       unit tests plus headless simulations of driving, handling, crashes, collisions, map
+docs/        AUDIT.md (models, performance, architecture), TUNING.md, screenshots
 public/models/  the exported cars (GLB)
-art/         Blender modelling library (lib/), one design file per car (cars/), .blend sources
+art/         Blender: procedural car library (lib/, cars/), import pipeline for third-party models
+             (import_car.py, inspect_model.py), .blend sources
 scripts/     optimize-models.mjs (meshopt compression of the Blender exports)
 ```
+
+Layering: `core` <- `vehicle`, `damage` (simulation, no rendering) <- `render`, `world`, `ui` <- `game` <- `main`. The simulation code never imports the world or the renderer.
+
+**Performance**: the render resolution adapts to the frame rate (pixel ratio 0.6 to 1.5; *Garage > Graphics* pins it), the physics loop does not allocate, and a crash's dent normals are recomputed under a per-frame budget. See [docs/AUDIT.md](docs/AUDIT.md) for measurements.
 
 ### Driving
 - Physics steps at a fixed **120 Hz** with render interpolation, independent of frame rate.
