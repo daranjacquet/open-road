@@ -3,9 +3,10 @@ import { GameAudio } from './audio/audio';
 import { Input } from './core/input';
 import { createPhysics } from './core/physics';
 import { DebugOverlay } from './debug/overlay';
-import { CARS } from './game/catalog';
+import { CARS, carById } from './game/catalog';
 import { Game } from './game/Game';
 import { CameraRig } from './render/camera';
+import { buildCarModel } from './render/car';
 import { loadCarTemplates } from './render/car/glb';
 import { AdaptiveResolution } from './render/quality';
 import { createScene } from './render/scene';
@@ -42,12 +43,20 @@ async function boot(): Promise<void> {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const debug = new DebugOverlay(document.getElementById('debug')!);
   const hud = new Hud(document.getElementById('hud')!);
-  const physics = await createPhysics();
-  mark('physics');
-
   status('Loading cars…');
-  await loadCarTemplates(CARS.map((c) => c.id), import.meta.env.BASE_URL, (n) => status(`Loading cars… ${n}/${CARS.length}`));
-  mark('cars');
+  // Only the cars on screen at start: the saved car and the two parked ones. The rest loads later.
+  const needed = [...new Set([carById(Game.savedCarId()).id, CARS[0]!.id, CARS[1]!.id])];
+  let shownPct = 0;
+  const [physics] = await Promise.all([
+    createPhysics(),
+    loadCarTemplates(needed, import.meta.env.BASE_URL, (loadedBytes, totalBytes) => {
+      // Never above 99 % (compressed sizes) and never backwards (sizes arrive one by one).
+      const pct = totalBytes > 0 ? Math.min(99, Math.floor((loadedBytes / totalBytes) * 100)) : 0;
+      shownPct = Math.max(shownPct, pct);
+      status(totalBytes > 0 ? `Loading… ${shownPct} %` : 'Loading cars…');
+    }),
+  ]);
+  mark('physics+cars');
 
   const gs = createScene(canvas);
   const resolution = new AdaptiveResolution(gs.renderer);
@@ -118,6 +127,20 @@ async function boot(): Promise<void> {
       first = false;
       mark('first-frame');
       console.info('[boot]', JSON.stringify(bootTimes));
+      const deferred = CARS.map((car) => car.id).filter((id) => !needed.includes(id));
+      void (async () => {
+        try {
+          await loadCarTemplates(deferred, import.meta.env.BASE_URL);
+          const tmp = new THREE.Scene();
+          const models = deferred.map((id) => buildCarModel(id));
+          for (const model of models) tmp.add(model.root);
+          // Compile with the game scene's lights and environment so the programs match.
+          await gs.renderer.compileAsync(tmp, gs.camera, gs.scene);
+          for (const model of models) model.dispose();
+        } catch (err) {
+          console.warn('[boot] Deferred car loading or shader compilation failed.', err);
+        }
+      })();
     }
   });
 }

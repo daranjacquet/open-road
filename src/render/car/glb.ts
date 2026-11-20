@@ -29,19 +29,74 @@ export async function parseCarGLB(buffer: ArrayBuffer): Promise<THREE.Group> {
   return gltf.scene;
 }
 
-export async function loadCarTemplates(ids: string[], baseUrl: string, onProgress?: (done: number) => void): Promise<string[]> {
-  const loaded: string[] = [];
-  let done = 0;
+/** Downloads in progress, so a car is never fetched twice (boot, background load, car swap). */
+const inFlight = new Map<string, Promise<void>>();
+
+/** Fetch and parse one car, streaming so `onBytes` can report progress. */
+async function fetchTemplate(id: string, baseUrl: string, onBytes?: (bytes: number, total: number) => void): Promise<void> {
+  const res = await fetch(`${baseUrl}models/${id}.glb`);
+  if (!res.ok) throw new Error(`Car model ${id}: HTTP ${res.status}`);
+  const total = Number(res.headers.get('Content-Length')) || 0;
+  onBytes?.(0, total);
+  const reader = res.body?.getReader();
+  let buffer: ArrayBuffer;
+  if (reader) {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      size += value.byteLength;
+      onBytes?.(value.byteLength, 0);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    buffer = bytes.buffer;
+  } else {
+    buffer = await res.arrayBuffer();
+    onBytes?.(buffer.byteLength, 0);
+  }
+  templates.set(id, await parseCarGLB(buffer));
+}
+
+/** Load one car if it is not loaded or loading yet; resolves when its template is ready. */
+export function ensureCarTemplate(id: string, baseUrl: string, onBytes?: (bytes: number, total: number) => void): Promise<void> {
+  if (templates.has(id)) return Promise.resolve();
+  let request = inFlight.get(id);
+  if (!request) {
+    request = fetchTemplate(id, baseUrl, onBytes).finally(() => inFlight.delete(id));
+    inFlight.set(id, request);
+  }
+  return request;
+}
+
+/**
+ * Load several cars in parallel. `onProgress(loaded, total)` reports downloaded bytes against the
+ * announced sizes (total grows as responses arrive; 0 when the server sends no length).
+ */
+export async function loadCarTemplates(
+  ids: string[],
+  baseUrl: string,
+  onProgress?: (loadedBytes: number, totalBytes: number) => void,
+): Promise<string[]> {
+  const unique = [...new Set(ids)];
+  let loaded = 0;
+  let total = 0;
   await Promise.all(
-    ids.map(async (id) => {
-      const res = await fetch(`${baseUrl}models/${id}.glb`);
-      if (!res.ok) throw new Error(`Car model ${id}: HTTP ${res.status}`);
-      templates.set(id, await parseCarGLB(await res.arrayBuffer()));
-      loaded.push(id);
-      onProgress?.(++done);
-    }),
+    unique.map((id) =>
+      ensureCarTemplate(id, baseUrl, (bytes, size) => {
+        loaded += bytes;
+        total += size;
+        onProgress?.(loaded, total);
+      }),
+    ),
   );
-  return loaded;
+  return unique.filter((id) => templates.has(id));
 }
 
 const WHEEL_RE = /^(tire|rim|disc|nuts|caliper)_(FL|FR|RL|RR)$/;

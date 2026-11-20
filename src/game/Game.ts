@@ -4,6 +4,7 @@ import type { Input } from '../core/input';
 import { FIXED_DT, type Physics } from '../core/physics';
 import type { DebugOverlay } from '../debug/overlay';
 import type { CameraRig } from '../render/camera';
+import { ensureCarTemplate, getCarTemplate } from '../render/car/glb';
 import type { AdaptiveResolution } from '../render/quality';
 import type { GameScene } from '../render/scene';
 import type { Garage } from '../ui/garage';
@@ -63,10 +64,13 @@ export class Game {
     this.tick = now;
   }
 
+  /** A car swap is waiting for its model: ignore further swaps until it is done. */
+  private swapping = false;
+
   constructor(deps: GameDeps) {
     this.d = deps;
     const { physics, gs } = deps;
-    this.player = new GameCar(physics, gs.scene, carById(Game.savedCar()), SPAWN.x, SPAWN.z, SPAWN.yaw);
+    this.player = new GameCar(physics, gs.scene, carById(Game.savedCarId()), SPAWN.x, SPAWN.z, SPAWN.yaw);
     this.dummies = [
       new GameCar(physics, gs.scene, CARS[0]!, 0, 22, Math.PI, 0x8a8f96),
       new GameCar(physics, gs.scene, CARS[1]!, -15, -85, Math.PI / 2, 0xe0b020),
@@ -78,7 +82,7 @@ export class Game {
     deps.hud.onRepair = () => this.repair();
   }
 
-  private static savedCar(): string {
+  static savedCarId(): string {
     try {
       return localStorage.getItem(CAR_KEY) ?? 'sedan';
     } catch {
@@ -92,28 +96,44 @@ export class Game {
 
   // ---- actions (keys, garage menu, HUD button, debug API) ---------------------------------------
 
-  swapCar(id: string): void {
-    const old = this.player;
-    const t = old.vehicle.body.translation();
-    const q = old.vehicle.currQuat;
-    const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
-    old.dispose();
-    this.player = new GameCar(this.d.physics, this.d.gs.scene, carById(id), t.x, t.z, yaw);
-    this.player.vehicle.placeAt(t.x, 1.0, t.z, yaw);
-    this.cars[0] = this.player;
-    this.garage.attach();
-    this.hookPlayer();
-    this.race.setCar(id);
+  /** Switch the player's car, loading its model first if it is not loaded yet. */
+  async swapCar(id: string): Promise<void> {
+    if (this.swapping) return;
+    this.swapping = true;
     try {
-      localStorage.setItem(CAR_KEY, id);
-    } catch {
-      /* storage unavailable: fine */
+      if (!getCarTemplate(id)) {
+        this.d.hud.toast('Loading car…', 1500);
+        try {
+          await ensureCarTemplate(id, import.meta.env.BASE_URL);
+        } catch {
+          this.d.hud.toast('Could not load this car', 1500);
+          return;
+        }
+      }
+      const old = this.player;
+      const t = old.vehicle.body.translation();
+      const q = old.vehicle.currQuat;
+      const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
+      old.dispose();
+      this.player = new GameCar(this.d.physics, this.d.gs.scene, carById(id), t.x, t.z, yaw);
+      this.player.vehicle.placeAt(t.x, 1.0, t.z, yaw);
+      this.cars[0] = this.player;
+      this.garage.attach();
+      this.hookPlayer();
+      this.race.setCar(id);
+      try {
+        localStorage.setItem(CAR_KEY, id);
+      } catch {
+        /* storage unavailable: fine */
+      }
+    } finally {
+      this.swapping = false;
     }
   }
 
   nextCar(): void {
     const i = CARS.findIndex((c) => c.id === this.player.def.id);
-    this.swapCar(CARS[(i + 1) % CARS.length]!.id);
+    void this.swapCar(CARS[(i + 1) % CARS.length]!.id);
   }
 
   teleport(loc: Location): void {
