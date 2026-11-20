@@ -19,11 +19,15 @@ interface MeshBinding {
   data: DeformableMeshData;
   pos: Float32Array;
   scuff: Float32Array | null;
+  noise: Float64Array | null;
+  /** Inverse rest matrix (16 values, column-major): chassis displacement back to the mesh frame. */
+  invRot: Float64Array;
   /** Rest positions in the chassis frame. */
   restC: Float32Array;
   restN: Float32Array;
   /** Lattice cell (flat index of its min corner) and fractional coords per vertex. */
   cell: Int32Array;
+  cellXYZ: Uint16Array;
   frac: Float32Array;
   /** Bounding box in lattice cells (to skip meshes far from a change). */
   cmin: [number, number, number];
@@ -162,6 +166,7 @@ export class Deformer {
       const restC = new Float32Array(rest.length);
       const restN = new Float32Array(rest.length);
       const cell = new Int32Array(nv);
+      const cellXYZ = new Uint16Array(nv * 3);
       const frac = new Float32Array(nv * 3);
       const n3 = new THREE.Matrix3().setFromMatrix4(m4);
       const cmin: [number, number, number] = [1e9, 1e9, 1e9];
@@ -182,6 +187,9 @@ export class Deformer {
         const iy = Math.floor(gy);
         const iz = Math.floor(gz);
         cell[v] = this.idx(ix, iy, iz);
+        cellXYZ[v * 3] = ix;
+        cellXYZ[v * 3 + 1] = iy;
+        cellXYZ[v * 3 + 2] = iz;
         frac[v * 3] = gx - ix;
         frac[v * 3 + 1] = gy - iy;
         frac[v * 3 + 2] = gz - iz;
@@ -197,14 +205,30 @@ export class Deformer {
         scuff = new Float32Array(nv);
         mesh.geometry.setAttribute('scuff', new THREE.BufferAttribute(scuff, 1).setUsage(THREE.DynamicDrawUsage));
       }
+      let noise: Float64Array | null = null;
+      if (scuff) {
+        noise = new Float64Array(nv);
+        for (let v = 0; v < nv; v++) {
+          const o = v * 3;
+          const px = restC[o]!;
+          const py = restC[o + 1]!;
+          const pz = restC[o + 2]!;
+          noise[v] = 0.65 * valueNoise(px * 14, py * 14, pz * 14) + 0.35 * valueNoise(px * 45, py * 45, pz * 45);
+        }
+      }
+      // Inverse of the rest matrix, column-major like Matrix4.elements (only its rotation part is read).
+      const invRot = Float64Array.from(new THREE.Matrix4().copy(m4).invert().elements);
       this.bindings.push({
         mesh,
         data,
         pos: (mesh.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array,
         scuff,
+        noise,
+        invRot,
         restC,
         restN,
         cell,
+        cellXYZ,
         frac,
         cmin,
         cmax,
@@ -263,8 +287,8 @@ export class Deformer {
     _q.copy(carQuat);
     _qi.copy(carQuat).invert();
     const R = 0.75;
-    // Many contacts of one step are on the same obstacle with overlapping boxes: a node found outside
-    // a collider is not tested against it again in this call unless it moves (pure saving, same result).
+    // Many contacts of one step are on the same obstacle with overlapping boxes: each node is handled
+    // at most once per obstacle per call (found outside it, or pushed out / capped by it).
     this.imprintCall = (this.imprintCall % 0xfffffffe) + 1;
     const call = this.imprintCall;
     for (const c of contacts) {
@@ -316,7 +340,10 @@ export class Deformer {
         this.D[o] = nx;
         this.D[o + 1] = ny;
         this.D[o + 2] = nz;
-        this.missCall[i] = 0; // moved: test it again
+        // Done for this obstacle in this call: pushed out, or held at the crush cap (the dent may not
+        // exceed what the crumple zone took). Later contacts of the same obstacle would only redo it.
+        this.missCall[i] = call;
+        this.missHandle[i] = handle;
         this.flag[i] = 2;
         this.imprints++;
         this.markDirty(ix, iy, iz);
@@ -422,17 +449,15 @@ export class Deformer {
     const nx = this.nx;
     const sy = nx;
     const sz = nx * this.ny;
-    const inv = new THREE.Matrix4();
-    const m4 = new THREE.Matrix4();
     for (const b of this.bindings) {
       if (b.cmax[0] < x0 || b.cmin[0] > x1 || b.cmax[1] < y0 || b.cmin[1] > y1 || b.cmax[2] < z0 || b.cmin[2] > z1) continue;
-      m4.fromArray(b.data.restMatrix);
-      inv.copy(m4).invert();
-      const e = inv.elements;
+      const e = b.invRot;
       const nv = b.cell.length;
       let maxDisp = b.maxDisp;
       let maxIndex = b.maxIndex;
       for (let v = 0; v < nv; v++) {
+        const co = v * 3;
+        if (b.cellXYZ[co]! < x0 || b.cellXYZ[co]! > x1 || b.cellXYZ[co + 1]! < y0 || b.cellXYZ[co + 1]! > y1 || b.cellXYZ[co + 2]! < z0 || b.cellXYZ[co + 2]! > z1) continue;
         const i = b.cell[v]!;
         const fx = b.frac[v * 3]!;
         const fy = b.frac[v * 3 + 1]!;
@@ -504,10 +529,7 @@ export class Deformer {
         b.pos[o + 2] = b.data.rest[o + 2]! + lz;
         if (b.scuff) {
           // Paint flakes off where the metal was pushed hard: patchy, two octaves of noise.
-          const px = b.restC[o]!;
-          const py = b.restC[o + 1]!;
-          const pz = b.restC[o + 2]!;
-          const nzr = 0.65 * valueNoise(px * 14, py * 14, pz * 14) + 0.35 * valueNoise(px * 45, py * 45, pz * 45);
+          const nzr = b.noise![v]!;
           const base = Math.max(0, (disp - 0.02) * 7);
           b.scuff[v] = Math.min(1, Math.max(0, base * 1.4 - (1 - nzr) * 0.9));
         }

@@ -10,6 +10,7 @@ import { buildCarModel } from './render/car';
 import { loadCarTemplates } from './render/car/glb';
 import { AdaptiveResolution } from './render/quality';
 import { createScene } from './render/scene';
+import { warmUp } from './render/warmup';
 import { Garage } from './ui/garage';
 import { Hud } from './ui/hud';
 import { createGround } from './world/ground';
@@ -100,22 +101,8 @@ async function boot(): Promise<void> {
   gfx.close();
 
   status('Preparing graphics…');
-  try {
-    await gs.renderer.compileAsync(gs.scene, gs.camera);
-  } catch (err) {
-    console.warn('[boot] Shader compilation failed; it will happen on first render.', err);
-  }
-  mark('shaders');
-  // Upload every texture now rather than on the first frame.
-  const textures = new Set<THREE.Texture>();
-  gs.scene.traverse((o) => {
-    const mats = (o as THREE.Mesh).material;
-    for (const m of Array.isArray(mats) ? mats : mats ? [mats] : []) {
-      for (const v of Object.values(m)) if (v instanceof THREE.Texture) textures.add(v);
-    }
-  });
-  for (const t of textures) gs.renderer.initTexture(t);
-  mark('textures');
+  await warmUp(gs.renderer, gs.scene, gs.camera, gs.scene);
+  mark('graphics');
 
   // Keep the API object as is (its getters stay live) and add the boot timings to it.
   (window as unknown as { game: unknown }).game = Object.assign(game.debugApi(), { boot: bootTimes });
@@ -134,8 +121,7 @@ async function boot(): Promise<void> {
           const tmp = new THREE.Scene();
           const models = deferred.map((id) => buildCarModel(id));
           for (const model of models) tmp.add(model.root);
-          // Compile with the game scene's lights and environment so the programs match.
-          await gs.renderer.compileAsync(tmp, gs.camera, gs.scene);
+          await warmUp(gs.renderer, tmp, gs.camera, gs.scene);
           for (const model of models) model.dispose();
         } catch (err) {
           console.warn('[boot] Deferred car loading or shader compilation failed.', err);
