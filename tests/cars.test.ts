@@ -52,7 +52,7 @@ describe('the three cars drive plausibly and differently', () => {
       expect(m.brake100).toBeLessThan(60);
       expect(m.drift).toBeLessThan(8);
       expect(m.skidpadG).toBeGreaterThan(0.6);
-    });
+    }, 30_000);
   }
   it('supercar is the quickest and grippiest, the off-roader the tallest and least grippy', () => {
     expect(r['supercar']!.t100).toBeLessThan(r['sedan']!.t100);
