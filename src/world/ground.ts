@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 import type { Physics } from '../core/physics';
-import { GROUP, groups, type Surface } from '../core/physics';
+import type { Surface } from '../core/physics';
 import { ASPHALT, DIRT, type SurfaceMap } from './surface';
-
-export const WORLD_SIZE = 2000; // metres, square
 
 export type { Surface } from '../core/physics';
 
@@ -72,43 +70,14 @@ export interface Ground {
   group: THREE.Group;
 }
 
+/**
+ * Test-area markings on the flat ground: asphalt pads, the drag strip, the dirt patch and the lane
+ * dashes. The ground itself (shape and collider) is the terrain built by the map.
+ */
 export function createGround(physics: Physics): Ground {
-  const { RAPIER, world } = physics;
-
-  // Physics: one big static slab, top face at y = 0.
-  const half = WORLD_SIZE / 2;
-  const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, -1, 0));
-  const collider = world.createCollider(
-    RAPIER.ColliderDesc.cuboid(half, 1, half)
-      .setFriction(1.0)
-      .setRestitution(0)
-      .setCollisionGroups(groups(GROUP.WORLD, 0xffff)),
-    body,
-  );
-  physics.groundColliders.add(collider.handle);
   physics.surfaceAt = surfaceLookup(null);
-
   const group = new THREE.Group();
   group.name = 'ground';
-
-  // Grass base.
-  const grassTex = tileTexture((g, s) => {
-    noiseFill(g, s, [78, 112, 58], 34);
-    g.globalAlpha = 0.25;
-    for (let i = 0; i < 90; i++) {
-      g.fillStyle = Math.random() > 0.5 ? '#3f6a32' : '#8aa35a';
-      g.fillRect(Math.random() * s, Math.random() * s, 3 + Math.random() * 6, 3 + Math.random() * 6);
-    }
-  });
-  const reps = WORLD_SIZE / 6;
-  grassTex.repeat.set(reps, reps);
-  const base = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE),
-    new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1, metalness: 0 }),
-  );
-  base.rotation.x = -Math.PI / 2;
-  base.receiveShadow = true;
-  group.add(base);
 
   // Asphalt patches (decals slightly above the base).
   const asphaltTex = tileTexture((g, s) => {

@@ -1,48 +1,29 @@
 import * as THREE from 'three';
 import type { Physics } from '../core/physics';
 import { createCity, type City } from './city';
-import { noiseFill, surfaceLookup, tileTexture, WORLD_SIZE } from './ground';
+import { noiseFill, surfaceLookup, tileTexture } from './ground';
+import { DRIFT, LIMIT, RACE, WORLD_SIZE } from './layout';
+import { drawOverview, type Overview } from './overview';
+import { buildPlaces, placeMaterials } from './places';
+import type { RoadLine } from './roadline';
+import { buildRoads, roadMaterials } from './roads';
+import { buildSigns } from './signs';
 import { SurfaceMap } from './surface';
-import { buildTrack, trackMaterials, type BuiltTrack, type TrackDef } from './track';
+import { createTerrainCollider, createTerrainView, splatTexture } from './terrain';
+import { buildTrack, trackMaterials, type BuiltTrack } from './track';
+import { createVegetation } from './vegetation';
+import { createWater } from './water';
+import { worldFromData, type WorldData } from './worlddata';
 
-export const SPAWN = { x: 0, z: -120, yaw: 0 };
-/** Leaving this square (or falling below the world) sends the car back to the start. */
-export const LIMIT = WORLD_SIZE / 2 - 2;
+export { DRIFT, LIMIT, RACE } from './layout';
 
-/** Grand-prix style circuit, north-west: 2.9 km, long main straight, hairpin, esses. */
-export const RACE: TrackDef = {
-  id: 'race',
-  name: 'Grand Prix circuit',
-  width: 14,
-  runoff: 14,
-  wall: 'armco',
-  points: (
-    [
-      [-180, 300], [-180, 600], [-185, 860], [-230, 930], [-320, 950], [-450, 915], [-560, 945], [-680, 940],
-      [-750, 895], [-735, 835], [-650, 800], [-580, 745], [-620, 680], [-740, 650], [-860, 580], [-905, 450],
-      [-860, 330], [-760, 275], [-640, 300], [-560, 370], [-480, 345], [-420, 280], [-330, 245], [-230, 250],
-    ] as [number, number][]
-  ).map(([x, z]) => [x - 40, z] as [number, number]),
-};
-
-/** Drift circuit, south-west: wide and twisty, with a skid pad next to it. */
-export const DRIFT: TrackDef = {
-  id: 'drift',
-  name: 'Drift circuit',
-  width: 16,
-  runoff: 7,
-  wall: 'blocks',
-  points: [
-    [-300, -420], [-300, -600], [-340, -700], [-430, -720], [-480, -660], [-560, -640], [-620, -700], [-600, -800],
-    [-680, -880], [-800, -870], [-860, -780], [-800, -700], [-840, -600], [-820, -470], [-720, -420], [-640, -480],
-    [-560, -440], [-470, -380], [-380, -360],
-  ],
-  pads: [[-520, -230, 55]],
-};
+export const SPAWN = { x: 0, y: 0, z: -120, yaw: 0 };
 
 export interface Location {
   name: string;
   x: number;
+  /** Ground height at the spot (the car is dropped a little above it). */
+  y: number;
   z: number;
   yaw: number;
 }
@@ -51,17 +32,44 @@ export interface GameMap {
   group: THREE.Group;
   tracks: BuiltTrack[];
   city: City;
+  roads: RoadLine[];
   locations: Location[];
-  /** Per frame: traffic lights, knocked-over furniture. */
-  update(seconds: number): void;
+  overview: Overview;
+  /** Time spent building each part (ms), for the boot report. */
+  buildTimes: Record<string, number>;
+  /** Ground height (terrain only, not bridges or buildings). */
+  heightAt(x: number, z: number): number;
+  /** Per frame: terrain detail and culling, trees, traffic lights, knocked-over furniture, water. */
+  update(seconds: number, camera: THREE.Camera, player: THREE.Vector3): void;
   isOutside(x: number, y: number, z: number): boolean;
+  /** Under the lake surface. */
+  inWater(x: number, y: number, z: number): boolean;
 }
 
-/** City, circuits and world edge, on top of the test area from `createGround`. */
-export function createMap(physics: Physics): GameMap {
+/**
+ * Terrain, roads, city, circuits, places, forests and the lake, on top of the test area, from the
+ * world data computed by the worker (`loadWorldData`).
+ */
+export function createMap(physics: Physics, data: WorldData): GameMap {
+  const times: Record<string, number> = {};
+  for (const [k, v] of Object.entries(data.times)) times[`worker.${k}`] = v;
+  let t = performance.now();
+  const lap = (name: string): void => {
+    const now = performance.now();
+    times[name] = Math.round(now - t);
+    t = now;
+  };
   const group = new THREE.Group();
   group.name = 'map';
-  const surface = new SurfaceMap(WORLD_SIZE);
+
+  const world = worldFromData(data);
+  const { hm } = world;
+  createTerrainCollider(physics, hm);
+  const terrain = createTerrainView(hm, splatTexture(hm, data.splat));
+  group.add(terrain.group);
+  lap('terrain');
+
+  const surface = new SurfaceMap(WORLD_SIZE, 2);
   const asphalt = tileTexture((g, s) => {
     noiseFill(g, s, [96, 98, 104], 24);
     g.strokeStyle = 'rgba(0,0,0,0.1)';
@@ -72,67 +80,85 @@ export function createMap(physics: Physics): GameMap {
       g.stroke();
     }
   });
-
   const mats = trackMaterials(asphalt);
   const tracks = [RACE, DRIFT].map((def) => {
-    const t = buildTrack(physics, def, surface, mats);
-    group.add(t.group);
-    return t;
+    const tr = buildTrack(physics, def, surface, mats);
+    group.add(tr.group);
+    return tr;
   });
   const city = createCity(physics, surface, asphalt);
   group.add(city.group);
+  lap('city');
+
+  const roads = buildRoads(physics, world.roads, hm, surface, roadMaterials());
+  group.add(roads.group);
+  const places = buildPlaces(physics, hm, world.roads, surface, placeMaterials(asphalt));
+  group.add(places.group);
+  buildSigns(physics, hm, places.group);
+  lap('roads+places');
+
+  const vegetation = createVegetation(physics, data.trees);
+  group.add(vegetation.group);
+  const water = createWater();
+  group.add(water.mesh);
+  lap('trees');
   physics.surfaceAt = surfaceLookup(surface);
+  const overview = drawOverview(hm, world.roads, data.overview, tracks);
+  lap('overview');
 
-  // World edge: red and white posts, and grass beyond so the horizon is not a cliff.
-  const posts: THREE.Matrix4[] = [];
-  for (let s = -LIMIT; s <= LIMIT; s += 25) {
-    for (const [x, z] of [
-      [s, -LIMIT],
-      [s, LIMIT],
-      [-LIMIT, s],
-      [LIMIT, s],
-    ] as const) {
-      posts.push(new THREE.Matrix4().makeTranslation(x, 0.7, z));
-    }
-  }
-  const postMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.12, 1.4, 8), new THREE.MeshStandardMaterial({ color: 0xd8261c }), posts.length);
-  posts.forEach((m, i) => postMesh.setMatrixAt(i, m));
-  group.add(postMesh);
-  const outerMat = new THREE.MeshStandardMaterial({ color: 0x55703f, roughness: 1 });
-  const H = WORLD_SIZE / 2;
-  const F = 5000;
-  for (const [cx, cz, w, d] of [
-    [0, H + F / 2, 2 * (H + F), F],
-    [0, -H - F / 2, 2 * (H + F), F],
-    [H + F / 2, 0, F, 2 * H],
-    [-H - F / 2, 0, F, 2 * H],
-  ] as const) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), outerMat);
-    m.position.set(cx, -0.02, cz);
-    group.add(m);
-  }
-
-  const race = tracks[0]!.line.at(-30);
-  const drift = tracks[1]!.line.at(-24);
+  const road = (id: string): RoadLine => world.roads.find((r) => r.def.id === id)!;
+  const onRoad = (name: string, id: string, s: number): Location => {
+    const p = road(id).at(s);
+    return { name, ...p };
+  };
+  const spot = (name: string): Location => places.spots.find((p) => p.name === name)!;
   const locations: Location[] = [
     { name: 'Test area', ...SPAWN },
-    { name: 'City', x: 516.5, z: -560, yaw: 0 },
-    { name: 'Grand Prix circuit', ...race },
-    { name: 'Drift circuit', ...drift },
-    { name: 'Drift skid pad', x: -520, z: -282, yaw: Math.PI / 2 },
+    { name: 'City', x: 516.5, y: 0, z: -560, yaw: 0 },
+    { name: 'Grand Prix circuit', y: 0, ...tracks[0]!.line.at(-30) },
+    { name: 'Drift circuit', y: 0, ...tracks[1]!.line.at(-24) },
+    onRoad('Mountain pass', 'pass', 60),
+    spot('Summit viewpoint'),
+    spot('Lake village'),
+    spot('Harbour'),
+    spot('Petrol station'),
+    spot('Airfield runway'),
+    spot('Farm'),
+    onRoad('Forest road', 'forest', 900),
+    spot('Quarry'),
   ];
 
+  // Small things only worth drawing from nearby (their instanced meshes span the whole city, so the
+  // frustum alone never culls them, not even in the shadow map).
+  const cullers: { obj: THREE.Object3D; rect: [number, number, number, number]; max: number }[] = [
+    { obj: city.details, rect: [293, -847, 857, 247], max: 700 },
+  ];
+  const camPos = new THREE.Vector3();
   return {
     group,
     tracks,
     city,
+    roads: world.roads,
     locations,
-    update(seconds: number) {
+    overview,
+    buildTimes: times,
+    heightAt: (x, z) => hm.heightAt(x, z),
+    update(seconds, camera, player) {
+      camera.getWorldPosition(camPos);
+      for (const c of cullers) {
+        const dx = Math.max(c.rect[0] - camPos.x, 0, camPos.x - c.rect[2]);
+        const dz = Math.max(c.rect[1] - camPos.z, 0, camPos.z - c.rect[3]);
+        c.obj.visible = dx * dx + dz * dz < c.max * c.max;
+      }
+      terrain.update(camera);
+      vegetation.update(camPos, player);
+      water.update(seconds);
       city.update(seconds);
       city.furniture.update();
     },
     isOutside(x, y, z) {
-      return Math.abs(x) > LIMIT + 1 || Math.abs(z) > LIMIT + 1 || y < -15;
+      return Math.abs(x) > LIMIT || Math.abs(z) > LIMIT || y < -40;
     },
+    inWater: (x, y, z) => water.isUnder(x, y, z),
   };
 }

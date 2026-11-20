@@ -6,6 +6,7 @@ import { DebugOverlay } from './debug/overlay';
 import { CARS, carById } from './game/catalog';
 import { Game } from './game/Game';
 import { CameraRig } from './render/camera';
+import { ParticlePool } from './render/particles';
 import { buildCarModel } from './render/car';
 import { loadCarTemplates } from './render/car/glb';
 import { AdaptiveResolution } from './render/quality';
@@ -16,6 +17,7 @@ import { Hud } from './ui/hud';
 import { createGround } from './world/ground';
 import { createMap } from './world/map';
 import { createWorldProps } from './world/props';
+import { loadWorldData } from './world/worlddata';
 
 /** Boot phases and their duration (ms), logged once and exposed as `window.game.boot`. */
 const bootTimes: Record<string, number> = {};
@@ -41,6 +43,8 @@ async function boot(): Promise<void> {
     if (loading) loading.textContent = s;
   };
   mark('scripts');
+  // The world (terrain, roads, trees) is computed in a worker while the rest loads.
+  const worldData = loadWorldData();
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const debug = new DebugOverlay(document.getElementById('debug')!);
   const hud = new Hud(document.getElementById('hud')!);
@@ -65,19 +69,25 @@ async function boot(): Promise<void> {
   const props = createWorldProps(physics);
   gs.scene.add(props.group);
   mark('scene');
-  status('Building the city…');
-  await new Promise((r) => setTimeout(r, 0));
-  const map = createMap(physics);
+  status('Building the world…');
+  const data = await worldData;
+  mark('world-wait');
+  const map = createMap(physics, data);
   gs.scene.add(map.group);
   mark('map');
+  for (const [k, v] of Object.entries(map.buildTimes)) bootTimes[`map.${k}`] = v;
 
   const rig = new CameraRig(gs.camera);
+  rig.groundAt = map.heightAt;
+  ParticlePool.groundAt = map.heightAt;
   rig.attachMouse(canvas);
   const audio = new GameAudio();
   audio.muted = false;
+  mark('rig+audio');
 
   const game = new Game({ physics, gs, map, props, input: new Input(), rig, hud, audio, debug, resolution, onFatal: showFatal });
   mark('cars-built');
+  hud.attachMap(map.overview, map.locations, (loc) => game.teleport(loc));
 
   canvas.addEventListener('webglcontextlost', (event) => {
     event.preventDefault();
@@ -101,8 +111,10 @@ async function boot(): Promise<void> {
   gfx.close();
 
   status('Preparing graphics…');
-  await warmUp(gs.renderer, gs.scene, gs.camera, gs.scene);
+  const gpu = await warmUp(gs.renderer, gs.scene, gs.camera, gs.scene);
   mark('graphics');
+  bootTimes['graphics.compile'] = gpu.compile;
+  bootTimes['graphics.upload'] = gpu.upload;
 
   // Keep the API object as is (its getters stay live) and add the boot timings to it.
   (window as unknown as { game: unknown }).game = Object.assign(game.debugApi(), { boot: bootTimes });

@@ -1,5 +1,8 @@
 import type { GameCar } from '../game/GameCar';
 import { formatLap, type LapState } from '../game/laps';
+import type { Location } from '../world/map';
+import type { Overview } from '../world/overview';
+import { Minimap } from './minimap';
 
 /** Minimal driving HUD: speed, gear, rpm bar, assist lights. Updated at ~20 Hz. */
 export class Hud {
@@ -17,8 +20,11 @@ export class Hud {
   private lastLaps = 0;
   /** Called by the on-screen repair button. */
   onRepair: (() => void) | null = null;
+  private minimap: Minimap | null = null;
+  private readonly root: HTMLElement;
 
   constructor(root: HTMLElement) {
+    this.root = root;
     root.innerHTML = `
       <style>
         .hud-box{position:fixed;right:24px;bottom:22px;text-align:right;font-weight:600}
@@ -60,7 +66,7 @@ export class Hud {
       </div>
       <div class="hud-lap" id="hud-lap"><div class="t" id="lap-track"></div><div class="c" id="lap-cur">0:00.000</div><div class="r"><span>Last</span><span id="lap-last"></span></div><div class="r"><span>Best</span><span id="lap-best"></span></div></div>
       <div class="hud-toast" id="hud-toast"></div>
-      <div class="hud-help">W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; Q/E shift (manual) &middot; F repair &middot; G garage &middot; T teleport &middot; right-drag camera &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V car &middot; B targets &middot; M mute</div>`;
+      <div class="hud-help">W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; Q/E shift (manual) &middot; F repair &middot; G garage &middot; T teleport &middot; N map &middot; right-drag camera &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V car &middot; B targets &middot; M mute</div>`;
     this.speed = root.querySelector('#hud-speed')!;
     this.gear = root.querySelector('#hud-gear')!;
     this.rpmFill = root.querySelector('#hud-rpm')!;
@@ -90,6 +96,15 @@ export class Hud {
       esp: root.querySelector('#hud-esp')!,
       man: root.querySelector('#hud-man')!,
     };
+  }
+
+  /** Add the minimap and the big map (N), whose places drive the car there through `onGo`. */
+  attachMap(overview: Overview, places: Location[], onGo: (loc: Location) => void): void {
+    this.minimap = new Minimap(this.root, overview, places, onGo);
+  }
+
+  toggleMap(): void {
+    this.minimap?.toggle();
   }
 
   /** A short message in the middle of the screen. */
@@ -138,5 +153,10 @@ export class Hud {
     this.lights.abs.classList.toggle('on', car.absActive);
     this.lights.esp.classList.toggle('on', car.espActivity > 0.05);
     this.lights.man.style.display = car.manual ? '' : 'none';
+    if (this.minimap) {
+      const t = car.body.translation();
+      const q = car.body.rotation();
+      this.minimap.update(t.x, t.z, Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x)));
+    }
   }
 }

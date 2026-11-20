@@ -24,7 +24,7 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
 
   const scene = new THREE.Scene();
   const fogColor = new THREE.Color(0xb9cde0);
-  scene.fog = new THREE.Fog(fogColor, 150, 1100);
+  scene.fog = new THREE.Fog(fogColor, 280, 2300);
 
   const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 3000);
   camera.position.set(0, 4, -9);
@@ -38,6 +38,15 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   u['mieCoefficient']!.value = 0.004;
   u['mieDirectionalG']!.value = 0.8;
   u['sunPosition']!.value.copy(SUN_DIR).multiplyScalar(1000);
+  // The sky box travels with the camera, so it always surrounds it whatever the size of the world.
+  sky.frustumCulled = false;
+  // Drawn after the opaque scenery: the shader puts it on the far plane, so only the pixels nothing
+  // else covered run its (costly) scattering.
+  sky.renderOrder = 1e6;
+  sky.onBeforeRender = (_r, _s, cam) => {
+    sky.position.copy(cam.position);
+    sky.updateMatrixWorld();
+  };
   scene.add(sky);
 
   // Image-based lighting from the same procedural sky: gives paint and glass real reflections.
@@ -74,8 +83,8 @@ export function createScene(canvas: HTMLCanvasElement): GameScene {
   const followSun = (target: THREE.Vector3): void => {
     const x = Math.round(target.x / snap) * snap;
     const z = Math.round(target.z / snap) * snap;
-    sun.target.position.set(x, 0, z);
-    sun.position.set(x + SUN_DIR.x * 120, SUN_DIR.y * 120, z + SUN_DIR.z * 120);
+    sun.target.position.set(x, target.y, z);
+    sun.position.set(x + SUN_DIR.x * 120, target.y + SUN_DIR.y * 120, z + SUN_DIR.z * 120);
     sun.target.updateMatrixWorld();
   };
   followSun(new THREE.Vector3());

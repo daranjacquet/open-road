@@ -28,6 +28,8 @@ export class CameraRig {
   private readonly pos = new THREE.Vector3();
   /** Debug/photo pose relative to the car (chassis frame); overrides the mode when set. */
   photo: { offset: THREE.Vector3; target: THREE.Vector3 } | null = null;
+  /** Ground height under a point (the camera never goes below it). Installed by the map. */
+  groundAt: (x: number, z: number) => number = () => 0;
   /** Transient shake amplitude (metres), decays on its own. Set by crashes. */
   shake = 0;
   /** Mouse orbit around the car (right button held), on top of the chase direction. */
@@ -142,9 +144,11 @@ export class CameraRig {
       const flat = Math.cos(elev) * range;
       _p.set(_pivot.x - Math.sin(yaw) * flat, _pivot.y + Math.sin(elev) * range, _pivot.z - Math.cos(yaw) * flat);
       // Keep the camera above the ground (slide in along the ray rather than clipping).
-      if (_p.y < 0.35) {
-        const t = (_pivot.y - 0.35) / Math.max(_pivot.y - _p.y, 1e-3);
+      const floor = this.groundAt(_p.x, _p.z) + 0.35;
+      if (_p.y < floor) {
+        const t = Math.max(0, (_pivot.y - floor) / Math.max(_pivot.y - _p.y, 1e-3));
         _p.lerpVectors(_pivot, _p, t);
+        if (_p.y < floor) _p.y = floor;
       }
       this.pos.copy(_p);
       this.camera.position.copy(_p);

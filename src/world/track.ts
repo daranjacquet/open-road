@@ -12,8 +12,6 @@ export interface TrackDef {
   /** Grass between the edge of the track and the wall (m). */
   runoff: number;
   wall: 'armco' | 'blocks';
-  /** Extra asphalt circles [x, z, r] (drift pad). */
-  pads?: [number, number, number][];
 }
 
 /** The sampled centre line of a closed circuit: position, direction and curvature every `step` m. */
@@ -220,7 +218,6 @@ export function buildTrack(physics: Physics, def: TrackDef, surface: SurfaceMap,
 
   // Surface: asphalt plus curbs.
   for (let i = 0; i < line.n; i++) surface.fillDisc(line.x[i]!, line.z[i]!, hw + 1.6, ASPHALT);
-  for (const [x, z, r] of def.pads ?? []) surface.fillDisc(x, z, r, ASPHALT);
 
   const road = new THREE.Mesh(ribbon(line, -hw, hw, 0.02, 6, undefined, undefined, def.width / 6), mats.asphalt);
   road.receiveShadow = true;
@@ -239,19 +236,6 @@ export function buildTrack(physics: Physics, def: TrackDef, surface: SurfaceMap,
   const stripes = (i: number): [number, number, number] => (Math.floor(i / 2) % 2 ? [0.85, 0.08, 0.06] : [0.95, 0.95, 0.95]);
   group.add(new THREE.Mesh(ribbon(line, hw, hw + 1.4, 0.035, 4, corner, stripes), mats.curb));
   group.add(new THREE.Mesh(ribbon(line, -hw - 1.4, -hw, 0.035, 4, corner, stripes), mats.curb));
-
-  // Drift pads: a disc of asphalt with a painted ring.
-  for (const [x, z, r] of def.pads ?? []) {
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(r, 72).rotateX(-Math.PI / 2), mats.asphalt);
-    disc.position.set(x, 0.018, z);
-    disc.receiveShadow = true;
-    group.add(disc);
-    for (const rr of [r * 0.45, r - 1.2]) {
-      const ring = new THREE.Mesh(new THREE.RingGeometry(rr - 0.15, rr + 0.15, 96).rotateX(-Math.PI / 2), mats.paint);
-      ring.position.set(x, 0.03, z);
-      group.add(ring);
-    }
-  }
 
   // Walls: boxes laid every 6 m at the edge of the run-off, skipped where the offset line would
   // fold back over the track (inside of tight corners).

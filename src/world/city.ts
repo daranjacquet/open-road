@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GROUP, groups, type Physics } from '../core/physics';
+import { buildCarPark, buildPlaza } from './cityextras';
 import { Furniture, local } from './furniture';
 import { ASPHALT, type SurfaceMap } from './surface';
 
@@ -75,6 +76,41 @@ function facadeTexture(kind: Facade, seed: number): THREE.CanvasTexture {
   });
 }
 
+/** Height of the shop storey at the foot of low and mid-rise buildings (m). */
+const SHOP_H = 4.5;
+
+/** Ground-floor shops: 8 m wide tile (two shopfronts), lit windows, awnings, signs. */
+function shopTexture(): THREE.CanvasTexture {
+  const r = rng(99);
+  return canvasTex(256, 144, (g) => {
+    g.fillStyle = '#3a3633';
+    g.fillRect(0, 0, 256, 144);
+    const colors = ['#b8322a', '#2a6fb8', '#2f8a4a', '#d89a1e', '#7a3a8a', '#1e8a8a'];
+    for (let s = 0; s < 2; s++) {
+      const x = s * 128;
+      g.fillStyle = colors[Math.floor(r() * colors.length)]!;
+      g.fillRect(x + 4, 6, 120, 22);
+      g.fillStyle = 'rgba(255,255,255,0.85)';
+      for (let k = 0; k < 6; k++) g.fillRect(x + 14 + k * 17, 13, 10, 8);
+      // Awning stripes.
+      g.fillStyle = colors[Math.floor(r() * colors.length)]!;
+      g.fillRect(x + 4, 30, 120, 12);
+      g.fillStyle = 'rgba(255,255,255,0.6)';
+      for (let k = 0; k < 120; k += 16) g.fillRect(x + 4 + k, 30, 8, 12);
+      // Window and door.
+      const warm = 200 + r() * 40;
+      g.fillStyle = `rgb(${warm},${warm * 0.85},${warm * 0.6})`;
+      g.fillRect(x + 10, 50, 80, 82);
+      g.fillStyle = 'rgba(40,30,20,0.35)';
+      for (let k = 0; k < 4; k++) g.fillRect(x + 16 + k * 19, 96, 12, 30);
+      g.fillStyle = '#20252b';
+      g.fillRect(x + 96, 54, 24, 82);
+      g.fillStyle = '#9fb4c4';
+      g.fillRect(x + 99, 58, 18, 40);
+    }
+  });
+}
+
 /** Builds wall and roof geometry for many boxes, merged per material. */
 class BoxBatch {
   readonly pos: number[] = [];
@@ -136,6 +172,8 @@ class BoxBatch {
 
 export interface City {
   group: THREE.Group;
+  /** Trees, rooftop clutter and street furniture (the map stops drawing them from afar). */
+  details: THREE.Group;
   furniture: Furniture;
   /** Advance the traffic-light cycle. */
   update(t: number): void;
@@ -221,8 +259,19 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
   const pavement = new BoxBatch();
   const grass = new BoxBatch();
   const lots = new BoxBatch();
-  const facades: Record<Facade, BoxBatch> = { glass: new BoxBatch(), office: new BoxBatch(), brick: new BoxBatch(), concrete: new BoxBatch() };
-  const roofs = new BoxBatch();
+  // Buildings are merged per district (2 x 3 blocks): each district is culled on its own, in the
+  // view and in the shadow map.
+  type District = { facades: Record<Facade, BoxBatch>; roofs: BoxBatch; shops: BoxBatch };
+  const districts = new Map<string, District>();
+  const district = (i: number, j: number): District => {
+    const key = `${Math.floor(i / 2)},${Math.floor(j / 3)}`;
+    let d = districts.get(key);
+    if (!d) {
+      d = { facades: { glass: new BoxBatch(), office: new BoxBatch(), brick: new BoxBatch(), concrete: new BoxBatch() }, roofs: new BoxBatch(), shops: new BoxBatch() };
+      districts.set(key, d);
+    }
+    return d;
+  };
   const staticBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
   const solid = (cx: number, cy: number, cz: number, hx: number, hy: number, hz: number): void => {
     world.createCollider(
@@ -241,6 +290,23 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
   };
   const trees: { x: number; z: number; s: number }[] = [];
   const stalls: THREE.Matrix4[] = [];
+  /** Rooftop clutter: air-conditioning boxes, water tanks, antennas (instanced, no colliders). */
+  const rooftop = { ac: [] as THREE.Matrix4[], tank: [] as THREE.Matrix4[], mast: [] as THREE.Matrix4[] };
+  const special = { plaza: [2, 4], landmark: [3, 4], parking: [0, 5] } as const;
+  const isBlock = (b: readonly [number, number], i: number, j: number): boolean => b[0] === i && b[1] === j;
+  const roofClutter = (x0: number, x1: number, y: number, z0: number, z1: number, tall: boolean): void => {
+    const w = x1 - x0;
+    const d = z1 - z0;
+    if (tall) {
+      rooftop.mast.push(new THREE.Matrix4().compose(new THREE.Vector3(x0 + w * (0.3 + rand() * 0.4), y + 7, z0 + d * (0.3 + rand() * 0.4)), new THREE.Quaternion(), new THREE.Vector3(1, 14, 1)));
+      return;
+    }
+    const n = 1 + Math.floor(rand() * 3);
+    for (let k = 0; k < n; k++) {
+      rooftop.ac.push(new THREE.Matrix4().compose(new THREE.Vector3(x0 + 2 + rand() * (w - 4), y + 0.6, z0 + 2 + rand() * (d - 4)), new THREE.Quaternion(), new THREE.Vector3(2 + rand(), 1.2, 1.4 + rand())));
+    }
+    if (rand() < 0.35) rooftop.tank.push(new THREE.Matrix4().compose(new THREE.Vector3(x0 + 3 + rand() * (w - 6), y + 2.2, z0 + 3 + rand() * (d - 6)), new THREE.Quaternion(), new THREE.Vector3(1, 1, 1)));
+  };
 
   for (let i = 0; i < AVENUES.length - 1; i++) {
     for (let j = 0; j < STREETS.length - 1; j++) {
@@ -259,7 +325,36 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
       const lz1 = bz1 - WALK;
       const cx = (bx0 + bx1) / 2;
       const cz = (bz0 + bz1) / 2;
+      const { facades, roofs, shops } = district(i, j);
       const d = Math.hypot(cx - CENTRE.x, cz - CENTRE.z);
+      if (isBlock(special.plaza, i, j)) {
+        buildPlaza(physics, group, cx, cz, CURB);
+        for (let k = 0; k < 10; k++) {
+          const a = (k / 10) * Math.PI * 2;
+          trees.push({ x: cx + Math.cos(a) * 26, z: cz + Math.sin(a) * 26, s: 0.9 + rand() * 0.3 });
+        }
+        continue;
+      }
+      if (isBlock(special.parking, i, j)) {
+        buildCarPark(physics, group, lx0, lz0, lx1, lz1, CURB);
+        continue;
+      }
+      if (isBlock(special.landmark, i, j)) {
+        // The landmark: a 170 m glass tower stepping back twice, with a spire.
+        const steps = [
+          [21, 0, 122],
+          [16, 122, 152],
+          [10.5, 152, 171.5],
+        ] as const;
+        for (const [hw, ya, yb] of steps) {
+          facades.glass.walls(cx - hw, cx + hw, CURB + ya, CURB + yb, cz - hw, cz + hw, TILE_W, TILE_H, ya / TILE_H);
+          roofs.top(cx - hw, cx + hw, CURB + yb, cz - hw, cz + hw, 8);
+        }
+        solid(cx, CURB + 61, cz, 21, 61, 21);
+        solid(cx, CURB + 147, cz, 16, 25, 16);
+        rooftop.mast.push(new THREE.Matrix4().compose(new THREE.Vector3(cx, CURB + 171.5 + 18, cz), new THREE.Quaternion(), new THREE.Vector3(2.2, 36, 2.2)));
+        continue;
+      }
       const r = rand();
       if (r < 0.1 && d > 150) {
         // Park.
@@ -295,8 +390,12 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
           const h = floors * 3.5;
           const kind: Facade = h > 45 ? (rand() < 0.6 ? 'glass' : 'office') : rand() < 0.5 ? 'brick' : rand() < 0.5 ? 'concrete' : 'office';
           const y0 = CURB;
-          facades[kind].walls(fx0, fx1, y0, y0 + h, fz0, fz1, TILE_W, TILE_H);
+          // Low and mid-rise buildings get shops on the ground floor.
+          const shopH = kind !== 'glass' && h <= 45 ? SHOP_H : 0;
+          if (shopH) shops.walls(fx0, fx1, y0, y0 + shopH, fz0, fz1, 8, SHOP_H);
+          facades[kind].walls(fx0, fx1, y0 + shopH, y0 + h, fz0, fz1, TILE_W, TILE_H, shopH / TILE_H);
           roofs.top(fx0, fx1, y0 + h, fz0, fz1, 8);
+          roofClutter(fx0, fx1, y0 + h, fz0, fz1, h > 60);
           solid((fx0 + fx1) / 2, y0 + h / 2, (fz0 + fz1) / 2, (fx1 - fx0) / 2, h / 2, (fz1 - fz0) / 2);
           // Set-back tower on the tall ones.
           if (h > 40 && rand() < 0.55) {
@@ -304,6 +403,7 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
             const h2 = Math.round((h * (0.25 + rand() * 0.35)) / 3.5) * 3.5;
             facades[kind].walls(fx0 + ins, fx1 - ins, y0 + h, y0 + h + h2, fz0 + ins, fz1 - ins, TILE_W, TILE_H, h / TILE_H);
             roofs.top(fx0 + ins, fx1 - ins, y0 + h + h2, fz0 + ins, fz1 - ins, 8);
+            roofClutter(fx0 + ins, fx1 - ins, y0 + h + h2, fz0 + ins, fz1 - ins, true);
           }
         }
       }
@@ -343,15 +443,61 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
   add(grass, new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }), false);
   add(lots, new THREE.MeshStandardMaterial({ map: asphaltMap, color: 0x8f9298, roughness: 0.95 }), false);
   let seed = 11;
-  for (const kind of Object.keys(facades) as Facade[]) {
-    const glass = kind === 'glass';
-    add(facades[kind], new THREE.MeshStandardMaterial({ map: facadeTexture(kind, seed++), roughness: glass ? 0.25 : 0.85, metalness: glass ? 0.5 : 0 }), true);
+  const kinds: Facade[] = ['glass', 'office', 'brick', 'concrete'];
+  const facadeMats = Object.fromEntries(
+    kinds.map((kind) => {
+      const glass = kind === 'glass';
+      return [kind, new THREE.MeshStandardMaterial({ map: facadeTexture(kind, seed++), roughness: glass ? 0.25 : 0.85, metalness: glass ? 0.5 : 0 })];
+    }),
+  ) as Record<Facade, THREE.MeshStandardMaterial>;
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0x5d5f63, roughness: 0.95 });
+  const shopMat = new THREE.MeshStandardMaterial({ map: shopTexture(), roughness: 0.7, emissive: 0xffffff, emissiveIntensity: 0.12 });
+  (shopMat as THREE.MeshStandardMaterial).emissiveMap = shopMat.map;
+  for (const d of districts.values()) {
+    for (const kind of kinds) add(d.facades[kind], facadeMats[kind], true);
+    add(d.shops, shopMat, true);
+    add(d.roofs, roofMat, false);
   }
-  add(roofs, new THREE.MeshStandardMaterial({ color: 0x5d5f63, roughness: 0.95 }), false);
+  // Rooftop clutter.
+  const clutterMat = new THREE.MeshStandardMaterial({ color: 0x9a9ea4, roughness: 0.6, metalness: 0.3 });
+  const clutter: THREE.InstancedMesh[] = [];
+  const parts: [THREE.Matrix4[], THREE.BufferGeometry][] = [
+    [rooftop.ac, new THREE.BoxGeometry(1, 1, 1)],
+    [rooftop.tank, new THREE.CylinderGeometry(1.6, 1.6, 3.2, 12)],
+    [rooftop.mast, new THREE.CylinderGeometry(0.08, 0.25, 1, 6)],
+  ];
+  for (const [list, geo] of parts) {
+    if (!list.length) continue;
+    const im = new THREE.InstancedMesh(geo, clutterMat, list.length);
+    list.forEach((m, k) => im.setMatrixAt(k, m));
+    im.computeBoundingSphere();
+    im.castShadow = true;
+    clutter.push(im);
+  }
   if (stalls.length) {
     const sm = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), paintMat, stalls.length);
     stalls.forEach((m, k) => sm.setMatrixAt(k, m));
     group.add(sm);
+  }
+
+  // ---- street trees: on the pavements, between the lamp posts ----
+  for (let i = 0; i < AVENUES.length; i++) {
+    for (let j = 0; j < STREETS.length - 1; j++) {
+      const ax = AVENUES[i]!;
+      const a = STREETS[j]! + HALF + 10;
+      const b = STREETS[j + 1]! - HALF - 10;
+      if (i > 0) for (let z = a + 21.5; z <= b - 4; z += 43) trees.push({ x: ax - HALF - 2.3, z, s: 0.72 + rand() * 0.2 });
+      if (i < AVENUES.length - 1) for (let z = a; z <= b - 4; z += 43) trees.push({ x: ax + HALF + 2.3, z, s: 0.72 + rand() * 0.2 });
+    }
+  }
+  for (let j = 0; j < STREETS.length; j++) {
+    for (let i = 0; i < AVENUES.length - 1; i++) {
+      const sz = STREETS[j]!;
+      const a = AVENUES[i]! + HALF + 10;
+      const b = AVENUES[i + 1]! - HALF - 10;
+      if (j < STREETS.length - 1) for (let x = a + 22.5; x <= b - 4; x += 45) trees.push({ x, z: sz + HALF + 2.3, s: 0.72 + rand() * 0.2 });
+      if (j > 0) for (let x = a + 4; x <= b - 4; x += 45) trees.push({ x, z: sz - HALF - 2.3, s: 0.72 + rand() * 0.2 });
+    }
   }
 
   // ---- trees (static) ----
@@ -365,10 +511,16 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
       staticBody,
     );
   });
+  // Small things only worth drawing from nearby: trees, rooftop clutter, street furniture.
+  const details = new THREE.Group();
+  details.name = 'city-details';
+  group.add(details);
   for (const m of [trunkMesh, crownMesh]) {
     m.castShadow = true;
-    group.add(m);
+    m.computeBoundingSphere();
+    details.add(m);
   }
+  for (const m of clutter) details.add(m);
 
   // ---- street furniture: lamps, traffic lights, stop and speed signs ----
   const fur = new Furniture();
@@ -507,7 +659,7 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
     }
   }
   fur.finish(physics);
-  group.add(fur.group);
+  details.add(fur.group);
 
   // Traffic-light cycle: avenues (A) and streets (B) take turns.
   const on = (m: THREE.MeshBasicMaterial, lit: boolean, hex: number): void => {
@@ -526,5 +678,5 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
   };
   update(0);
 
-  return { group, furniture: fur, update };
+  return { group, details, furniture: fur, update };
 }

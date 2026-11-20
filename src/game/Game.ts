@@ -66,6 +66,31 @@ export class Game {
     this.tick = now;
   }
 
+  /** Last place the player's car stood on its wheels on dry ground (respawn point). */
+  private safe = { ...SPAWN };
+  private safeAt = 0;
+
+  /** Every half second of driving, remember where the car stands upright on its four wheels. */
+  private rememberSafe(): void {
+    if (this.simTime - this.safeAt < 0.5) return;
+    const v = this.player.vehicle;
+    const q = v.body.rotation();
+    const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
+    if (upY < 0.85 || !v.wheels.every((w) => w.hit) || v.speedKmh > 160) return;
+    const t = v.body.translation();
+    const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
+    this.safe = { x: t.x, y: t.y - 0.6, z: t.z, yaw };
+    this.safeAt = this.simTime;
+  }
+
+  private backToSafety(message: string): void {
+    const s = this.safe;
+    this.player.repair();
+    this.player.vehicle.placeAt(s.x, s.y + 1.0, s.z, s.yaw);
+    this.race.reset();
+    this.d.hud.toast(message);
+  }
+
   /** A car swap is waiting for its model: ignore further swaps until it is done. */
   private swapping = false;
 
@@ -122,7 +147,7 @@ export class Game {
       const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
       old.dispose();
       this.player = new GameCar(this.d.physics, this.d.gs.scene, carById(id), t.x, t.z, yaw);
-      this.player.vehicle.placeAt(t.x, 1.0, t.z, yaw);
+      this.player.vehicle.placeAt(t.x, t.y + 0.6, t.z, yaw);
       this.cars[0] = this.player;
       this.garage.attach();
       this.hookPlayer();
@@ -143,7 +168,8 @@ export class Game {
   }
 
   teleport(loc: Location): void {
-    this.player.vehicle.placeAt(loc.x, 1.0, loc.z, loc.yaw);
+    this.player.vehicle.placeAt(loc.x, loc.y + 1.0, loc.z, loc.yaw);
+    this.safe = { x: loc.x, y: loc.y, z: loc.z, yaw: loc.yaw };
     this.race.reset();
     this.d.hud.toast(loc.name);
   }
@@ -198,6 +224,7 @@ export class Game {
     if (input.pressed('KeyG')) this.garage.toggle();
     if (input.pressed('KeyF')) this.repair();
     if (input.pressed('KeyT')) this.nextLocation();
+    if (input.pressed('KeyN')) this.d.hud.toggleMap();
     if (input.pressed('KeyE') && v.manual) v.shiftUp();
     if (input.pressed('KeyQ') && v.manual) v.shiftDown();
   }
@@ -215,10 +242,7 @@ export class Game {
       ) continue;
 
       if (c === this.player) {
-        this.player.repair();
-        this.player.vehicle.placeAt(SPAWN.x, 1.0, SPAWN.z, SPAWN.yaw);
-        this.race.reset();
-        this.d.hud.toast('Physics glitch - car reset');
+        this.backToSafety('Physics glitch - car reset');
       } else {
         c.respawn();
       }
@@ -262,16 +286,12 @@ export class Game {
 
     this.watchdog();
 
-    // Off the edge of the world: back to the start, repaired.
+    // Off the edge of the world or into the lake: back to the last spot on the ground, repaired.
     const pt = this.player.vehicle.body.translation();
-    if (map.isOutside(pt.x, pt.y, pt.z)) {
-      this.player.repair();
-      this.player.vehicle.placeAt(SPAWN.x, 1.0, SPAWN.z, SPAWN.yaw);
-      this.race.reset();
-      hud.toast('Out of the map - back to the start');
-    }
+    if (map.isOutside(pt.x, pt.y, pt.z)) this.backToSafety('Out of the map - back on the road');
+    else if (map.inWater(pt.x, pt.y + 0.4, pt.z)) this.backToSafety('Splash! Back on dry land');
+    else this.rememberSafe();
     this.race.update(pt.x, pt.z, this.simTime);
-    map.update(now / 1000);
     this.lap('race');
 
     const vh = gs.renderer.domElement.clientHeight;
@@ -283,6 +303,7 @@ export class Game {
     player.effects.shake = 0;
     rig.update(frameDt, player.vehicle, player.view.pos, player.view.quat);
     gs.followSun(player.view.pos);
+    map.update(now / 1000, gs.camera, player.view.pos);
     this.lap('camera');
     gs.renderer.render(gs.scene, gs.camera);
     this.lap('render');
@@ -321,6 +342,7 @@ export class Game {
     for (const c of this.cars) c.view.update(1);
     rig.update(0.05, this.player.vehicle, this.player.view.pos, this.player.view.quat);
     gs.followSun(this.player.view.pos);
+    this.d.map.update(this.simTime, gs.camera, this.player.view.pos);
     gs.renderer.render(gs.scene, gs.camera);
   }
 
@@ -330,6 +352,7 @@ export class Game {
     for (const c of this.cars) c.view.update(1);
     gs.camera.position.set(...pos);
     gs.camera.lookAt(...target);
+    this.d.map.update(this.simTime, gs.camera, this.player.view.pos);
     gs.renderer.render(gs.scene, gs.camera);
   }
 

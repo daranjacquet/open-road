@@ -39,6 +39,8 @@ void main() {
 
 /** Fixed-capacity CPU particle pool rendered as soft round points. No allocation after construction. */
 export class ParticlePool {
+  /** Ground height under a point: particles that fall land on it. Installed by the map. */
+  static groundAt: (x: number, z: number) => number = () => 0;
   readonly points: THREE.Points;
   private readonly n: number;
   private readonly pos: Float32Array;
@@ -132,8 +134,9 @@ export class ParticlePool {
       this.pos[o] = this.pos[o]! + this.vel[o]! * dt;
       this.pos[o + 1] = this.pos[o + 1]! + this.vel[o + 1]! * dt;
       this.pos[o + 2] = this.pos[o + 2]! + this.vel[o + 2]! * dt;
-      if (this.pos[o + 1]! < 0.02 && this.gravity < 0) {
-        this.pos[o + 1] = 0.02;
+      const floor = this.gravity < 0 ? ParticlePool.groundAt(this.pos[o]!, this.pos[o + 2]!) + 0.02 : -Infinity;
+      if (this.pos[o + 1]! < floor) {
+        this.pos[o + 1] = floor;
         this.vel[o + 1] = Math.abs(this.vel[o + 1]!) * 0.25;
         this.vel[o] = this.vel[o]! * 0.6;
         this.vel[o + 2] = this.vel[o + 2]! * 0.6;
