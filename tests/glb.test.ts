@@ -44,6 +44,48 @@ describe('Blender cars (GLB)', () => {
         for (const w of m.wheels) expect(w.spin.children.length).toBeGreaterThanOrEqual(1);
       });
 
+      it('has wheels that spin true (axle along X, round, centred on the hub)', () => {
+        const m = buildCarModel(def.id);
+        for (const w of m.wheels) {
+          for (const mesh of w.spin.children as THREE.Mesh[]) {
+            const p = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+            // Spread of the wheel's vertices along each axis (about their mean): least along the axle.
+            const n = p.count;
+            let mx = 0;
+            let my = 0;
+            let mz = 0;
+            for (let i = 0; i < n; i++) {
+              mx += p.getX(i) / n;
+              my += p.getY(i) / n;
+              mz += p.getZ(i) / n;
+            }
+            let sx = 0;
+            let sy = 0;
+            let sz = 0;
+            let sxy = 0;
+            let sxz = 0;
+            for (let i = 0; i < n; i++) {
+              const x = p.getX(i) - mx;
+              const y = p.getY(i) - my;
+              const z = p.getZ(i) - mz;
+              sx += x * x;
+              sy += y * y;
+              sz += z * z;
+              sxy += x * y;
+              sxz += x * z;
+            }
+            // Correlation of x with y or z means a leaning wheel (it would wobble when spinning).
+            const lean = (Math.max(Math.abs(sxy) / sy, Math.abs(sxz) / sz) * 180) / Math.PI;
+            expect(lean, `${def.id} ${mesh.name} leans`).toBeLessThan(0.3);
+            mesh.geometry.computeBoundingBox();
+            const bb = mesh.geometry.boundingBox!;
+            expect(Math.abs(bb.max.y - bb.max.z - (bb.min.z - bb.min.y)), `${def.id} ${mesh.name} round`).toBeLessThan(0.004);
+            expect(Math.abs(bb.max.y + bb.min.y), `${def.id} ${mesh.name} centred`).toBeLessThan(0.004);
+            expect(sx).toBeLessThan(Math.min(sy, sz));
+          }
+        }
+      });
+
       it('gives every car instance its own deformable geometry with rest data', () => {
         const a = buildCarModel(def.id);
         const b = buildCarModel(def.id, 0x3355aa);

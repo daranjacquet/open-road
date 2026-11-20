@@ -101,6 +101,108 @@ export async function loadCarTemplates(
 
 const WHEEL_RE = /^(tire|rim|disc|nuts|caliper)_(FL|FR|RL|RR)$/;
 
+const _axle = new THREE.Vector3();
+const _x = new THREE.Vector3(1, 0, 0);
+const _rot = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+
+/** Eigenvector of the smallest eigenvalue of a symmetric 3x3 matrix (Jacobi rotations). */
+function smallestAxis(c: number[][], out: THREE.Vector3): THREE.Vector3 {
+  const a = c.map((r) => [...r]);
+  const v = [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ];
+  for (let sweep = 0; sweep < 30; sweep++) {
+    for (const [p, q] of [
+      [0, 1],
+      [0, 2],
+      [1, 2],
+    ] as const) {
+      if (Math.abs(a[p]![q]!) < 1e-14) continue;
+      const theta = (a[q]![q]! - a[p]![p]!) / (2 * a[p]![q]!);
+      const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const cs = 1 / Math.sqrt(t * t + 1);
+      const sn = t * cs;
+      for (let k = 0; k < 3; k++) {
+        const akp = a[k]![p]!;
+        const akq = a[k]![q]!;
+        a[k]![p] = cs * akp - sn * akq;
+        a[k]![q] = sn * akp + cs * akq;
+      }
+      for (let k = 0; k < 3; k++) {
+        const apk = a[p]![k]!;
+        const aqk = a[q]![k]!;
+        a[p]![k] = cs * apk - sn * aqk;
+        a[q]![k] = sn * apk + cs * aqk;
+      }
+      for (let k = 0; k < 3; k++) {
+        const vkp = v[k]![p]!;
+        const vkq = v[k]![q]!;
+        v[k]![p] = cs * vkp - sn * vkq;
+        v[k]![q] = sn * vkp + cs * vkq;
+      }
+    }
+  }
+  let m = 0;
+  for (let k = 1; k < 3; k++) if (a[k]![k]! < a[m]![m]!) m = k;
+  return out.set(v[0]![m]!, v[1]![m]!, v[2]![m]!).normalize();
+}
+
+/**
+ * Turn a wheel's geometry so its axle lies exactly along X and its hub sits on the origin. Some
+ * models come with the wheels leaning (camber or toe modelled in); spun about X, such a wheel
+ * wobbles as if buckled. The game adds the physics camber on top. A wheel is a flat disc: its
+ * axle is the direction its vertices spread least along (principal component analysis).
+ */
+export function straightenWheel(meshes: THREE.Mesh[]): void {
+  let n = 0;
+  const mean = new THREE.Vector3();
+  for (const m of meshes) {
+    const p = m.geometry.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      mean.x += p.getX(i);
+      mean.y += p.getY(i);
+      mean.z += p.getZ(i);
+      n++;
+    }
+  }
+  if (n < 12) return;
+  mean.divideScalar(n);
+  const c = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+  ];
+  for (const m of meshes) {
+    const p = m.geometry.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      const d = [p.getX(i) - mean.x, p.getY(i) - mean.y, p.getZ(i) - mean.z];
+      for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) c[r]![k]! += d[r]! * d[k]!;
+    }
+  }
+  smallestAxis(c, _axle);
+  if (_axle.x < 0) _axle.negate();
+  if (_axle.angleTo(_x) < 0.0005) return;
+  _q.setFromUnitVectors(_axle, _x);
+  _rot.makeRotationFromQuaternion(_q);
+  const box = new THREE.Box3();
+  for (const m of meshes) {
+    m.geometry.applyMatrix4(_rot);
+    m.geometry.computeBoundingBox();
+    box.union(m.geometry.boundingBox!);
+  }
+  // Hub back on the origin (the turn moved it a little).
+  const cy = (box.min.y + box.max.y) / 2;
+  const cz = (box.min.z + box.max.z) / 2;
+  for (const m of meshes) {
+    m.geometry.translate(0, -cy, -cz);
+    m.geometry.computeBoundingBox();
+    m.geometry.computeBoundingSphere();
+  }
+}
+
 function partName(o: THREE.Object3D): string | null {
   const n = o.userData['part_name'];
   return typeof n === 'string' ? n : null;
@@ -290,6 +392,8 @@ export function modelFromTemplate(template: THREE.Group, opts: BuildOptions = {}
     const pivot = new THREE.Group();
     const spin = new THREE.Group();
     pivot.name = `wheel_${tag}`;
+    const spinning = wheelMeshes[tag]!.filter((m) => !m.name.startsWith('caliper'));
+    straightenWheel(spinning);
     for (const m of wheelMeshes[tag]!) {
       if (m.name.startsWith('caliper')) pivot.add(m);
       else spin.add(m);
