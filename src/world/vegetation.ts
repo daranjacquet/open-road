@@ -162,7 +162,7 @@ export function createVegetation(physics: Physics, trees: Float32Array): Vegetat
       mesh.count = 0;
       mesh.frustumCulled = false;
       mesh.castShadow = ring === 0;
-      mesh.receiveShadow = true;
+      mesh.receiveShadow = ring === 0;
       mesh.name = `trees-near-${ring}-${kind}`;
       mesh.setColorAt(0, col.setRGB(1, 1, 1));
       group.add(mesh);

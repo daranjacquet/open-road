@@ -296,6 +296,8 @@ export function createTerrainView(hm: Heightmap, splat: THREE.DataTexture): Terr
       const visible = d < DRAW_DISTANCE && frustum.intersectsBox(c.box);
       c.mesh.visible = visible;
       if (!visible) continue;
+      // The shadow map only covers the car's surroundings: chunks beyond skip the shadow lookups.
+      c.mesh.receiveShadow = d < 160;
       let level = 0;
       while (d > LODS[level]!.upTo) level++;
       if (level !== c.level) {
