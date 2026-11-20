@@ -369,16 +369,30 @@ export class Game {
     for (let i = 0; i < cars.length; i++) cars[i]!.fixedUpdate(FIXED_DT, driving ? this.inputFor(cars[i]!, cmd) : IDLE);
     const plane = this.plane;
     plane?.fixedUpdate(FIXED_DT, driving ? PARKED : this.flightCmd);
+    // The aircraft's velocity going into the step: a crash stops it within the step.
+    const lv = plane ? plane.aircraft.body.linvel() : null;
     this.d.physics.step();
     for (let i = 0; i < cars.length; i++) cars[i]!.vehicle.afterPhysicsStep();
     if (plane) {
       plane.aircraft.afterPhysicsStep();
       // Impacts on the airframe (only its colliders report contact forces), after the step: a part
       // that breaks off now takes its colliders out of a world that is not stepping.
+      const towers = this.d.map.city.skyscrapers;
       this.d.physics.events.drainContactForceEvents((e) => {
         const f = e.totalForceMagnitude();
-        plane.contactForce(e.collider1(), f, FIXED_DT);
-        plane.contactForce(e.collider2(), f, FIXED_DT);
+        const a = e.collider1();
+        const b = e.collider2();
+        plane.contactForce(a, f, FIXED_DT);
+        plane.contactForce(b, f, FIXED_DT);
+        // A skyscraper takes the aircraft's kinetic energy (they hold their own cooldown).
+        if (!lv) return;
+        const v2 = lv.x * lv.x + lv.y * lv.y + lv.z * lv.z;
+        if (v2 < 25) return;
+        const h = Math.hypot(lv.x, lv.z) || 1;
+        const energy = 0.5 * plane.aircraft.mass * v2;
+        const y = plane.aircraft.currPos.y;
+        towers.strike(a, energy, lv.x / h, lv.z / h, y);
+        towers.strike(b, energy, lv.x / h, lv.z / h, y);
       });
     }
     // Breaks and collapses from this step's crashes, now that no car holds a collider of it.

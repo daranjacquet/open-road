@@ -97,3 +97,98 @@ describe('skyscrapers', () => {
     expect(car.crush.energy).toBeGreaterThan(50e3);
   });
 });
+
+describe('skyscrapers and aircraft', () => {
+  it('follow a rule of which vehicles can break them: the twin towers, cars only', async () => {
+    const { towers } = await city();
+    const { breakableBy } = await import('../src/world/skyscrapers');
+    const glass = new THREE.MeshStandardMaterial();
+    expect(breakableBy(twinTower('T', 0, 0, 0, glass, true), 'car')).toBe(true);
+    expect(breakableBy(twinTower('T', 0, 0, 0, glass, true), 'aircraft')).toBe(false);
+    expect(breakableBy({ name: 'x', x: 0, z: 0, y: 0, facade: glass, bands: [] }, 'aircraft')).toBe(true);
+    // Whatever the energy, an aircraft does nothing to a twin tower, high up or on the ground floor.
+    const wtc = towers.tower('WTC')!;
+    towers.strike(wtc.upper[1]!, 1e9, 1, 0, 200);
+    towers.strike(wtc.handles[0]!, 1e9, 1, 0, 5);
+    towers.flush();
+    const after = towers.tower('WTC')!;
+    expect(after.collapsed).toBe(false);
+    expect(after.standing).toBe(wtc.sections);
+    expect(after.struck).toBe(0);
+    // A car still breaks its ground floor.
+    towers.hit(wtc.handles[0]!, 2e6, 1, 0);
+    towers.flush();
+    expect(towers.tower('WTC')!.standing).toBeLessThan(wtc.sections);
+  });
+
+  it('a strike high up breaks a tower there: the top falls the way the aircraft flew, the stump stands', async () => {
+    const { physics, towers } = await city();
+    const t = towers.tower('High-rise')!;
+    // A slow knock adds up but does not bring it down.
+    towers.strike(t.upper[1]!, 0.2e6, 0, 1, 50);
+    towers.flush();
+    expect(towers.tower('High-rise')!.collapsed).toBe(false);
+    expect(towers.tower('High-rise')!.struck).toBeGreaterThan(0);
+    // An SR22 at 160 kt (5 MJ) at 50 m.
+    for (let i = 0; i < 60; i++) towers.flush();
+    towers.strike(t.upper[1]!, 0.5 * 1541 * 82 * 82, 0, 1, 50);
+    towers.flush();
+    const broken = towers.tower('High-rise')!;
+    expect(broken.collapsed).toBe(true);
+    // The ground floor still stands.
+    expect(broken.standing).toBe(t.sections);
+    let fixed = 0;
+    physics.world.forEachRigidBody((b) => {
+      if (b.isFixed() && b.translation().y > 5) fixed++;
+    });
+    expect(fixed).toBeGreaterThan(0);
+    for (let i = 0; i < 120 * 6; i++) {
+      physics.step();
+      towers.flush();
+    }
+    // The top went over to +z and came down (a block may stay lodged on the stump).
+    let highest = -Infinity;
+    let towardZ = 0;
+    let sumY = 0;
+    let n = 0;
+    physics.world.forEachRigidBody((b) => {
+      if (!b.isDynamic()) return;
+      highest = Math.max(highest, b.translation().y);
+      towardZ += b.translation().z;
+      sumY += b.translation().y;
+      n++;
+    });
+    expect(highest).toBeLessThan(62);
+    expect(sumY / n).toBeLessThan(35);
+    expect(towardZ).toBeGreaterThan(0);
+    towers.rebuild();
+    expect(towers.tower('High-rise')!.collapsed).toBe(false);
+    expect(towers.tower('High-rise')!.struck).toBe(0);
+  });
+
+  it('a real SR22 flying into a high-rise at 150 kt brings it down', async () => {
+    const { physics, towers } = await city();
+    const { Aircraft } = await import('../src/vehicle/aircraft/Aircraft');
+    const cfg = (await import('../src/vehicle/aircraft/sr22.json')).default as unknown as import('../src/vehicle/aircraft/types').AircraftConfig;
+    const ac = new Aircraft(physics, cfg, 300, 45, -150, 0);
+    ac.body.setLinvel({ x: 0, y: 0, z: 78 }, true);
+    const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.8, brake: 0, flaps: 0 };
+    for (let i = 0; i < 120 * 4 && !towers.tower('High-rise')!.collapsed; i++) {
+      ac.fixedUpdate(FIXED_DT, input);
+      const lv = ac.body.linvel();
+      physics.step();
+      ac.afterPhysicsStep();
+      physics.events.drainContactForceEvents((e) => {
+        const f = e.totalForceMagnitude();
+        ac.contactForce(e.collider1(), f, FIXED_DT);
+        ac.contactForce(e.collider2(), f, FIXED_DT);
+        const v2 = lv.x * lv.x + lv.y * lv.y + lv.z * lv.z;
+        const h = Math.hypot(lv.x, lv.z) || 1;
+        for (const c of [e.collider1(), e.collider2()]) towers.strike(c, 0.5 * ac.mass * v2, lv.x / h, lv.z / h, ac.currPos.y);
+      });
+      towers.flush();
+    }
+    expect(towers.tower('High-rise')!.collapsed).toBe(true);
+    expect(towers.tower('WTC')!.collapsed).toBe(false);
+  });
+});
