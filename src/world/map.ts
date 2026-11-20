@@ -27,6 +27,8 @@ export interface Location {
   y: number;
   z: number;
   yaw: number;
+  /** Going there puts the player in the aircraft's seat, on its spot. */
+  aircraft?: boolean;
 }
 
 export interface GameMap {
@@ -37,6 +39,10 @@ export interface GameMap {
   city: City;
   roads: RoadLine[];
   locations: Location[];
+  /** Where the aircraft waits: the start of runway 27, lined up. */
+  planeSpot: Location;
+  /** Airfield parking stands (aircraft parked there for show). */
+  stands: { x: number; z: number; yaw: number }[];
   overview: Overview;
   /** Time spent building each part (ms), for the boot report. */
   buildTimes: Record<string, number>;
@@ -134,6 +140,7 @@ export function createMap(physics: Physics, data: WorldData): GameMap {
     spot('Harbour'),
     spot('Petrol station'),
     spot('Airfield runway'),
+    { ...spot('SR22'), name: 'Fly the SR22 (runway 27)', aircraft: true },
     spot('Farm'),
     nearRoad('Forest road', 'ring', -1180, 880),
     spot('Quarry'),
@@ -157,6 +164,8 @@ export function createMap(physics: Physics, data: WorldData): GameMap {
     city,
     roads: world.roads,
     locations,
+    planeSpot: spot('SR22'),
+    stands: places.stands,
     overview,
     buildTimes: times,
     heightAt: (x, z) => hm.heightAt(x, z),
@@ -168,6 +177,7 @@ export function createMap(physics: Physics, data: WorldData): GameMap {
         c.obj.visible = dx * dx + dz * dz < c.max * c.max;
       }
       terrain.update(camera);
+      places.update(camPos);
       vegetation.update(camPos, player);
       water.update(seconds);
       city.update(seconds);

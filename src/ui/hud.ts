@@ -1,8 +1,13 @@
+import type { GameAircraft } from '../game/GameAircraft';
 import type { GameCar } from '../game/GameCar';
 import { formatLap, type LapState } from '../game/laps';
 import type { Location } from '../world/map';
 import type { Overview } from '../world/overview';
+import { FlightHud } from './flighthud';
 import { Minimap } from './minimap';
+
+const CAR_HELP = 'W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; Q/E shift (manual) &middot; F repair &middot; G garage &middot; T teleport &middot; N map &middot; right-drag camera &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V car &middot; B targets &middot; M mute';
+const PLANE_HELP = 'S/W pitch up, down &middot; A/D roll &middot; Q/E rudder &middot; Shift/Ctrl throttle &middot; X flaps &middot; Space brakes &middot; Enter get out (stopped) &middot; C view &middot; P stall protection &middot; right-drag camera &middot; F repair &middot; R back to runway 27 &middot; T teleport &middot; N map &middot; M mute';
 
 /** Minimal driving HUD: speed, gear, rpm bar, assist lights. Updated at ~20 Hz. */
 export class Hud {
@@ -22,6 +27,10 @@ export class Hud {
   onRepair: (() => void) | null = null;
   private minimap: Minimap | null = null;
   private readonly root: HTMLElement;
+  readonly flight: FlightHud;
+  private readonly carEls: HTMLElement[];
+  private readonly help: HTMLElement;
+  private readonly hintEl: HTMLElement;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -53,6 +62,8 @@ export class Hud {
         .hud-toast{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);font-size:26px;font-weight:700;padding:10px 18px;border-radius:10px;background:rgba(10,14,20,.6);opacity:0;transition:opacity .35s;pointer-events:none;text-align:center}
         .hud-toast.on{opacity:1}
         .hud-help{position:fixed;left:50%;transform:translateX(-50%);top:10px;font-size:12px;opacity:.75;text-align:center;white-space:nowrap}
+        .hud-hint{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);font-size:16px;font-weight:700;padding:7px 14px;border-radius:8px;background:rgba(10,14,20,.55);display:none}
+        .hud-hint kbd{font:700 13px system-ui,sans-serif;border:1px solid rgba(255,255,255,.6);border-radius:4px;padding:1px 6px;margin-right:6px}
       </style>
       <div class="hud-box">
         <div><span class="hud-speed" id="hud-speed">0</span><span class="hud-unit">km/h</span></div>
@@ -66,7 +77,8 @@ export class Hud {
       </div>
       <div class="hud-lap" id="hud-lap"><div class="t" id="lap-track"></div><div class="c" id="lap-cur">0:00.000</div><div class="r"><span>Last</span><span id="lap-last"></span></div><div class="r"><span>Best</span><span id="lap-best"></span></div></div>
       <div class="hud-toast" id="hud-toast"></div>
-      <div class="hud-help">W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; Q/E shift (manual) &middot; F repair &middot; G garage &middot; T teleport &middot; N map &middot; right-drag camera &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V car &middot; B targets &middot; M mute</div>`;
+      <div class="hud-hint" id="hud-hint"></div>
+      <div class="hud-help" id="hud-help">${CAR_HELP}</div>`;
     this.speed = root.querySelector('#hud-speed')!;
     this.gear = root.querySelector('#hud-gear')!;
     this.rpmFill = root.querySelector('#hud-rpm')!;
@@ -96,6 +108,40 @@ export class Hud {
       esp: root.querySelector('#hud-esp')!,
       man: root.querySelector('#hud-man')!,
     };
+    this.help = root.querySelector('#hud-help')!;
+    this.hintEl = root.querySelector('#hud-hint')!;
+    this.carEls = [root.querySelector('.hud-box')!, root.querySelector('.hud-dmg')!];
+    this.flight = new FlightHud(root);
+    this.flight.onRepair = () => this.onRepair?.();
+  }
+
+  /** Car instruments or flight instruments. */
+  setMode(mode: 'car' | 'plane'): void {
+    for (const e of this.carEls) e.style.display = mode === 'car' ? '' : 'none';
+    this.flight.visible = mode === 'plane';
+    this.help.innerHTML = mode === 'car' ? CAR_HELP : PLANE_HELP;
+  }
+
+  /** A key hint at the bottom of the screen ("Enter: fly the plane"), null hides it. */
+  hint(key: string | null, text = ''): void {
+    if (!key) {
+      if (this.hintEl.style.display !== 'none') this.hintEl.style.display = 'none';
+      return;
+    }
+    const html = `<kbd>${key}</kbd>${text}`;
+    if (this.hintEl.innerHTML !== html) this.hintEl.innerHTML = html;
+    this.hintEl.style.display = 'block';
+  }
+
+  /** Flight instruments and the minimap, from the aircraft. */
+  updateFlight(plane: GameAircraft, brake: number, now: number): void {
+    this.flight.update(plane, brake, now);
+    if (this.minimap && now - this.last >= 50) {
+      this.last = now;
+      const t = plane.aircraft.currPos;
+      const q = plane.aircraft.currQuat;
+      this.minimap.update(t.x, t.z, Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x)));
+    }
   }
 
   /** Add the minimap and the big map (N), whose places drive the car there through `onGo`. */

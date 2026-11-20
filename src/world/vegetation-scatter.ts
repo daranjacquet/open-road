@@ -1,5 +1,6 @@
 /** Tree positions: pure, deterministic (runs in the world worker). */
 import type { Heightmap } from './heightmap';
+import { inRunwayApproach } from './layout';
 import type { GroundCover } from './paint';
 
 /** Floats per tree in the packed array: x, y, z, scale, yaw, kind (0 conifer, 1 broadleaf). */
@@ -27,7 +28,7 @@ export function scatterTrees(hm: Heightmap, cover: GroundCover, roadEdge: Float3
       const ix = Math.round((x + hm.half) / hm.cell);
       const iz = Math.round((z + hm.half) / hm.cell);
       const k = hm.index(ix, iz);
-      if (cover.bare[k] || roadEdge[k]! < 5) continue;
+      if (cover.bare[k] || roadEdge[k]! < 5 || inRunwayApproach(x, z)) continue;
       const forest = cover.splat[k * 4 + 3]! / 255;
       const p = forest > 0.05 ? forest * 0.75 : 0.008;
       if (hash(i, j, 3) >= p) continue;

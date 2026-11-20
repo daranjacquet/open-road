@@ -274,3 +274,14 @@ export const PLACES = {
   quarry: { x: -1460, z: -170 },
   viewpoint: { x: 395, z: 1610 },
 };
+
+/**
+ * Inside the obstacle-free approach to either end of the runway: 800 m out from each end, 60 m
+ * either side of the centre line at the end, widening by 15 %. No trees grow there.
+ */
+export function inRunwayApproach(x: number, z: number): boolean {
+  const a = PLACES.airfield;
+  const d = x < a.x0 ? a.x0 - x : x > a.x1 ? x - a.x1 : 0;
+  if (d > 800) return false;
+  return Math.abs(z - a.z) < 60 + d * 0.15;
+}

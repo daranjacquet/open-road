@@ -1,0 +1,414 @@
+{
+  "name": "SR22",
+  "surfaces": [
+    {
+      "name": "wingInnerL",
+      "part": "wingL",
+      "pos": [
+        1.7,
+        -0.2,
+        -0.02
+      ],
+      "normal": [
+        -0.0698,
+        0.9976,
+        0
+      ],
+      "span": [
+        0.9976,
+        0.0698,
+        0
+      ],
+      "area": 4.5,
+      "chord": 1.33,
+      "aspect": 10,
+      "cl0": 0.35,
+      "clAlpha": 5.2,
+      "clMax": 1.5,
+      "clMin": -1,
+      "cd0": 0.008,
+      "cm0": -0.05,
+      "control": "flap",
+      "controlCl": 1.8,
+      "controlMax": 0.56
+    },
+    {
+      "name": "wingOuterL",
+      "part": "wingL",
+      "pos": [
+        4.5,
+        -0.01,
+        -0.01
+      ],
+      "normal": [
+        -0.0698,
+        0.9976,
+        0
+      ],
+      "span": [
+        0.9976,
+        0.0698,
+        0
+      ],
+      "area": 2.2,
+      "chord": 0.92,
+      "aspect": 10,
+      "cl0": 0.35,
+      "clAlpha": 5.2,
+      "clMax": 1.5,
+      "clMin": -1,
+      "cd0": 0.008,
+      "cm0": -0.05,
+      "control": "aileronL",
+      "controlCl": 1.3,
+      "controlMax": 0.3
+    },
+    {
+      "name": "wingInnerR",
+      "part": "wingR",
+      "pos": [
+        -1.7,
+        -0.2,
+        -0.02
+      ],
+      "normal": [
+        0.0698,
+        0.9976,
+        0
+      ],
+      "span": [
+        -0.9976,
+        0.0698,
+        0
+      ],
+      "area": 4.5,
+      "chord": 1.33,
+      "aspect": 10,
+      "cl0": 0.35,
+      "clAlpha": 5.2,
+      "clMax": 1.5,
+      "clMin": -1,
+      "cd0": 0.008,
+      "cm0": -0.05,
+      "control": "flap",
+      "controlCl": 1.8,
+      "controlMax": 0.56
+    },
+    {
+      "name": "wingOuterR",
+      "part": "wingR",
+      "pos": [
+        -4.5,
+        -0.01,
+        -0.01
+      ],
+      "normal": [
+        0.0698,
+        0.9976,
+        0
+      ],
+      "span": [
+        -0.9976,
+        0.0698,
+        0
+      ],
+      "area": 2.2,
+      "chord": 0.92,
+      "aspect": 10,
+      "cl0": 0.35,
+      "clAlpha": 5.2,
+      "clMax": 1.5,
+      "clMin": -1,
+      "cd0": 0.008,
+      "cm0": -0.05,
+      "control": "aileronR",
+      "controlCl": 1.3,
+      "controlMax": 0.3
+    },
+    {
+      "name": "stabiliser",
+      "part": "tailH",
+      "pos": [
+        0,
+        0.12,
+        -3.99
+      ],
+      "normal": [
+        0,
+        1,
+        0
+      ],
+      "span": [
+        1,
+        0,
+        0
+      ],
+      "area": 2.52,
+      "chord": 0.62,
+      "aspect": 6.1,
+      "cl0": 0.05,
+      "clAlpha": 4.6,
+      "clMax": 1.2,
+      "clMin": -1.2,
+      "cd0": 0.01,
+      "cm0": 0,
+      "control": "elevator",
+      "controlCl": 2.5,
+      "controlMax": 0.44
+    },
+    {
+      "name": "fin",
+      "part": "tailV",
+      "pos": [
+        0,
+        0.74,
+        -4.4
+      ],
+      "normal": [
+        1,
+        0,
+        0
+      ],
+      "span": [
+        0,
+        1,
+        0
+      ],
+      "area": 1.27,
+      "chord": 0.85,
+      "aspect": 2.3,
+      "cl0": 0,
+      "clAlpha": 3,
+      "clMax": 1,
+      "clMin": -1,
+      "cd0": 0.01,
+      "cm0": 0,
+      "control": "rudder",
+      "controlCl": 1.5,
+      "controlMax": 0.44
+    }
+  ],
+  "gear": [
+    {
+      "name": "nose",
+      "part": "gearN",
+      "pos": [
+        0,
+        -0.76,
+        1.955
+      ],
+      "travel": 0.25,
+      "radius": 0.2,
+      "k": 40000,
+      "c": 3000,
+      "steer": true,
+      "brake": false
+    },
+    {
+      "name": "mainL",
+      "part": "gearL",
+      "pos": [
+        1.811,
+        -0.814,
+        -0.37
+      ],
+      "travel": 0.2,
+      "radius": 0.215,
+      "k": 80000,
+      "c": 6000,
+      "steer": false,
+      "brake": true
+    },
+    {
+      "name": "mainR",
+      "part": "gearR",
+      "pos": [
+        -1.811,
+        -0.814,
+        -0.37
+      ],
+      "travel": 0.2,
+      "radius": 0.215,
+      "k": 80000,
+      "c": 6000,
+      "steer": false,
+      "brake": true
+    }
+  ],
+  "colliders": [
+    {
+      "part": "fuselage",
+      "center": [
+        0,
+        0.18,
+        0.1
+      ],
+      "half": [
+        0.63,
+        0.7,
+        0.7
+      ],
+      "mass": 700
+    },
+    {
+      "part": "fuselage",
+      "center": [
+        0,
+        0.15,
+        -1.1
+      ],
+      "half": [
+        0.6,
+        0.62,
+        0.5
+      ],
+      "mass": 50
+    },
+    {
+      "part": "fuselage",
+      "center": [
+        0,
+        0.14,
+        -2.55
+      ],
+      "half": [
+        0.3,
+        0.42,
+        0.95
+      ],
+      "mass": 45
+    },
+    {
+      "part": "fuselage",
+      "center": [
+        0,
+        0,
+        -4
+      ],
+      "half": [
+        0.15,
+        0.2,
+        0.5
+      ],
+      "mass": 10
+    },
+    {
+      "part": "engine",
+      "center": [
+        0,
+        -0.03,
+        1.55
+      ],
+      "half": [
+        0.58,
+        0.47,
+        0.75
+      ],
+      "mass": 270
+    },
+    {
+      "part": "wingL",
+      "center": [
+        1.98,
+        -0.22,
+        -0.4
+      ],
+      "half": [
+        1.32,
+        0.12,
+        0.72
+      ],
+      "mass": 150
+    },
+    {
+      "part": "wingL",
+      "center": [
+        4.55,
+        -0.02,
+        -0.25
+      ],
+      "half": [
+        1.25,
+        0.09,
+        0.47
+      ],
+      "mass": 65
+    },
+    {
+      "part": "wingR",
+      "center": [
+        -1.98,
+        -0.22,
+        -0.4
+      ],
+      "half": [
+        1.32,
+        0.12,
+        0.72
+      ],
+      "mass": 150
+    },
+    {
+      "part": "wingR",
+      "center": [
+        -4.55,
+        -0.02,
+        -0.25
+      ],
+      "half": [
+        1.25,
+        0.09,
+        0.47
+      ],
+      "mass": 65
+    },
+    {
+      "part": "tailH",
+      "center": [
+        0,
+        0.12,
+        -4.12
+      ],
+      "half": [
+        1.96,
+        0.06,
+        0.38
+      ],
+      "mass": 20
+    },
+    {
+      "part": "tailV",
+      "center": [
+        0,
+        0.8,
+        -4.45
+      ],
+      "half": [
+        0.06,
+        0.65,
+        0.5
+      ],
+      "mass": 16
+    }
+  ],
+  "bodyDragArea": 0.17,
+  "engine": {
+    "power": 231000,
+    "staticThrust": 4300,
+    "efficiency": 0.78,
+    "idleRpm": 700,
+    "maxRpm": 2700,
+    "pos": [
+      0,
+      0.314,
+      2.493
+    ],
+    "radius": 1
+  },
+  "brakeMu": 0.55,
+  "steerLock": 0.45,
+  "limits": {
+    "wingG": 5.7,
+    "gearSink": 4.5
+  }
+}

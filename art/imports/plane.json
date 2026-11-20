@@ -1,0 +1,327 @@
+{
+  "source": "art/sources/plane/cirrus_sr22.glb",
+  "credit": "\"Cirrus SR22\" by KOG_THORNS (https://sketchfab.com/3d-models/cirrus-sr22-cba602c99c524cd4b40e5c2e5f9c5b4f), CC BY 4.0 as uploaded; probably converted from Emmanuel Baranger's Cirrus SR22 for FlightGear (GPL v2), whose signature the texture keeps; modified",
+  "forward": "+X",
+  "length": 7.92,
+  "origin": [
+    0,
+    1.15,
+    1.25
+  ],
+  "materials": {
+    "paint": [
+      "^Meshpart2Mtl$"
+    ],
+    "glass": [
+      "^Aviyonik81Mtl$",
+      "^Meshpart4Mtl$"
+    ],
+    "prop": [
+      "^Prop1Mtl$"
+    ],
+    "spinner": [
+      "^Spinner1Mtl$"
+    ],
+    "interior": [
+      "^Meshpart1Mtl$",
+      "^Floor1Mtl$",
+      "^Seat1Mtl$"
+    ]
+  },
+  "erase": {
+    "Image_16": [
+      [
+        180,
+        664,
+        365,
+        710
+      ],
+      [
+        686,
+        646,
+        754,
+        668
+      ],
+      [
+        10,
+        715,
+        80,
+        795
+      ],
+      [
+        650,
+        834,
+        830,
+        884
+      ],
+      [
+        262,
+        818,
+        324,
+        842
+      ],
+      [
+        915,
+        885,
+        980,
+        955
+      ]
+    ]
+  },
+  "parts": {
+    "prop": [
+      "^Object_11$",
+      "^Object_12$"
+    ],
+    "glass": [
+      "^Object_14$",
+      "^Object_18$"
+    ]
+  },
+  "split": {
+    "wheelN": {
+      "from": "body",
+      "box": [
+        -0.1,
+        0.1,
+        -0.01,
+        0.38,
+        2.98,
+        3.4
+      ]
+    },
+    "wheelL": {
+      "from": "body",
+      "box": [
+        1.7,
+        1.95,
+        -0.01,
+        0.42,
+        0.7,
+        1.16
+      ]
+    },
+    "wheelR": {
+      "from": "body",
+      "box": [
+        -1.95,
+        -1.7,
+        -0.01,
+        0.42,
+        0.7,
+        1.16
+      ]
+    },
+    "gearN": {
+      "from": "body",
+      "box": [
+        -0.2,
+        0.2,
+        -0.01,
+        0.62,
+        2.5,
+        3.55
+      ]
+    },
+    "gearL": {
+      "from": "body",
+      "box": [
+        1.08,
+        2.05,
+        -0.01,
+        0.86,
+        0.25,
+        1.35
+      ]
+    },
+    "gearR": {
+      "from": "body",
+      "box": [
+        -2.05,
+        -1.08,
+        -0.01,
+        0.86,
+        0.25,
+        1.35
+      ]
+    },
+    "rudder": {
+      "from": "body",
+      "box": [
+        -0.1,
+        0.1,
+        0.9,
+        2.8,
+        -4.0,
+        -3.22
+      ]
+    },
+    "wingL": {
+      "from": "body",
+      "box": [
+        0.64,
+        6.0,
+        0.6,
+        1.45,
+        -0.3,
+        2.0
+      ]
+    },
+    "wingR": {
+      "from": "body",
+      "box": [
+        -6.0,
+        -0.64,
+        0.6,
+        1.45,
+        -0.3,
+        2.0
+      ]
+    },
+    "tailH": {
+      "from": "body",
+      "box": [
+        -2.1,
+        2.1,
+        1.15,
+        1.45,
+        -3.45,
+        -2.4
+      ]
+    },
+    "tailV": {
+      "from": "body",
+      "box": [
+        -0.12,
+        0.12,
+        1.62,
+        2.8,
+        -4.0,
+        -2.2
+      ]
+    }
+  },
+  "controls": {
+    "aileronL": {
+      "from": "wingL",
+      "x": [
+        3.35,
+        5.8
+      ],
+      "hinge": [
+        [
+          3.35,
+          0.66
+        ],
+        [
+          5.8,
+          0.83
+        ]
+      ]
+    },
+    "aileronR": {
+      "from": "wingR",
+      "x": [
+        3.35,
+        5.8
+      ],
+      "hinge": [
+        [
+          3.35,
+          0.66
+        ],
+        [
+          5.8,
+          0.83
+        ]
+      ]
+    },
+    "flapL": {
+      "from": "wingL",
+      "x": [
+        0.66,
+        3.3
+      ],
+      "hinge": [
+        [
+          0.66,
+          0.5
+        ],
+        [
+          3.3,
+          0.66
+        ]
+      ]
+    },
+    "flapR": {
+      "from": "wingR",
+      "x": [
+        0.66,
+        3.3
+      ],
+      "hinge": [
+        [
+          0.66,
+          0.5
+        ],
+        [
+          3.3,
+          0.66
+        ]
+      ]
+    },
+    "elevator": {
+      "from": "tailH",
+      "x": [
+        0.0,
+        2.1
+      ],
+      "hinge": [
+        [
+          0.0,
+          -2.96
+        ],
+        [
+          2.1,
+          -2.96
+        ]
+      ]
+    }
+  },
+  "rudder": [
+    "rudder"
+  ],
+  "parents": {
+    "aileronL": "wingL",
+    "aileronR": "wingR",
+    "flapL": "wingL",
+    "flapR": "wingR",
+    "elevator": "tailH",
+    "rudder": "tailV",
+    "wheelN": "gearN",
+    "wheelL": "gearL",
+    "wheelR": "gearR"
+  },
+  "spin": {
+    "prop": [
+      0,
+      0,
+      1
+    ],
+    "wheelN": [
+      1,
+      0,
+      0
+    ],
+    "wheelL": [
+      1,
+      0,
+      0
+    ],
+    "wheelR": [
+      1,
+      0,
+      0
+    ]
+  }
+}

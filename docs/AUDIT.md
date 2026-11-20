@@ -1,4 +1,4 @@
-# Audit: car models, performance, architecture
+# Audit: car and aircraft models, performance, architecture
 
 Date: 2026-11-19. Measured in the dev build (Chromium in the Claude desktop app, Mac, device pixel ratio 2, canvas 722 x 713 CSS px).
 
@@ -149,3 +149,43 @@ How the cost is kept down:
 - **Colliders**: trees get colliders from a pool of 320 that follows the player; roads are trimeshes in 240 m pieces with internal-edge fixing; bridges and guard rails are boxes.
 
 Remaining costs, in order: terrain fragment shading (about 1.4 ms), shadows (receiving and casting, about 1.5 ms), the cars themselves. Not done: streaming the world in and out, impostors for far trees, a texture atlas to merge the city's facade materials (it would save about 40 draw calls in the city).
+
+## 7. Aircraft model (2026-11-20)
+
+A light aircraft to fly from the airfield, sourced like the cars: a hand-made model with a licence that allows redistribution, reworked in Blender into the parts the flight and damage models need.
+
+### Candidates
+
+Searched Sketchfab for low-wing, tricycle-gear four-seaters (the easiest to take off and land with a keyboard) under CC BY 4.0, with a complete exterior, a cockpit, separate or separable control surfaces and 20k to 80k triangles.
+
+| Model | Author | Licence | Triangles | For | Against |
+| --- | --- | --- | --- | --- | --- |
+| [Piper PA-28 Cadet](https://sketchfab.com/3d-models/piper-pa-28-cadet-ba310f1e1ba349c7a54ab9db92e48970) | helijah | CC BY 4.0 | 55k | The classic trainer, well documented | Older shape |
+| [Diamond DA40](https://sketchfab.com/3d-models/diamond-da40-dfda5fad07c24c12be13a23562fe83e3) | helijah | CC BY 4.0 | 72k | Modern, clean lines | Heavier |
+| **[Cirrus SR22](https://sketchfab.com/3d-models/cirrus-sr22-cba602c99c524cd4b40e5c2e5f9c5b4f)** (picked by the user) | KOG_THORNS | CC BY 4.0 as uploaded (see below) | 58k | Most liked, modern, full cockpit with a panel | Less documented upload |
+| [Piper PA-18 Cub](https://sketchfab.com/3d-models/413e3f81b0db4e0ebba0f27490732770) | not recorded | CC BY 4.0 | 18k | Light | High wing and a tail wheel: much harder to take off and land |
+
+**Licence check.** The SR22's texture is signed "Cirrus SR22 : BARANGER Emmanuel 2013". Emmanuel Baranger (Helijah) made the Cirrus SR22 for the FlightGear simulator, distributed under the GNU GPL v2 ([FGMEMBERS/Cirrus-SR22](https://github.com/FGMEMBERS/Cirrus-SR22)). The Sketchfab upload is very probably a conversion of it, so the model is credited to him as well (`CREDITS.md`), his signature stays in the texture, and the source file, the Blender scene and the game model are all in this repository, which is what the GPL v2 asks of a modified version. If that is not acceptable, the PA-28 and DA40 above are uploads by Helijah himself under CC BY 4.0.
+
+### What the source is
+
+One 4.1 MB GLB, 57.9k triangles in 19 meshes with 18 materials and 21 textures (1024 px for the paint and the propeller, small ones for the panel and instruments), built facing +X at about 1:1 scale, every part of the exterior in a few big objects: the wings, flaps and ailerons are one mesh with the fuselage and the gear; the rudder and elevator are part of the tail. The texture carries a registration (BR-CS2), the maker's name and model logos.
+
+### What the import does (`art/import_plane.py`, mapping in `art/imports/plane.json`)
+
+- Orients and scales to the real aircraft (7.92 m long, 11.59 m span measured, SR22: 11.68 m) with the origin at the centre of gravity, 1.15 m above the ground when it stands on its wheels.
+- Splits the parts that can come off by boxes in the game frame: each wing, the tailplane, the fin, the three gear legs with their wheel fairings, the propeller.
+- Cuts the control surfaces out along their real hinge lines (bmesh bisect along the hinge plane and the spanwise ends, so the cuts are clean, about 100 triangles per flap): ailerons, flaps, elevator, rudder, each with its hinge axis exported as a glTF extra (`hinge_axis`) and parented to its wing or tailplane.
+- Paints out the registration and the logos (each box filled with the colour around it), keeps the author's signature, renames the materials the game reacts to (`paint`, `glass`, `prop`, `spinner`, `interior`) and compresses with meshopt: 1.03 MB, 59.9k triangles, 36 meshes in 19 parts.
+- `tests/aircraft-model.test.ts` checks the result against the flight model: span and length, every part and hinge present, each wheel under its strut at the rest length, each lifting surface inside its part, the propeller hub on the thrust line.
+
+### Fitting the flight model to it
+
+The surfaces of `src/vehicle/aircraft/sr22.json` were placed on the model's planform, measured by casting rays through the wing and tail meshes on a 20 cm grid: wing area 13.4 m2 (SR22: 13.5), mean aerodynamic centre at z = -0.02 m, 4 degrees of dihedral, tailplane 2.52 m2 at 4 m, fin 1.27 m2 at 4.4 m; the wheels at the model's hubs (radius 0.215 and 0.2 m) with the struts at their static compression; the eleven mass boxes laid over the cabin, cowling, tail cone, wings and tail with the centre of mass 2 cm behind the reference point and 15 % of the weight on the nose wheel.
+
+### Cost
+
+With the aircraft close to the camera (chase view on the runway), the first version cost 1 to 2 ms of GPU time: every material two-sided, and the cabin's insides (35k of the 60k triangles: panel, instruments, seats) drawn into the shadow map. Now only the shell casts shadows, the insides are one-sided and hidden beyond 35 m: the aircraft costs about 0.3 ms, the two parked ones (merged into one mesh per material, without instruments) about 0.2 ms. The airfield adds about 30 draw calls (its markings and lights are merged into one mesh per material; the PAPI faces are 8 small meshes).
+
+Not done: a lower-detail model for far away (the aircraft is small on screen beyond 200 m, and its 36 meshes still cost 36 draw calls plus the shadows); spinning wheels (the wheels sit in their fairings, which the import cannot separate cleanly from the tyres).
+

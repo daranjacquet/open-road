@@ -4,6 +4,8 @@ import type { Vehicle } from '../vehicle/Vehicle';
 
 export type CameraMode = 'chase' | 'hood' | 'bumper';
 const MODES: CameraMode[] = ['chase', 'hood', 'bumper'];
+/** Aircraft views: behind and above, or the pilot's seat. */
+export type AirCameraMode = 'chase' | 'cockpit';
 
 function angleDiff(a: number, b: number): number {
   let d = b - a;
@@ -17,6 +19,9 @@ const _look = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _vel = new THREE.Vector3();
 const _pivot = new THREE.Vector3();
+const _up = new THREE.Vector3();
+/** Pilot's eye in the aircraft body frame (left seat; +x is left). */
+const EYE = new THREE.Vector3(0.3, 0.62, -0.12);
 /** Height of the orbit pivot above the car's origin (m): the middle of the cabin. */
 const PIVOT_HEIGHT = 0.8;
 
@@ -37,6 +42,9 @@ export class CameraRig {
   orbitPitch = 0;
   /** Distance multiplier (mouse wheel). */
   zoom = 1;
+  airMode: AirCameraMode = 'chase';
+  /** Smoothed attitude the aircraft chase view follows (it lags the aircraft a little). */
+  private readonly airQuat = new THREE.Quaternion();
   private dragging = false;
   /** Seconds since the mouse last moved the camera. */
   private idle = 99;
@@ -95,9 +103,73 @@ export class CameraRig {
     this.initialised = false;
   }
 
+  /** Start the next view fresh (no smoothing from the last vehicle's pose). */
+  reset(): void {
+    this.initialised = false;
+  }
+
+  cycleAir(): void {
+    this.airMode = this.airMode === 'chase' ? 'cockpit' : 'chase';
+    this.initialised = false;
+  }
+
+  /** Follow an aircraft: `pos` / `quat` are its render-interpolated body transform. */
+  updateAircraft(dt: number, pos: THREE.Vector3, quat: THREE.Quaternion, speed: number): void {
+    if (!this.initialised) {
+      this.airQuat.copy(quat);
+      this.initialised = true;
+    }
+    if (this.airMode === 'cockpit') {
+      this.camera.position.copy(EYE).applyQuaternion(quat).add(pos);
+      _up.set(0, 1, 0).applyQuaternion(quat);
+      this.camera.up.copy(_up);
+      // Straight ahead, a touch down: the nose and the horizon both in view.
+      _look.set(EYE.x, EYE.y - 0.9, EYE.z + 20).applyQuaternion(quat).add(pos);
+      this.camera.lookAt(_look);
+      this.pos.copy(this.camera.position);
+    } else {
+      // The view follows the aircraft's attitude with a short lag, so turns, climbs and rolls show.
+      this.airQuat.slerp(quat, damp(3.5, dt));
+      this.idle += dt;
+      if (!this.dragging && this.idle > 1.5) {
+        const k = damp(1.5, dt);
+        this.orbitYaw -= angleDiff(0, this.orbitYaw) * k;
+        this.orbitPitch -= this.orbitPitch * k;
+      }
+      // Keep the horizon mostly level: only part of the bank reaches the camera.
+      _fwd.set(0, 0, 1).applyQuaternion(this.airQuat);
+      const yaw = Math.atan2(_fwd.x, _fwd.z) + this.orbitYaw;
+      const pitch = Math.asin(clamp(_fwd.y, -1, 1));
+      const range = lerp(14, 17, clamp(speed / 80, 0, 1)) * this.zoom;
+      const elev = clamp(0.2 - pitch * 0.85 + this.orbitPitch, -1.2, 1.4);
+      _pivot.set(0, 0.6, 0).applyQuaternion(quat).add(pos);
+      const flat = Math.cos(elev) * range;
+      _p.set(_pivot.x - Math.sin(yaw) * flat, _pivot.y + Math.sin(elev) * range, _pivot.z - Math.cos(yaw) * flat);
+      const floor = this.groundAt(_p.x, _p.z) + 0.5;
+      if (_p.y < floor) _p.y = floor;
+      this.camera.position.copy(_p);
+      _up.set(0, 1, 0).applyQuaternion(this.airQuat);
+      this.camera.up.set(0, 1, 0).lerp(_up, 0.35).normalize();
+      this.camera.lookAt(_pivot);
+      this.pos.copy(_p);
+    }
+    if (this.shake > 0.001) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shake;
+      this.camera.position.y += (Math.random() - 0.5) * this.shake;
+      this.camera.position.z += (Math.random() - 0.5) * this.shake;
+      this.shake *= Math.exp(-7 * dt);
+    }
+    const fov = this.airMode === 'cockpit' ? 72 : lerp(60, 70, clamp(speed / 90, 0, 1));
+    if (Math.abs(this.camera.fov - fov) > 0.05) {
+      this.camera.fov = clamp(this.camera.fov + (fov - this.camera.fov) * damp(4, Math.max(dt, 0)), 40, 90);
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
   /** `carPos` / `carQuat` are the render-interpolated chassis transform. */
   update(dt: number, car: Vehicle, carPos: THREE.Vector3, carQuat: THREE.Quaternion): void {
     const speed = car.speed;
+    this.camera.up.set(0, 1, 0);
     _fwd.set(0, 0, 1).applyQuaternion(carQuat);
     const headingYaw = Math.atan2(_fwd.x, _fwd.z);
     const lv = car.body.linvel();

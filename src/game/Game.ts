@@ -1,9 +1,11 @@
+import * as THREE from 'three';
 import type { GameAudio } from '../audio/audio';
 import { FixedStepper, type StepResult } from '../core/loop';
-import type { Input } from '../core/input';
+import type { FlightInput, Input } from '../core/input';
 import { FIXED_DT, type Physics } from '../core/physics';
 import type { DebugOverlay } from '../debug/overlay';
 import type { CameraRig } from '../render/camera';
+import { aircraftLoaded, loadAircraft } from '../render/aircraft/model';
 import { ensureCarTemplate, getCarTemplate } from '../render/car/glb';
 import type { AdaptiveResolution } from '../render/quality';
 import type { GameScene } from '../render/scene';
@@ -11,9 +13,10 @@ import type { Garage } from '../ui/garage';
 import type { Hud } from '../ui/hud';
 import type { DriveInput } from '../vehicle/Vehicle';
 import type { GameMap, Location } from '../world/map';
-import { SPAWN } from '../world/map';
+import { LIMIT, SPAWN } from '../world/map';
 import type { WorldProps } from '../world/props';
 import { CARS, carById } from './catalog';
+import { buildParkedAircraft, GameAircraft, PARKED } from './GameAircraft';
 import { GameCar, IDLE } from './GameCar';
 import { RaceSystem } from './race';
 
@@ -33,6 +36,15 @@ export interface GameDeps {
 }
 
 const CAR_KEY = 'open-road:car';
+/** Body origin above the ground with the aircraft standing on its wheels (m). */
+const PLANE_REST = 1.18;
+/** How close (m) and how slow (m/s) the car must be to get into the aircraft. */
+const BOARD_RANGE = 16;
+/** Past this distance from the centre the aircraft is turned back towards the map (m). */
+const PLANE_LIMIT = LIMIT + 150;
+
+const _v = new THREE.Vector3();
+const _q = new THREE.Quaternion();
 
 /**
  * The running game: cars, fixed-step simulation, per-frame systems and rendering. `main.ts` builds
@@ -47,6 +59,13 @@ export class Game {
   readonly race: RaceSystem;
   garage!: Garage;
   paused = false;
+  /** Driving the car, or flying the aircraft (the car waits where it was left). */
+  mode: 'car' | 'plane' = 'car';
+  /** The aircraft, once its model has loaded. */
+  plane: GameAircraft | null = null;
+  /** The pilot's commands this frame (in the aircraft). */
+  private flightCmd: FlightInput = { ...PARKED };
+  private planeLoading: Promise<GameAircraft | null> | null = null;
 
   private readonly stepper = new FixedStepper(FIXED_DT);
   private readonly res: StepResult = { steps: 0, alpha: 0 };
@@ -178,6 +197,11 @@ export class Game {
   }
 
   teleport(loc: Location): void {
+    if (loc.aircraft) {
+      this.flyFrom(loc).catch((err) => console.error('[aircraft]', err));
+      return;
+    }
+    if (this.mode === 'plane') this.leavePlane(false);
     // Fallen towers stand again (and their rubble goes) whenever you go somewhere.
     this.d.map.city.skyscrapers.rebuild();
     this.player.vehicle.placeAt(loc.x, loc.y + 1.0, loc.z, loc.yaw);
@@ -194,8 +218,142 @@ export class Game {
 
   /** Repair in place: body, glass, parts, engine and wheels, keeping position and speed. */
   repair(): void {
-    this.player.repair();
+    if (this.mode === 'plane' && this.plane) this.plane.repair();
+    else this.player.repair();
     this.d.hud.toast('Repaired', 1200);
+  }
+
+  // ---- aircraft -------------------------------------------------------------------------------------
+
+  /** Load the aircraft model and park the aircraft on its spot (once). */
+  loadPlane(): Promise<GameAircraft | null> {
+    this.planeLoading ??= (async () => {
+      try {
+        if (!aircraftLoaded()) await loadAircraft(import.meta.env.BASE_URL);
+        const s = this.d.map.planeSpot;
+        this.plane = new GameAircraft(this.d.physics, this.d.gs.scene, s.x, s.y + PLANE_REST, s.z, s.yaw);
+        buildParkedAircraft(this.d.physics, this.d.gs.scene, this.d.map.stands, this.d.map.heightAt, 1.15);
+        return this.plane;
+      } catch (err) {
+        console.warn('[aircraft] Could not load the aircraft.', err);
+        this.planeLoading = null;
+        return null;
+      }
+    })();
+    return this.planeLoading;
+  }
+
+  /** Put the aircraft on a spot, repaired, and the player in its seat. */
+  async flyFrom(loc: Location): Promise<void> {
+    if (!this.plane) this.d.hud.toast('Loading the aircraft…', 1500);
+    const plane = await this.loadPlane();
+    if (!plane) {
+      this.d.hud.toast('Could not load the aircraft', 1500);
+      return;
+    }
+    this.d.map.city.skyscrapers.rebuild();
+    plane.placeAt(loc.x, loc.y + PLANE_REST, loc.z, loc.yaw);
+    this.boardPlane();
+    this.d.hud.toast(loc.name);
+  }
+
+  private boardPlane(): void {
+    const plane = this.plane;
+    if (!plane) return;
+    this.mode = 'plane';
+    this.d.input.clearEdges();
+    this.d.input.resetFlight(plane.aircraft.controls.throttle, plane.aircraft.controls.flaps);
+    this.flightCmd = this.d.input.flight;
+    // Keys are all-or-nothing: they get the stall protection; an analogue stick flies raw.
+    plane.aircraft.assists.protect = !this.d.input.usingPad;
+    this.d.hud.setMode('plane');
+    this.d.hud.hint(null);
+    this.d.rig.reset();
+  }
+
+  /** Back in the car, which waits beside the aircraft (beyond the left wing tip). */
+  private leavePlane(bringCar = true): void {
+    const plane = this.plane;
+    this.mode = 'car';
+    this.d.input.clearEdges();
+    this.d.hud.setMode('car');
+    this.d.audio.leaveAircraft();
+    this.d.rig.reset();
+    this.flightCmd = { ...PARKED };
+    if (!plane || !bringCar) return;
+    const ac = plane.aircraft;
+    _v.set(8.5, 0, -1.5).applyQuaternion(ac.currQuat).add(ac.currPos);
+    const yaw = ac.state.heading;
+    this.player.repair();
+    this.player.vehicle.placeAt(_v.x, this.d.map.heightAt(_v.x, _v.z) + 1.0, _v.z, yaw);
+    this.safe = { x: _v.x, y: this.d.map.heightAt(_v.x, _v.z), z: _v.z, yaw };
+  }
+
+  /** The car is close to the aircraft and both stand still: it can be boarded. */
+  private canBoard(): boolean {
+    const plane = this.plane;
+    if (!plane || this.mode !== 'car') return false;
+    const p = this.player.vehicle.body.translation();
+    const a = plane.aircraft.currPos;
+    return Math.hypot(p.x - a.x, p.z - a.z) < BOARD_RANGE && this.player.vehicle.speed < 3 && plane.aircraft.state.airspeed < 2 && plane.aircraft.state.onGround;
+  }
+
+  private planeKeys(): void {
+    const input = this.d.input;
+    const plane = this.plane!;
+    if (input.pressed('Enter')) {
+      if (plane.aircraft.state.onGround && plane.aircraft.state.airspeed < 2) this.leavePlane();
+      else this.d.hud.toast('Stop on the ground to get out', 1400);
+    }
+    if (input.pressed('Shift+KeyR') || input.pressed('KeyR')) {
+      this.d.map.city.skyscrapers.rebuild();
+      plane.respawn();
+      input.resetFlight();
+      this.d.hud.toast('Runway 27', 1400);
+    }
+    if (input.pressed('KeyC')) this.d.rig.cycleAir();
+    if (input.pressed('KeyP')) {
+      const a = plane.aircraft.assists;
+      a.protect = !a.protect;
+      this.d.hud.toast(a.protect ? 'Stall protection on' : 'Stall protection off', 1400);
+    }
+    if (input.pressed('KeyF')) this.repair();
+    if (input.pressed('KeyT')) this.nextLocation();
+    if (input.pressed('KeyN')) this.d.hud.toggleMap();
+  }
+
+  /** The aircraft blew up numerically, fell out of the world, flew off the map or ditched. */
+  private planeBounds(): void {
+    const plane = this.plane;
+    if (!plane) return;
+    const ac = plane.aircraft;
+    const t = ac.body.translation();
+    const lv = ac.body.linvel();
+    const flying = this.mode === 'plane';
+    if (!(Number.isFinite(t.x) && Number.isFinite(t.y) && Number.isFinite(t.z) && Number.isFinite(lv.x) && Number.isFinite(lv.y) && Number.isFinite(lv.z))) {
+      plane.respawn();
+      if (flying) this.d.hud.toast('Physics glitch - aircraft reset');
+      return;
+    }
+    if (t.y < -40 || this.d.map.inWater(t.x, t.y, t.z)) {
+      plane.respawn();
+      if (flying) this.d.hud.toast(t.y < -40 ? 'Out of the world - back to the runway' : 'Ditched in the lake! Back to the runway');
+      return;
+    }
+    // At the edge of the map: turned round on the spot, same height and speed, heading back in.
+    if (Math.abs(t.x) > PLANE_LIMIT || Math.abs(t.z) > PLANE_LIMIT) {
+      const r = ac.body.rotation();
+      _q.set(r.x, r.y, r.z, r.w).premultiply(new THREE.Quaternion().setFromAxisAngle(_v.set(0, 1, 0), Math.PI));
+      const x = THREE.MathUtils.clamp(t.x, -PLANE_LIMIT + 20, PLANE_LIMIT - 20);
+      const z = THREE.MathUtils.clamp(t.z, -PLANE_LIMIT + 20, PLANE_LIMIT - 20);
+      ac.body.setTranslation({ x, y: t.y, z }, true);
+      ac.body.setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w }, true);
+      ac.body.setLinvel({ x: -lv.x, y: lv.y, z: -lv.z }, true);
+      ac.afterPhysicsStep();
+      ac.afterPhysicsStep();
+      this.d.rig.reset();
+      if (flying) this.d.hud.toast('Edge of the map - turned back', 1800);
+    }
   }
 
   // ---- simulation -----------------------------------------------------------------------------------
@@ -204,31 +362,55 @@ export class Game {
     return c === this.player ? cmd : IDLE;
   }
 
-  /** One fixed physics step for every car. */
+  /** One fixed physics step for every car and the aircraft. */
   step(cmd: DriveInput): void {
     const cars = this.cars;
-    for (let i = 0; i < cars.length; i++) cars[i]!.fixedUpdate(FIXED_DT, this.inputFor(cars[i]!, cmd));
+    const driving = this.mode === 'car';
+    for (let i = 0; i < cars.length; i++) cars[i]!.fixedUpdate(FIXED_DT, driving ? this.inputFor(cars[i]!, cmd) : IDLE);
+    const plane = this.plane;
+    plane?.fixedUpdate(FIXED_DT, driving ? PARKED : this.flightCmd);
     this.d.physics.step();
     for (let i = 0; i < cars.length; i++) cars[i]!.vehicle.afterPhysicsStep();
+    if (plane) {
+      plane.aircraft.afterPhysicsStep();
+      // Impacts on the airframe (only its colliders report contact forces), after the step: a part
+      // that breaks off now takes its colliders out of a world that is not stepping.
+      this.d.physics.events.drainContactForceEvents((e) => {
+        const f = e.totalForceMagnitude();
+        plane.contactForce(e.collider1(), f, FIXED_DT);
+        plane.contactForce(e.collider2(), f, FIXED_DT);
+      });
+    }
     // Breaks and collapses from this step's crashes, now that no car holds a collider of it.
     this.d.map.city.skyscrapers.flush();
     this.simTime += FIXED_DT;
   }
 
   /** Run `seconds` of game time immediately (automated checks, screenshots). */
-  advance(seconds: number, drive?: () => DriveInput): void {
+  advance(seconds: number, drive?: () => DriveInput, fly?: () => FlightInput): void {
     const n = Math.round(seconds / FIXED_DT);
     const vh = this.d.gs.renderer.domElement.clientHeight;
     for (let i = 0; i < n; i++) {
+      if (fly) this.flightCmd = fly();
       this.step(drive ? drive() : this.d.input.out);
-      if (i % 4 === 0) for (const c of this.cars) c.updateVisuals(performance.now() + i, 1, FIXED_DT * 4, vh);
+      if (i % 4 === 0) {
+        for (const c of this.cars) c.updateVisuals(performance.now() + i, 1, FIXED_DT * 4, vh);
+        this.plane?.updateVisuals(1, FIXED_DT * 4);
+      }
+      if (i % 12 === 0) this.planeBounds();
     }
     for (const c of this.cars) c.updateVisuals(performance.now() + 1e6, 1, 0.016, vh);
+    this.plane?.updateVisuals(1, 0.016);
     this.d.props.update();
   }
 
   private handleKeys(): void {
     const input = this.d.input;
+    if (this.mode === 'plane' && this.plane) {
+      this.planeKeys();
+      return;
+    }
+    if (input.pressed('Enter') && this.canBoard()) this.boardPlane();
     const v = this.player.vehicle;
     if (input.pressed('Shift+KeyR')) this.player.respawn();
     else if (input.pressed('KeyR')) v.recover();
@@ -280,7 +462,9 @@ export class Game {
 
     const start = performance.now();
     this.tick = start;
-    const cmd = this.d.input.sample(frameDt);
+    const flying = this.mode === 'plane' && this.plane !== null;
+    const cmd = flying ? IDLE : this.d.input.sample(frameDt);
+    if (flying) this.flightCmd = this.d.input.sampleFlight(frameDt);
     this.handleKeys();
 
     this.stepper.advance(frameDt, this.res);
@@ -299,31 +483,64 @@ export class Game {
     this.lap('physics');
 
     this.watchdog();
+    this.planeBounds();
 
     // Off the edge of the world or into the lake: back to the last spot on the ground, repaired.
     const pt = this.player.vehicle.body.translation();
     if (map.isOutside(pt.x, pt.y, pt.z)) this.backToSafety('Out of the map - back on the road');
     else if (map.inWater(pt.x, pt.y + 0.4, pt.z)) this.backToSafety('Splash! Back on dry land');
     else this.rememberSafe();
-    this.race.update(pt.x, pt.z, this.simTime);
+    if (!flying) this.race.update(pt.x, pt.z, this.simTime);
     this.lap('race');
 
     const vh = gs.renderer.domElement.clientHeight;
     for (const c of this.cars) c.updateVisuals(now, this.res.alpha, frameDt, vh);
+    const plane = this.plane;
+    plane?.updateVisuals(this.res.alpha, frameDt);
     props.update();
     this.lap('visuals');
     const player = this.player;
-    rig.shake = Math.max(rig.shake, player.effects.shake);
+    if (flying && plane) {
+      rig.shake = Math.max(rig.shake, Math.min(0.5, Math.sqrt(plane.impact) / 2500));
+      rig.updateAircraft(frameDt, plane.view.pos, plane.view.quat, plane.aircraft.state.airspeed);
+      gs.followSun(plane.view.pos);
+      map.update(now / 1000, gs.camera, plane.view.pos);
+    } else {
+      rig.shake = Math.max(rig.shake, player.effects.shake);
+      rig.update(frameDt, player.vehicle, player.view.pos, player.view.quat);
+      gs.followSun(player.view.pos);
+      map.update(now / 1000, gs.camera, player.view.pos);
+    }
     player.effects.shake = 0;
-    rig.update(frameDt, player.vehicle, player.view.pos, player.view.quat);
-    gs.followSun(player.view.pos);
-    map.update(now / 1000, gs.camera, player.view.pos);
+    plane?.detail(gs.camera.position);
     this.lap('camera');
     gs.renderer.render(gs.scene, gs.camera);
     this.lap('render');
 
-    hud.update(player, now);
-    audio.update(player.vehicle, now);
+    if (plane) {
+      // Parts coming off, touchdowns and impacts of this frame.
+      if (plane.events.length) {
+        if (flying) hud.toast(plane.events[plane.events.length - 1]!, 1800);
+        plane.events.length = 0;
+      }
+      if (plane.chirp > 0) {
+        if (flying) audio.chirp(plane.chirp);
+        plane.chirp = 0;
+      }
+      if (plane.impact > 0) {
+        if (flying) audio.impactEnergy(plane.impact);
+        plane.impact = 0;
+      }
+    }
+    if (flying && plane) {
+      hud.updateFlight(plane, this.flightCmd.brake, now);
+      audio.updateAircraft(plane.aircraft, now, hud.flight.stallWarning);
+    } else {
+      hud.update(player, now);
+      if (this.canBoard()) hud.hint('Enter', 'Fly the SR22');
+      else hud.hint(null);
+      audio.update(player.vehicle, now);
+    }
     this.lap('hud');
     this.frameStats.total += (performance.now() - start - this.frameStats.total) * 0.1;
     if (debug.isVisible) this.debugPanel();
@@ -354,9 +571,18 @@ export class Game {
   renderNow(): void {
     const { gs, rig } = this.d;
     for (const c of this.cars) c.view.update(1);
-    rig.update(0.05, this.player.vehicle, this.player.view.pos, this.player.view.quat);
-    gs.followSun(this.player.view.pos);
-    this.d.map.update(this.simTime, gs.camera, this.player.view.pos);
+    const plane = this.plane;
+    plane?.updateVisuals(1, 0);
+    if (this.mode === 'plane' && plane) {
+      rig.updateAircraft(0.05, plane.view.pos, plane.view.quat, plane.aircraft.state.airspeed);
+      gs.followSun(plane.view.pos);
+      this.d.map.update(this.simTime, gs.camera, plane.view.pos);
+    } else {
+      rig.update(0.05, this.player.vehicle, this.player.view.pos, this.player.view.quat);
+      gs.followSun(this.player.view.pos);
+      this.d.map.update(this.simTime, gs.camera, this.player.view.pos);
+    }
+    plane?.detail(gs.camera.position);
     gs.renderer.render(gs.scene, gs.camera);
   }
 
@@ -364,8 +590,11 @@ export class Game {
   renderFrom(pos: [number, number, number], target: [number, number, number]): void {
     const { gs } = this.d;
     for (const c of this.cars) c.view.update(1);
+    this.plane?.updateVisuals(1, 0);
     gs.camera.position.set(...pos);
+    gs.camera.up.set(0, 1, 0);
     gs.camera.lookAt(...target);
+    this.plane?.detail(gs.camera.position);
     this.d.map.update(this.simTime, gs.camera, this.player.view.pos);
     gs.renderer.render(gs.scene, gs.camera);
   }
@@ -383,7 +612,9 @@ export class Game {
       renderer: d.gs.renderer,
       frameStats: this.frameStats,
       frame: (now: number) => this.frame(now),
-      advance: (s: number, drive?: () => DriveInput) => this.advance(s, drive),
+      advance: (s: number, drive?: () => DriveInput, fly?: () => FlightInput) => this.advance(s, drive, fly),
+      loadPlane: () => this.loadPlane(),
+      flyFrom: (l: Location) => this.flyFrom(l),
       renderNow: () => this.renderNow(),
       renderFrom: (p: [number, number, number], t: [number, number, number]) => this.renderFrom(p, t),
       swapCar: (id: string) => this.swapCar(id),
@@ -394,6 +625,8 @@ export class Game {
     Object.defineProperties(api, {
       paused: { get: () => this.paused, set: (v: boolean) => (this.paused = v), enumerable: true },
       player: { get: () => this.player, enumerable: true },
+      plane: { get: () => this.plane, enumerable: true },
+      mode: { get: () => this.mode, enumerable: true },
       garage: { get: () => this.garage, enumerable: true },
     });
     return api;

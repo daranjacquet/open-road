@@ -7,6 +7,7 @@ import { CARS, carById } from './game/catalog';
 import { Game } from './game/Game';
 import { CameraRig } from './render/camera';
 import { ParticlePool } from './render/particles';
+import { buildAircraftModel, loadAircraft } from './render/aircraft/model';
 import { buildCarModel } from './render/car';
 import { loadCarTemplates } from './render/car/glb';
 import { AdaptiveResolution } from './render/quality';
@@ -138,6 +139,18 @@ async function boot(): Promise<void> {
         } catch (err) {
           console.warn('[boot] Deferred car loading or shader compilation failed.', err);
         }
+        // Then the aircraft: its shaders compiled off to the side before it appears on the runway.
+        try {
+          await loadAircraft(import.meta.env.BASE_URL);
+          const tmp = new THREE.Scene();
+          const model = buildAircraftModel();
+          tmp.add(model.root);
+          await warmUp(gs.renderer, tmp, gs.camera, gs.scene);
+          model.dispose();
+        } catch (err) {
+          console.warn('[boot] Aircraft loading or shader compilation failed.', err);
+        }
+        await game.loadPlane();
       })();
     }
   });

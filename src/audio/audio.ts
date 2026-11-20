@@ -1,6 +1,7 @@
 import { clamp } from '../core/math';
 import type { ImpactInfo } from '../damage/DamageModel';
 import type { Vehicle } from '../vehicle/Vehicle';
+import type { Aircraft } from '../vehicle/aircraft/Aircraft';
 
 /**
  * Procedural audio (Web Audio): engine tied to rpm and throttle, tyre squeal from slip,
@@ -17,6 +18,8 @@ export class GameAudio {
   private squealGain!: GainNode;
   private squealFilter!: BiquadFilterNode;
   private windGain!: GainNode;
+  private windFilter!: BiquadFilterNode;
+  private hornGain!: GainNode;
   private noiseBuf!: AudioBuffer;
   muted = false;
   private pendingImpact = 0;
@@ -93,13 +96,26 @@ export class GameAudio {
       const w = ctx.createBufferSource();
       w.buffer = this.noiseBuf;
       w.loop = true;
-      const wf = ctx.createBiquadFilter();
+      const wf = (this.windFilter = ctx.createBiquadFilter());
       wf.type = 'lowpass';
       wf.frequency.value = 500;
       this.windGain = ctx.createGain();
       this.windGain.gain.value = 0;
       w.connect(wf).connect(this.windGain).connect(this.master);
       w.start();
+
+      // Stall warning horn (aircraft): a steady reedy tone, silent until the wing nears the stall.
+      const horn = ctx.createOscillator();
+      horn.type = 'square';
+      horn.frequency.value = 2300;
+      const hf = ctx.createBiquadFilter();
+      hf.type = 'bandpass';
+      hf.frequency.value = 2300;
+      hf.Q.value = 3;
+      this.hornGain = ctx.createGain();
+      this.hornGain.gain.value = 0;
+      horn.connect(hf).connect(this.hornGain).connect(this.master);
+      horn.start();
     } catch {
       this.ctx = null; // no audio available: the game runs silently
     }
@@ -151,6 +167,73 @@ export class GameAudio {
       this.pendingImpact = 0;
       this.lastImpact = now;
     }
+  }
+
+  /**
+   * Aircraft: a six-cylinder engine through the propeller (its blades pass at the firing rate, so
+   * the two blend into one drone), wind over the airframe from the airspeed, the stall horn, and
+   * the crash sounds of parts hitting things.
+   */
+  updateAircraft(ac: Aircraft, now: number, stallWarning: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const st = ac.state;
+    if (!Number.isFinite(st.rpm) || !Number.isFinite(st.airspeed)) return;
+    if (ctx.state === 'suspended') void ctx.resume();
+    const t = ctx.currentTime;
+    const e = ac.cfg.engine;
+    const running = !ac.propBroken && ac.engineHealth > 0;
+    const rpmN = clamp((st.rpm - e.idleRpm) / (e.maxRpm - e.idleRpm), 0, 1);
+    const throttle = running ? ac.controls.throttle : 0;
+    const f = Math.max(8, (st.rpm / 60) * 3);
+    this.osc1.frequency.setTargetAtTime(f, t, 0.05);
+    this.osc2.frequency.setTargetAtTime(f * 2.0, t, 0.05);
+    this.engineFilter.frequency.setTargetAtTime(220 + rpmN * 900 + throttle * 700, t, 0.08);
+    this.engineGain.gain.setTargetAtTime(running ? 0.12 + 0.2 * throttle + 0.08 * rpmN : 0, t, 0.08);
+    // Propeller wash: broadband noise that grows with power.
+    this.noiseGain.gain.setTargetAtTime(running ? 0.08 + 0.22 * throttle * rpmN : 0.02 * rpmN, t, 0.1);
+    this.squealGain.gain.setTargetAtTime(0, t, 0.05);
+    const v = st.airspeed;
+    this.windFilter.frequency.setTargetAtTime(300 + v * 9, t, 0.2);
+    this.windGain.gain.setTargetAtTime(clamp((v / 70) ** 2, 0, 1.2) * 0.3, t, 0.15);
+    this.hornGain.gain.setTargetAtTime(stallWarning && !this.muted ? 0.05 : 0, t, 0.03);
+    if (this.pendingImpact > 0 && now - this.lastImpact > 60) {
+      this.crash(this.pendingImpact);
+      this.pendingImpact = 0;
+      this.lastImpact = now;
+    }
+  }
+
+  /** Silence the aircraft-only sounds (back in a car). */
+  leaveAircraft(): void {
+    if (!this.ctx) return;
+    this.hornGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.02);
+    this.windFilter.frequency.setTargetAtTime(500, this.ctx.currentTime, 0.1);
+  }
+
+  /** A short tyre chirp (a wheel touching the runway at speed), 0..1. */
+  chirp(strength: number): void {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1300;
+    bp.Q.value = 6;
+    const g = ctx.createGain();
+    const a = clamp(strength, 0.05, 1) * 0.35;
+    g.gain.setValueAtTime(a, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    src.connect(bp).connect(g).connect(this.master);
+    src.start(t, Math.random() * 0.5);
+    src.stop(t + 0.3);
+  }
+
+  /** Queue an impact by its energy (J): an aircraft part hitting something. */
+  impactEnergy(energy: number): void {
+    this.pendingImpact += energy;
   }
 
   private crash(energy: number): void {

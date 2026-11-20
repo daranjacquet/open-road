@@ -15,10 +15,24 @@ blender -b --factory-startup -P art/import_car.py -- sedan --views /tmp/views   
 - `import_car.py` + `imports/<id>.json`: the mapping says which source objects make which part, which boxes (game frame: x left, y up, z forward, metres) to cut doors, mirrors or lids out of the body, how to rename materials (`paint`, `glass`, `trim_matte`, `underbody`... the names the game reacts to; textures are kept), which faces to `restyle` so the outer shell counts for the crumple rays, and where the wheels are. `--views DIR` renders orthographic views with a 0.25 m grid (red lines every metre) to place the boxes.
 - It writes `blend/<id>.blend`, `build/<id>.glb` and `build/<id>.measure.json`; `scripts/optimize-models.mjs` compresses into `public/models/`, `scripts/fit-car-config.mjs` fits the physics geometry of `src/vehicle/cars/<id>.json` to the measurements.
 
+## The aircraft
+
+The Cirrus SR22 (`sources/plane/`, credits in `../CREDITS.md`) has its own import, built the same way:
+
+```bash
+node scripts/build-models.mjs plane                                    # import, compress
+blender -b --factory-startup -P art/explore_plane.py -- art/sources/plane/cirrus_sr22.glb +X 7.92 /tmp/views   # boxes and grid views of a new model
+blender -b --factory-startup -P art/import_plane.py -- plane --views /tmp/views                              # + views of the parts
+```
+
+- `explore_plane.py` prints every object's box in the game frame and renders side, top and front views with a 0.5 m grid, to write the mapping.
+- `import_plane.py` + `imports/plane.json`: orientation, length and origin (the centre of gravity), material renames, texture boxes to paint out (registration, logos), the parts that break off (split from the body by boxes: wings, tailplane, fin, gear legs with their wheel fairings, propeller), and the control surfaces, cut along their hinge lines with `bmesh.ops.bisect_plane` (hinge plane plus the spanwise ends) and given a `hinge_axis`. Parts carry `part_name`, `chassis_pivot`, `hinge_axis` and `parent_part` (controls under their wing or tailplane, wheels under their leg).
+- The flight model (`src/vehicle/aircraft/sr22.json`) is not fitted by a script: its surfaces, gear and mass boxes were placed on measurements of the model, and `tests/aircraft-model.test.ts` checks that they still match it.
+
 ## Layout
 
 - `lib/importer.py`: loading any source format, transforms, bounding boxes, triangle counts, quick renders.
-- `imports/<id>.json`: one mapping per car (see above).
+- `imports/<id>.json`: one mapping per car (see above), and `plane.json` for the aircraft.
 - `sources/<id>/`: the downloaded models and their licences.
 - `blend/`: the `.blend` scenes written by the import.
 - `build/`: raw exports (ignored by git); `scripts/optimize-models.mjs` writes `public/models/`.

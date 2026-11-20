@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildAirfield, type Airfield } from './airfield';
 import { canvasTexture, gableRoof, rng, StaticBatch, tiledBox } from './batch';
 import type { Heightmap } from './heightmap';
 import { LAKE, PLACES, WATER_LEVEL } from './layout';
@@ -87,14 +88,6 @@ export function placeMaterials(asphaltMap: THREE.Texture): PlaceMaterials {
   };
 }
 
-/** A flat decal (asphalt apron, paint mark) lying on the ground at height y. */
-function decal(b: StaticBatch, mat: THREE.Material, x: number, y: number, z: number, w: number, d: number, yaw = 0): void {
-  const g = new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2);
-  const uv = g.getAttribute('uv') as THREE.BufferAttribute;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w, uv.getY(i) * d);
-  b.add(g, mat, x, y, z, yaw, 0, 0, false);
-}
-
 /**
  * A decal that follows the ground (2 m grid, `lift` above it): forecourts, squares and car parks
  * next to roads, where the ground is not quite flat.
@@ -129,6 +122,10 @@ export interface Places {
   group: THREE.Group;
   /** Teleport targets: name, position on the ground, heading. */
   spots: { name: string; x: number; y: number; z: number; yaw: number }[];
+  /** Airfield parking stands for parked aircraft. */
+  stands: Airfield['stands'];
+  /** Per frame, with the camera position (the PAPI lights). */
+  update(camera: THREE.Vector3): void;
 }
 
 /** Village on the lake, harbour, petrol station, airfield, farm, quarry, summit viewpoint. */
@@ -257,63 +254,10 @@ export function buildPlaces(physics: Physics, hm: Heightmap, roads: RoadLine[], 
     b.build(group);
   }
 
-  // ---- airfield: runway, taxiway, apron, hangars, tower ----
-  {
-    const b = new StaticBatch(physics);
-    const a = PLACES.airfield;
-    const y = 0;
-    const len = a.x1 - a.x0;
-    const cx = (a.x0 + a.x1) / 2;
-    decal(b, m.asphalt, cx, y + 0.02, a.z, len, 45);
-    surface.fillRect(a.x0, a.z - 23, a.x1, a.z + 23, ASPHALT);
-    // Markings: centre line, edge lines, threshold bars.
-    for (let x = a.x0 + 120; x < a.x1 - 120; x += 50) decal(b, m.paint, x, y + 0.03, a.z, 28, 0.9);
-    for (const side of [-1, 1]) decal(b, m.paint, cx, y + 0.03, a.z + side * 21.5, len - 4, 0.8);
-    for (const end of [a.x0 + 22, a.x1 - 22]) {
-      for (let k = -6; k <= 6; k += 1.6) if (Math.abs(k) > 1) decal(b, m.paint, end, y + 0.03, a.z + k * 2.2, 30, 1.6);
-    }
-    // Taxiway and links.
-    const tz = a.z + 66;
-    decal(b, m.asphalt, cx, y + 0.02, tz, len - 120, 16);
-    surface.fillRect(a.x0 + 60, tz - 8, a.x1 - 60, tz + 8, ASPHALT);
-    for (const x of [a.x0 + 70, cx, a.x1 - 70]) {
-      decal(b, m.asphalt, x, y + 0.021, (a.z + tz) / 2, 16, tz - a.z - 30);
-      surface.fillRect(x - 8, a.z, x + 8, tz, ASPHALT);
-    }
-    // Apron up to the road, and a link to the airfield road.
-    const ax = 690;
-    decal(b, m.asphalt, ax, y + 0.022, tz + 40, 260, 64);
-    surface.fillRect(ax - 130, tz, ax + 130, tz + 72, ASPHALT);
-    // Hangars with arched roofs on the apron's west and east ends.
-    for (const hx of [ax - 160, ax + 160]) {
-      const hz = tz + 46;
-      b.add(tiledBox(36, 7, 30, 3, 2), m.metal, hx, y + 3.5, hz);
-      b.collideBox(hx, y + 6, hz, 18, 6, 15);
-      const arch = new THREE.CylinderGeometry(18, 18, 30, 20, 1, true, -Math.PI / 2, Math.PI).rotateX(-Math.PI / 2).scale(1, 0.38, 1);
-      b.add(arch, m.metal, hx, y + 7, hz);
-      b.add(new THREE.BoxGeometry(30, 6.2, 0.2), m.concrete, hx, y + 3.2, hz - 15.05, 0, 0, 0, false);
-    }
-    // Control tower.
-    const tx = ax + 150;
-    const tzz = tz + 14;
-    b.add(new THREE.CylinderGeometry(2.4, 2.8, 18, 12), m.concrete, tx, y + 9, tzz);
-    b.collideCylinder(tx, y + 9, tzz, 9, 2.8);
-    b.add(new THREE.CylinderGeometry(4.4, 3.6, 3.6, 8), m.glass, tx, y + 19.8, tzz);
-    b.add(new THREE.CylinderGeometry(4.8, 4.8, 0.6, 8), m.white, tx, y + 21.9, tzz);
-    // Two parked light aircraft.
-    for (const [px, pz, yaw] of [[ax - 60, tz + 30, 0.4], [ax + 20, tz + 26, -0.3]] as const) {
-      b.add(new THREE.CylinderGeometry(0.6, 0.45, 7.5, 10).rotateX(Math.PI / 2), m.white, px, y + 1.4, pz, yaw);
-      b.add(new THREE.BoxGeometry(10.5, 0.15, 1.5), m.white, px, y + 1.8, pz, yaw);
-      b.add(new THREE.BoxGeometry(3.6, 0.12, 0.9), m.white, px - Math.sin(yaw) * 3.3, y + 1.6, pz - Math.cos(yaw) * 3.3, yaw);
-      b.add(new THREE.BoxGeometry(0.12, 1.3, 1.0), m.accent, px - Math.sin(yaw) * 3.4, y + 2.2, pz - Math.cos(yaw) * 3.4, yaw);
-      b.collideBox(px, y + 1.4, pz, 5.2, 0.8, 3.6, yaw);
-    }
-    // Windsock.
-    b.box(a.x0 + 60, y + 3, a.z - 40, 0.15, 6, 0.15, m.metal);
-    b.add(new THREE.ConeGeometry(0.45, 2.6, 8, 1, true).rotateZ(Math.PI / 2), m.accent, a.x0 + 61.3, y + 5.8, a.z - 40);
-    spots.push({ name: 'Airfield runway', x: a.x0 + 40, y, z: a.z, yaw: Math.PI / 2 });
-    b.build(group);
-  }
+  // ---- airfield: runway 09/27 with its markings and lights, taxiway, apron, hangars, tower ----
+  const airfield = buildAirfield(physics, surface, m);
+  group.add(airfield.group);
+  spots.push(...airfield.spots);
 
   // ---- farm: barn, farmhouse, silos, hay bales ----
   {
@@ -421,5 +365,5 @@ export function buildPlaces(physics: Physics, hm: Heightmap, roads: RoadLine[], 
     b.build(group);
   }
 
-  return { group, spots };
+  return { group, spots, stands: airfield.stands, update: airfield.update };
 }
