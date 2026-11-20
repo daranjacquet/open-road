@@ -12,6 +12,14 @@ export interface DriveInput {
   handbrake: number;
 }
 
+/** True for an element that takes typed text or arrow keys itself (value fields, menus). */
+function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return true;
+  if (target instanceof HTMLInputElement) return !['checkbox', 'radio', 'button', 'submit', 'range', 'color'].includes(target.type);
+  return false;
+}
+
 /** Keyboard + gamepad input. One call to `sample(dt)` per rendered frame returns the drive command. */
 export class Input {
   private readonly down = new Set<string>();
@@ -27,9 +35,9 @@ export class Input {
   constructor(target: Window = window) {
     target.addEventListener('keydown', (e) => {
       if (e.repeat) return;
-      // Typing in a settings field is not driving.
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA')) return;
+      // Typing in a settings field is not driving (a focused checkbox or button does not count).
+      // The focus, not the event target: a panel may have just let go of it for this very key.
+      if (isTextEntry(document.activeElement)) return;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
       this.down.add(e.code);
       this.edges.add(e.code);

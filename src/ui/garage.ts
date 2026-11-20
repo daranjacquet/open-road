@@ -125,6 +125,54 @@ export class Garage {
     presets.open();
     gui.close();
     this.attach();
+    this.giveKeysBack();
+  }
+
+  /**
+   * After a click or a change in the panel, hand the keyboard back to the game: otherwise the
+   * focused menu, checkbox or button keeps the keys (and Space would press the button again).
+   * Only a value field the player clicked into keeps them, to type a number (Enter gives them back).
+   * A menu keeps the focus while it is open, then lets go once a choice is made or a key is pressed.
+   */
+  private giveKeysBack(): void {
+    const el = this.gui.domElement;
+    const release = (keepTyping: boolean): void => {
+      const a = document.activeElement;
+      if (!(a instanceof HTMLElement) || !el.contains(a)) return;
+      if (keepTyping && a instanceof HTMLInputElement && (a.type === 'text' || a.type === 'number')) return;
+      a.blur();
+    };
+    el.addEventListener('pointerup', (e) => {
+      // A menu must keep the focus while its list is open.
+      if (e.target instanceof HTMLSelectElement) return;
+      const typing = e.target instanceof HTMLInputElement && (e.target.type === 'text' || e.target.type === 'number');
+      // After lil-gui has handled the click.
+      window.setTimeout(() => release(typing), 0);
+    });
+    el.addEventListener('change', (e) => {
+      if (e.target instanceof HTMLSelectElement || (e.target instanceof HTMLInputElement && e.target.type === 'checkbox')) release(false);
+    });
+    // lil-gui stops key events inside the panel from reaching the page. A key pressed while a menu,
+    // box or button of the panel has the focus is meant for the car: let go of the focus (so the
+    // menu does not take the arrows or letters as a new choice) and pass the key on to the game.
+    // Key releases always go on, or a key let go over the panel would stay held down.
+    const forward = (type: 'keydown' | 'keyup', e: KeyboardEvent): void => {
+      window.dispatchEvent(new KeyboardEvent(type, { code: e.code, key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey, repeat: e.repeat }));
+    };
+    el.addEventListener(
+      'keydown',
+      (e) => {
+        const a = document.activeElement;
+        if (e.key === 'Tab' || !(a instanceof HTMLElement) || !el.contains(a)) return;
+        if (a instanceof HTMLInputElement && (a.type === 'text' || a.type === 'number')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        a.blur();
+        forward('keydown', e);
+      },
+      true,
+    );
+    el.addEventListener('keyup', (e) => forward('keyup', e), true);
   }
 
   /** Bind the panel to the current player car (after a swap) and apply its saved setup. */
