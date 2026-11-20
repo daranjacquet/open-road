@@ -163,8 +163,8 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
   const roadMat = new THREE.MeshStandardMaterial({ map: asphaltMap.clone(), color: 0x9a9da4, roughness: 0.92 });
   roadMat.map!.needsUpdate = true;
   roadMat.map!.repeat.set((x1 - x0) / 6, (z1 - z0) / 6);
-  roadMat.polygonOffset = true;
-  roadMat.polygonOffsetFactor = -2;
+  // No polygon offset here: the pavements, parks and car parks sit on this plane, and an offset grows
+  // with distance at grazing angles until the asphalt draws over them. 1.5 cm above the grass is enough.
   const plane = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0).rotateX(-Math.PI / 2), roadMat);
   plane.position.set((x0 + x1) / 2, 0.015, (z0 + z1) / 2);
   plane.receiveShadow = true;
