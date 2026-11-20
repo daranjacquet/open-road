@@ -388,6 +388,7 @@ export function modelFromTemplate(template: THREE.Group, opts: BuildOptions = {}
   for (const c of childParts(template)) rebuild(c, origin, root);
 
   mergeStatic(root, parts, meshes, disposables);
+  hangDoorGlass(root, parts);
 
   const mk = (tag: string): WheelNodes => {
     const pivot = new THREE.Group();
@@ -441,6 +442,27 @@ const KEEP = /^(body|hood|trunk|door_[FR][LR]|bumper_[FR]|glass_.+|light_[FR][LR
  * Cut draw calls: every mesh that does not belong to a part that moves on its own is merged, per
  * material, into the nearest such part above it (root-level fixed parts go into the body).
  */
+/**
+ * Door windows ride in their door: each side pane that sits along a door is re-hung under it, so it
+ * swings open, tears off and comes back with the door. A pane longer than the door (the rear side
+ * glass of a 4x4) belongs to the body and stays.
+ */
+function hangDoorGlass(root: THREE.Group, parts: Map<string, THREE.Object3D>): void {
+  root.updateMatrixWorld(true);
+  const g = new THREE.Box3();
+  const d = new THREE.Box3();
+  for (const [name, glass] of parts) {
+    const m = /^glass_([FR][LR])$/.exec(name);
+    const door = m ? parts.get(`door_${m[1]}`) : undefined;
+    if (!door) continue;
+    g.setFromObject(glass);
+    d.setFromObject(door);
+    const along = Math.min(g.max.z, d.max.z) - Math.max(g.min.z, d.min.z);
+    if (along < 0.8 * (g.max.z - g.min.z)) continue;
+    door.attach(glass);
+  }
+}
+
 function mergeStatic(root: THREE.Group, parts: Map<string, THREE.Object3D>, meshes: THREE.Mesh[], disposables: { dispose(): void }[]): void {
   root.updateMatrixWorld(true);
   const body = parts.get('body');

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GROUND_SAMPLE_GLSL, groundDetail } from './groundtex';
 import { GROUP, groups, type Physics } from '../core/physics';
 import type { Heightmap } from './heightmap';
 
@@ -150,6 +151,7 @@ function noiseTexture(size: number, seed: number, smooth: boolean, k: number): T
  * dirt, sand, rock on steep slopes and snow on the peaks.
  */
 function terrainMaterial(hm: Heightmap, splat: THREE.DataTexture): THREE.MeshStandardMaterial {
+  const ground = groundDetail();
   const heightTex = new THREE.DataTexture(hm.heights, hm.verts, hm.verts, THREE.RedFormat, THREE.FloatType);
   heightTex.magFilter = heightTex.minFilter = THREE.NearestFilter;
   heightTex.generateMipmaps = false;
@@ -159,6 +161,9 @@ function terrainMaterial(hm: Heightmap, splat: THREE.DataTexture): THREE.MeshSta
     uSplat: { value: splat },
     uDetail: { value: noiseTexture(256, 11, false, 3) },
     uNoise: { value: noiseTexture(256, 23, true, 5) },
+    uGround: { value: ground.shade },
+    uGroundSlope: { value: ground.slope },
+    uGroundPatch: { value: ground.patch },
     uCell: { value: hm.cell },
     uHalf: { value: hm.half },
     uVerts: { value: hm.verts },
@@ -203,6 +208,10 @@ vTWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
 uniform sampler2D uSplat;
 uniform sampler2D uDetail;
 uniform sampler2D uNoise;
+uniform sampler2D uGround;
+uniform sampler2D uGroundSlope;
+uniform sampler2D uGroundPatch;
+vec3 gDetailN = vec3(0.0);
 uniform float uCell;
 uniform float uHalf;
 uniform float uVerts;
@@ -222,12 +231,25 @@ varying vec3 vTNormal;`,
   float det = detS.r;
   float det2 = detS.g;
   float fine = 0.82 + 0.22 * det + 0.14 * det2;
-  vec3 grass = mix(vec3(0.115, 0.2, 0.06), vec3(0.24, 0.29, 0.09), macro) * (0.85 + 0.3 * macro2) * fine;
-  vec3 forest = vec3(0.085, 0.12, 0.05) * fine;
+  // Close-up relief: grass blades and clumps, dirt grain and pebbles (mean 0.5: no shift far away).
+  vec2 w = tW;
+  float gDist = distance(vTWorld, cameraPosition);
+  ${GROUND_SAMPLE_GLSL}
+  float gG = gShade.r;
+  float gD = gShade.g;
+  vec3 grass = mix(vec3(0.115, 0.2, 0.06), vec3(0.24, 0.29, 0.09), macro) * (0.85 + 0.3 * macro2) * (0.55 + 0.9 * gG);
+  // Patches a metre or two across: drier, yellower grass and darker lush tufts.
+  grass *= 0.8 + 0.4 * gPatch.g;
+  grass = mix(grass, grass * vec3(1.3, 1.15, 0.6), smoothstep(0.58, 0.85, gPatch.r) * 0.6);
+  grass = mix(grass, grass * vec3(0.7, 0.88, 0.8), smoothstep(0.42, 0.18, gPatch.g) * 0.5);
+  grass = mix(grass, vec3(0.3, 0.28, 0.13) * (0.6 + 0.8 * gG), gShade.a * 0.6);
+  vec3 forest = mix(vec3(0.085, 0.12, 0.05), vec3(0.13, 0.1, 0.06), smoothstep(0.45, 0.6, gD)) * (0.62 + 0.76 * mix(gG, gD, 0.5));
   float rows = 0.86 + 0.14 * sin(tW.x * 1.9 + macro2 * 3.0);
   vec3 crops = mix(vec3(0.5, 0.41, 0.16), vec3(0.2, 0.3, 0.08), smoothstep(0.35, 0.75, sp.b)) * rows * fine;
-  vec3 dirt = vec3(0.24, 0.18, 0.12) * (0.7 + 0.5 * det) * (0.9 + 0.2 * macro2);
-  vec3 sand = vec3(0.42, 0.36, 0.25) * (0.86 + 0.24 * det);
+  vec3 dirt = vec3(0.24, 0.18, 0.12) * (0.5 + 1.0 * gD) * (0.9 + 0.2 * gShade.b) * (0.9 + 0.2 * macro2);
+  // Damp, darker patches and lighter dry crusts.
+  dirt *= 0.78 + 0.44 * gPatch.r;
+  vec3 sand = vec3(0.42, 0.36, 0.25) * (0.8 + 0.4 * gShade.b) * (0.86 + 0.24 * det);
   float rockW = smoothstep(0.8, 0.64, tN.y);
   float rockDet = rockW > 0.0 ? texture2D(uDetail, vec2(tW.x + tW.y, vTWorld.y * 1.6) / 5.0).r : 0.5;
   vec3 rock = vec3(0.15, 0.142, 0.128) * (0.65 + 0.7 * rockDet) * (0.85 + 0.3 * macro);
@@ -240,11 +262,20 @@ varying vec3 vTNormal;`,
   float snow = smoothstep(265.0, 305.0, vTWorld.y + macro * 40.0) * smoothstep(0.55, 0.75, tN.y);
   tc = mix(tc, vec3(0.86, 0.88, 0.9), snow);
   diffuseColor.rgb *= tc;
+  // Bumps: dirt-like ground (dirt, sand, forest floor) takes the pebbles, the rest the grass.
+  float wDirt = clamp(sp.r + 0.6 * sp.g + 0.5 * sp.a, 0.0, 1.0);
+  vec2 gs = mix(gSlope.xy, gSlope.zw, wDirt) * (1.0 - rockW) * (1.0 - snow) * (1.0 - 0.6 * smoothstep(0.02, 0.1, sp.b));
+  gDetailN = vec3(-gs.x, 0.0, -gs.y);
 }`,
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        /* glsl */ `#include <normal_fragment_maps>
+normal = normalize(normal + (viewMatrix * vec4(gDetailN, 0.0)).xyz);`,
       );
   };
-  mat.customProgramCacheKey = () => 'terrain-v3';
-  mat.userData.textures = [heightTex, splat, uniforms.uDetail.value, uniforms.uNoise.value];
+  mat.customProgramCacheKey = () => 'terrain-v4';
+  mat.userData.textures = [heightTex, splat, uniforms.uDetail.value, uniforms.uNoise.value, ground.shade, ground.slope, ground.patch];
   return mat;
 }
 

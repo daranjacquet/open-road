@@ -96,6 +96,17 @@ describe('Blender cars (GLB)', () => {
         expect((ha.geometry.getAttribute('position').array as Float32Array)).toBeInstanceOf(Float32Array);
       });
 
+      it('hangs each door window in its door', () => {
+        const m = buildCarModel(def.id);
+        for (const [name, node] of m.parts) {
+          const side = /^glass_([FR][LR])$/.exec(name)?.[1];
+          if (side && m.parts.has(`door_${side}`) && !(def.id === 'offroad' && side.startsWith('R'))) expect(node.parent?.name, name).toBe(`door_${side}`);
+        }
+        expect(m.parts.get('glass_FL')!.parent!.name).toBe('door_FL');
+        if (def.id === 'offroad') expect(m.parts.get('glass_RL')!.parent!.name).not.toMatch(/^door_/);
+        expect(m.parts.get('glass_front')!.parent!.name).not.toMatch(/^door_/);
+      });
+
       it('yields a crumple-ray set that covers every side', () => {
         const rays = buildCrushRays(def.cfg, buildCarModel(def.id));
         const kinds = new Set(rays.map((r) => r.kind));

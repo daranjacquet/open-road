@@ -4,6 +4,7 @@ import { GROUP, groups, type Physics } from '../core/physics';
 import type { Heightmap } from './heightmap';
 import { junctionSurface, ROAD_SINK, surfaceOf, type RoadLine, type SurfaceY } from './roadline';
 import { DIRT, type SurfaceMap } from './surface';
+import { GROUND_SAMPLE_GLSL, groundDetail } from './groundtex';
 
 /** Gravel verge on each side of the asphalt (m). */
 const SHOULDER = 1.3;
@@ -12,7 +13,7 @@ const PIECE = 120;
 /** Texture period along the road (m): one centre dash and its gap. */
 const PERIOD = 12;
 
-function roadTexture(gravelOnly: boolean, painted = true): THREE.CanvasTexture {
+function roadTexture(painted: boolean): THREE.CanvasTexture {
   const w = 256;
   const h = 512;
   const c = document.createElement('canvas');
@@ -27,7 +28,7 @@ function roadTexture(gravelOnly: boolean, painted = true): THREE.CanvasTexture {
   const s1 = w - s0;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const gravel = gravelOnly || x < s0 || x >= s1;
+      const gravel = x < s0 || x >= s1;
       const n = Math.random();
       let r: number;
       let gg: number;
@@ -50,7 +51,7 @@ function roadTexture(gravelOnly: boolean, painted = true): THREE.CanvasTexture {
     }
   }
   g.putImageData(img, 0, 0);
-  if (!gravelOnly && painted) {
+  if (painted) {
     g.fillStyle = 'rgba(236, 234, 222, 0.92)';
     const line = Math.max(3, px(0.15));
     g.fillRect(s0 + px(0.25), 0, line, h);
@@ -81,11 +82,73 @@ export interface RoadMaterials {
   rail: THREE.MeshStandardMaterial;
 }
 
+/**
+ * Dirt road: the ground's dirt detail in world space (the same grain and pebbles as the terrain's
+ * dirt), two compacted wheel tracks either side of a looser crown, and edges that fade into grass.
+ * Each vertex carries `aRoad` = (offset from the centre line, half width), in metres.
+ */
+function dirtRoadMaterial(): THREE.MeshStandardMaterial {
+  const ground = groundDetail();
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });
+  mat.name = 'dirt-road';
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms['uGround'] = { value: ground.shade };
+    shader.uniforms['uGroundSlope'] = { value: ground.slope };
+    shader.uniforms['uGroundPatch'] = { value: ground.patch };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec2 aRoad;\nvarying vec3 vGW;\nvarying vec2 vRoad;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGW = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvRoad = aRoad;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform sampler2D uGround;
+uniform sampler2D uGroundSlope;
+uniform sampler2D uGroundPatch;
+varying vec3 vGW;
+varying vec2 vRoad;
+vec3 gDetailN = vec3(0.0);`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        /* glsl */ `{
+  vec2 w = vGW.xz;
+  float gDist = distance(vGW, cameraPosition);
+  ${GROUND_SAMPLE_GLSL}
+  float gD = gShade.g;
+  // Wheel tracks wander a little along the road.
+  float o = abs(vRoad.x + 0.12 * sin(w.x * 0.31 + w.y * 0.27));
+  float track = exp(-pow((o - 0.85) / 0.3, 2.0));
+  float crown = exp(-pow(o / 0.4, 2.0));
+  float verge = smoothstep(vRoad.y - 0.2, vRoad.y + 1.1, o);
+  vec3 col = vec3(0.2, 0.135, 0.08) * (0.5 + 1.0 * mix(gD, 0.5, 0.45 * track)) * (0.9 + 0.2 * gShade.b);
+  // Tracks packed lighter, a looser crown, damp darker patches.
+  col *= (1.0 + 0.16 * track - 0.08 * crown) * (0.78 + 0.44 * gPatch.r);
+  // Loose edges: darker dirt with tufts of grass coming through.
+  vec3 tuft = vec3(0.14, 0.21, 0.07) * (0.6 + 0.8 * gShade.r);
+  float grassy = clamp(verge * 1.3 + crown * 0.35, 0.0, 1.0) * smoothstep(0.42, 0.62, gShade.r);
+  col = mix(col * (1.0 - 0.15 * verge), tuft, grassy);
+  diffuseColor.rgb *= col;
+  vec2 gs = mix(gSlope.zw * (1.0 - 0.55 * track), gSlope.xy, grassy);
+  gDetailN = vec3(-gs.x, 0.0, -gs.y);
+}`,
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+normal = normalize(normal + (viewMatrix * vec4(gDetailN, 0.0)).xyz);`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'dirt-road-v1';
+  mat.userData.textures = [ground.shade, ground.slope, ground.patch];
+  return mat;
+}
+
 export function roadMaterials(): RoadMaterials {
   return {
-    asphalt: new THREE.MeshStandardMaterial({ map: roadTexture(false), roughness: 0.9 }),
-    plain: new THREE.MeshStandardMaterial({ map: roadTexture(false, false), roughness: 0.9 }),
-    gravel: new THREE.MeshStandardMaterial({ map: roadTexture(true), roughness: 1 }),
+    asphalt: new THREE.MeshStandardMaterial({ map: roadTexture(true), roughness: 0.9 }),
+    plain: new THREE.MeshStandardMaterial({ map: roadTexture(false), roughness: 0.9 }),
+    gravel: dirtRoadMaterial(),
     concrete: new THREE.MeshStandardMaterial({ color: 0xa3a19b, roughness: 0.9 }),
     rail: new THREE.MeshStandardMaterial({ color: 0xb7bcc2, roughness: 0.35, metalness: 0.7 }),
   };
@@ -103,6 +166,7 @@ function pieceGeometry(road: RoadLine, a: number, b: number, surfaceY: SurfaceY)
   const pos: number[] = [];
   const nor: number[] = [];
   const uv: number[] = [];
+  const rd: number[] = [];
   const idx: number[] = [];
   const ds = road.ds;
   // Cross-section, left to right: outer verge (sunk), asphalt edge, asphalt edge, outer verge.
@@ -125,6 +189,7 @@ function pieceGeometry(road: RoadLine, a: number, b: number, surfaceY: SurfaceY)
       pos.push(road.x[i]! + lx * c.off, surfaceY(i, Math.sign(c.off) * Math.min(Math.abs(c.off), hw)) + c.dy, road.z[i]! + lz * c.off);
       nor.push(_n.x, _n.y, _n.z);
       uv.push(c.u, v);
+      rd.push(c.off, hw);
     }
     // Skirts hang 0.6 m below the outer verges (hide the seam with the terrain at a distance).
     for (const [c, side] of [
@@ -137,6 +202,7 @@ function pieceGeometry(road: RoadLine, a: number, b: number, surfaceY: SurfaceY)
       pos.push(sx, y + c.dy, sz, sx, y + c.dy - 0.6, sz);
       nor.push(lx * side, 0, lz * side, lx * side, 0, lz * side);
       uv.push(c.u, v, c.u, v);
+      rd.push(c.off, hw, c.off, hw);
     }
   }
   for (let i = 0; i < b - a; i++) {
@@ -151,6 +217,7 @@ function pieceGeometry(road: RoadLine, a: number, b: number, surfaceY: SurfaceY)
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('aRoad', new THREE.Float32BufferAttribute(rd, 2));
   g.setIndex(idx);
   g.computeBoundingSphere();
   return g;
@@ -430,6 +497,8 @@ function junctionFillets(roads: RoadLine[], surfaces: SurfaceY[], physics: Physi
       uv[i * 2 + 1] = pos[i * 3]! / PERIOD + pos[i * 3 + 2]! / 37;
     }
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    // Dirt fillets: between the wheel tracks and the edge, as if 2.3 m off a 3 m half-width road.
+    g.setAttribute('aRoad', new THREE.BufferAttribute(new Float32Array((pos.length / 3) * 2).map((_, k) => (k % 2 ? 3 : 2.3)), 2));
     g.computeVertexNormals();
     g.computeBoundingSphere();
     const mesh = new THREE.Mesh(g, mat);
