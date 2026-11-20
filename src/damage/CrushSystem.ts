@@ -5,12 +5,10 @@ import { GROUP, groups, type Physics } from '../core/physics';
 import type { CrushRay } from './rays';
 import type { ImprintContact } from './Deformer';
 
-/** A crumple-zone contact sliding over what it touches this step (paint scrapes, sparks). */
+/** A crumple-zone contact sliding over what it touches this step (sparks). */
 export interface Scrape {
   /** World-space contact point. */
   point: THREE.Vector3;
-  /** The same point in the chassis frame. */
-  local: THREE.Vector3;
   /** Sliding speed (m/s). */
   speed: number;
   collider: RAPIER.Collider;
@@ -52,10 +50,9 @@ const _p = { x: 0, y: 0, z: 0 };
 const _imp = { x: 0, y: 0, z: 0 };
 
 const FRICTION = 0.35;
-/** A contact scrapes the paint when it slides faster than this (m/s) and presses harder than this (N). */
+/** A contact throws sparks when it slides faster than this (m/s) and presses harder than this (N). */
 const SCRAPE_SPEED = 1;
 const SCRAPE_FORCE = 300;
-const _qi = new THREE.Quaternion();
 
 /**
  * Crumple zones as one-sided plastic springs along rays. A ray that meets an obstacle inside the
@@ -193,11 +190,10 @@ export class CrushSystem {
     if (this.scrapes.length >= 32) return;
     let s = this.scrapePool[this.scrapes.length];
     if (!s) {
-      s = { point: new THREE.Vector3(), local: new THREE.Vector3(), speed: 0, collider };
+      s = { point: new THREE.Vector3(), speed: 0, collider };
       this.scrapePool.push(s);
     }
     s.point.copy(point);
-    s.local.copy(point).sub(_pos).applyQuaternion(_qi);
     s.speed = speed;
     s.collider = collider;
     this.scrapes.push(s);
@@ -213,7 +209,6 @@ export class CrushSystem {
     const body = this.host.body;
     _pos.copy(posIn);
     _q.copy(quatIn);
-    _qi.copy(quatIn).invert();
 
     // Cheap early-out: is anything inside the car's envelope at all?
     _o.copy(this.envCenter).applyQuaternion(_q).add(_pos);

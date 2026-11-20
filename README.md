@@ -12,7 +12,7 @@ A browser driving sandbox built around **realistic car physics and crash damage*
 | 65 km/h into a wall: bonnet folded open, wing crumpled, engine bay exposed | 55 km/h into a pillar: the pillar's shape is pushed into the nose |
 | --- | --- |
 | ![wall](docs/crash-sedan-wall.jpg) | ![pillar](docs/crash-offroad-pillar.jpg) |
-| **Torn-off bumper with scraped paint** | **Side impact: doors pushed in and sprung, windows cracked** |
+| **Torn-off bumper, bonnet sprung open** | **Side impact: doors pushed in and sprung, windows cracked** |
 | ![bumper](docs/crash-sedan-bumper.jpg) | ![side](docs/crash-offroad-side.jpg) |
 
 ## Controls
@@ -128,7 +128,7 @@ Full soft-body simulation (BeamNG style) is too heavy for a browser, so damage i
 2. **Passenger cell fitted to the model.** The upper part of the hard core is not a box: at load, the greenhouse of each car is probed from several points inside it (a fast grid over the shell's triangles) and the core is a convex hull kept 13 to 24 cm inside the real roof, pillars, windscreen and side glass, shrink-wrapped until it clears the shell everywhere. About 170 to 260 rays fan out from it, with a strength per face (roof, sides, pillars) set in multiples of the car's weight: a car resting on its roof holds, a 70 km/h rollover folds the roof in by 5 to 15 cm, cracks the pillars and bursts the glass. Fans of rays over the bonnet and the boot cover the overhangs.
 3. **Deformation field (visuals).** A 10 cm lattice covers the car. Whenever the crumple zones yield, lattice nodes that ended up inside the obstacle (or past the surface of the ground) are pushed back out to its surface along the crush direction, so the car takes the **imprint of what it hit**: a pillar leaves a V, a wall flattens the nose, the ground flattens a roof edge, another car leaves its shape (capped to what the crumple zone really took). A screened Laplace relaxation drags the surrounding metal along; only the hard core stays pinned.
 4. **Crumpling.** Where the field squeezes a panel in its own plane, the sheet has to fold because its length is conserved. Each vertex gets a wrinkle whose amplitude follows from the local compression, which gives accordion bonnets and rippled wings instead of a shrunken car.
-5. **Paint and glass.** Badly dented metal loses its paint in patches (scuff shader), and so does metal sliding over the ground or a wall, dent or not (with sparks on hard ground). Windows crack in a spider web around the deepest point before they shatter.
+5. **Glass and sparks.** Windows crack in a spider web around the deepest point before they shatter. Metal sliding over the ground or a wall throws sparks on hard ground. The paint stays on, however bad the dents.
 6. **Mechanical damage.** Energy absorbed near the engine bay, a wheel or a body zone becomes power loss, bent wheels (toe pulls the car sideways), softer suspension, less grip and flat tyres. Hard landings bend them too: a corner that hits its bump stop faster than 5.5 m/s (a drop of about 2.5 m) takes damage, a drop of 8 m wrecks it. The HUD shows each zone by the energy it took or the depth it folded, whichever is worse.
 7. **Parts.** The bonnet, boot and doors spring open, then tear off as rigid bodies that keep their dents. Bumpers, lights, mirrors and glass break by how far they have been dented. Front wheels come off in the hardest hits.
 

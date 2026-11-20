@@ -3,7 +3,6 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { CarModel, DeformableMeshData } from '../render/carModel';
 import type { VehicleConfig } from '../vehicle/types';
 import { convexQuery, type Cabin } from './cabin';
-import type { Scrape } from './CrushSystem';
 
 /** A plastic contact reported by the crumple zones during one physics step. */
 export interface ImprintContact {
@@ -22,8 +21,6 @@ interface MeshBinding {
   mesh: THREE.Mesh;
   data: DeformableMeshData;
   pos: Float32Array;
-  scuff: Float32Array | null;
-  noise: Float64Array | null;
   /** Inverse rest matrix (16 values, column-major): chassis displacement back to the mesh frame. */
   invRot: Float64Array;
   /** Rest positions in the chassis frame. */
@@ -52,34 +49,6 @@ const DECAY = 0.12; // screened-Laplace decay per iteration (larger = more local
 const BIG_REGION = 9000;
 const BIG_EVERY = 66;
 
-/** Smooth 3D value noise in [0, 1] (scratch patterns for scuffed paint). */
-function hash3(x: number, y: number, z: number): number {
-  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(z | 0, 2147483647);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-
-function valueNoise(x: number, y: number, z: number): number {
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const iz = Math.floor(z);
-  const fx = x - ix;
-  const fy = y - iy;
-  const fz = z - iz;
-  const sx = fx * fx * (3 - 2 * fx);
-  const sy = fy * fy * (3 - 2 * fy);
-  const sz = fz * fz * (3 - 2 * fz);
-  let acc = 0;
-  for (let c = 0; c < 8; c++) {
-    const ox = c & 1;
-    const oy = (c >> 1) & 1;
-    const oz = (c >> 2) & 1;
-    const w = (ox ? sx : 1 - sx) * (oy ? sy : 1 - sy) * (oz ? sz : 1 - sz);
-    acc += w * hash3(ix + ox, iy + oy, iz + oz);
-  }
-  return acc;
-}
-
 function hashStr(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
@@ -94,9 +63,6 @@ const _d = new THREE.Vector3();
 const _pt = { x: 0, y: 0, z: 0 };
 /** How far inside the car the open-surface test starts (m): deeper than any dent. */
 const OPEN_REACH = 1.0;
-/** Radius of the paint a sliding contact scrapes (m), and how far it slides to strip it bare (m). */
-const SCRAPE_RADIUS = 0.17;
-const SCRAPE_LENGTH = 0.8;
 /** How far on the car's side of a surface's tangent plane a node can still be past a curved surface (m). */
 const OPEN_SLACK = 0.12;
 
@@ -129,8 +95,6 @@ export class Deformer {
   private readonly flag: Uint8Array;
   /** Per-node in-plane compression (0..0.9) and its axis (0 x, 1 y, 2 z). */
   private readonly comp: Float32Array;
-  /** Per-node paint scraped off by sliding contacts (0..1). */
-  private readonly scraped: Float32Array;
   private readonly compAxis: Uint8Array;
   private readonly bindings: MeshBinding[] = [];
   private readonly ray: RAPIER.Ray;
@@ -169,7 +133,6 @@ export class Deformer {
     this.missCall = new Uint32Array(n);
     this.missHandle = new Float64Array(n);
     this.comp = new Float32Array(n);
-    this.scraped = new Float32Array(n);
     this.compAxis = new Uint8Array(n);
     this.ray = new RAPIER_.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
 
@@ -226,30 +189,12 @@ export class Deformer {
         cmax[1] = Math.max(cmax[1], iy + 1);
         cmax[2] = Math.max(cmax[2], iz + 1);
       }
-      let scuff: Float32Array | null = null;
-      if (data.painted) {
-        scuff = new Float32Array(nv);
-        mesh.geometry.setAttribute('scuff', new THREE.BufferAttribute(scuff, 1).setUsage(THREE.DynamicDrawUsage));
-      }
-      let noise: Float64Array | null = null;
-      if (scuff) {
-        noise = new Float64Array(nv);
-        for (let v = 0; v < nv; v++) {
-          const o = v * 3;
-          const px = restC[o]!;
-          const py = restC[o + 1]!;
-          const pz = restC[o + 2]!;
-          noise[v] = 0.65 * valueNoise(px * 14, py * 14, pz * 14) + 0.35 * valueNoise(px * 45, py * 45, pz * 45);
-        }
-      }
       // Inverse of the rest matrix, column-major like Matrix4.elements (only its rotation part is read).
       const invRot = Float64Array.from(new THREE.Matrix4().copy(m4).invert().elements);
       this.bindings.push({
         mesh,
         data,
         pos: (mesh.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array,
-        scuff,
-        noise,
         invRot,
         restC,
         restN,
@@ -435,27 +380,6 @@ export class Deformer {
     }
   }
 
-  /**
-   * Paint scraped off where the shell slides over the ground or a wall (call once per physics step):
-   * SCRAPE_LENGTH metres of sliding strip a spot down to the primer, with or without a dent.
-   */
-  scrape(scrapes: readonly Scrape[], dt: number): void {
-    const r = SCRAPE_RADIUS;
-    for (const s of scrapes) {
-      const amount = (s.speed * dt) / SCRAPE_LENGTH;
-      const { x, y, z } = s.local;
-      this.forBox(x - r, y - r, z - r, x + r, y + r, z + r, (i, ix, iy, iz) => {
-        const dx = this.origin.x + ix * H - x;
-        const dy = this.origin.y + iy * H - y;
-        const dz = this.origin.z + iz * H - z;
-        const w = 1 - Math.sqrt(dx * dx + dy * dy + dz * dz) / r;
-        if (w <= 0 || this.scraped[i]! >= 1) return;
-        this.scraped[i] = Math.min(1, this.scraped[i]! + amount * w);
-        this.markDirty(ix, iy, iz);
-      });
-    }
-  }
-
   /** Spread, compute crumples and update meshes (call once per rendered frame). */
   update(now: number): void {
     if (this.dirty) {
@@ -587,7 +511,6 @@ export class Deformer {
         let dy = 0;
         let dz = 0;
         let cp = 0;
-        let sc = 0;
         // Trilinear blend of the 8 corners.
         for (let c = 0; c < 8; c++) {
           const ox = c & 1;
@@ -600,7 +523,6 @@ export class Deformer {
           dy += D[j * 3 + 1]! * w;
           dz += D[j * 3 + 2]! * w;
           cp += this.comp[j]! * w;
-          sc += this.scraped[j]! * w;
         }
         const o = v * 3;
         const disp = Math.hypot(dx, dy, dz);
@@ -650,14 +572,6 @@ export class Deformer {
         b.pos[o] = b.data.rest[o]! + lx;
         b.pos[o + 1] = b.data.rest[o + 1]! + ly;
         b.pos[o + 2] = b.data.rest[o + 2]! + lz;
-        if (b.scuff) {
-          // Paint flakes off where the metal was pushed hard: patchy, two octaves of noise.
-          const nzr = b.noise![v]!;
-          const base = Math.max(0, (disp - 0.02) * 7);
-          // Scrapes: streaky, the noise stretched along nothing in particular reads as scratches.
-          const scr = sc > 0 ? sc * 1.7 - (1 - nzr) * 0.8 : 0;
-          b.scuff[v] = Math.min(1, Math.max(0, base * 1.4 - (1 - nzr) * 0.9, scr));
-        }
         if (disp > maxDisp) {
           maxDisp = disp;
           maxIndex = v;
@@ -666,7 +580,6 @@ export class Deformer {
       b.maxDisp = maxDisp;
       b.maxIndex = maxIndex;
       (b.mesh.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-      if (b.scuff) (b.mesh.geometry.getAttribute('scuff') as THREE.BufferAttribute).needsUpdate = true;
       b.needsNormals = true;
     }
   }
@@ -699,16 +612,13 @@ export class Deformer {
   reset(): void {
     this.D.fill(0);
     this.comp.fill(0);
-    this.scraped.fill(0);
     for (let i = 0; i < this.flag.length; i++) if (this.flag[i] === 2) this.flag[i] = 0;
     this.dirty = false;
     for (const b of this.bindings) {
       b.pos.set(b.data.rest);
-      b.scuff?.fill(0);
       b.maxDisp = 0;
       b.maxIndex = 0;
       (b.mesh.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-      if (b.scuff) (b.mesh.geometry.getAttribute('scuff') as THREE.BufferAttribute).needsUpdate = true;
       const nrm = b.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute | undefined;
       if (nrm) {
         (nrm.array as Float32Array).set(b.data.restNormal);

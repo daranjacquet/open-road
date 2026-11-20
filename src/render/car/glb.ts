@@ -374,7 +374,6 @@ export function modelFromTemplate(template: THREE.Group, opts: BuildOptions = {}
         restNormal: nrm ? new Float32Array(nrm.array as Float32Array) : new Float32Array(pos.count * 3),
         restMatrix: new THREE.Matrix4().makeTranslation(pv.x, pv.y, pv.z).toArray(),
         part: name,
-        painted: mat.name === 'paint' || mat.name === 'carbon',
       };
       Object.assign(mesh.userData, data);
       node.add(mesh);
@@ -498,7 +497,6 @@ function mergeStatic(root: THREE.Group, parts: Map<string, THREE.Object3D>, mesh
       restNormal: nrm ? new Float32Array(nrm.array as Float32Array) : new Float32Array(pos.count * 3),
       restMatrix: new THREE.Matrix4().copy(g.target.matrixWorld).premultiply(new THREE.Matrix4().copy(root.matrixWorld).invert()).toArray(),
       part: g.target.name,
-      painted: g.mat.name === 'paint' || g.mat.name === 'carbon',
     };
     Object.assign(mesh.userData, data);
     g.target.add(mesh);

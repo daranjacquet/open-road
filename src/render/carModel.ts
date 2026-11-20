@@ -45,6 +45,4 @@ export interface DeformableMeshData {
   restMatrix: number[];
   /** Name of the part the mesh belongs to. */
   part: string;
-  /** Painted panel (gets scuffs). */
-  painted: boolean;
 }

@@ -2,8 +2,7 @@ import * as THREE from 'three';
 
 /**
  * Adjust the Blender materials for real-time use:
- * - painted panels are double sided, with dark back faces (so a torn-off panel shows a hollow shell),
- *   and read a per-vertex `scuff` attribute that blends paint into scraped primer/bare metal;
+ * - painted panels are double sided, with dark back faces (so a torn-off panel shows a hollow shell);
  * - glass and lenses are transparent without depth writes; mesh grilles use alpha testing.
  */
 export function tunePaint(m: THREE.Material): void {
@@ -14,28 +13,13 @@ export function tunePaint(m: THREE.Material): void {
   if (name === 'paint' || name === 'carbon') {
     m.side = THREE.DoubleSide;
     m.onBeforeCompile = (shader) => {
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float scuff;\nvarying float vScuff;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvScuff = scuff;');
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying float vScuff;')
-        .replace(
-          '#include <roughnessmap_fragment>',
-          `#include <roughnessmap_fragment>
-          float sc = clamp(vScuff, 0.0, 1.0);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.26, 0.27, 0.29), sc);
-          roughnessFactor = mix(roughnessFactor, 0.75, sc);
-          if (!gl_FrontFacing) diffuseColor.rgb *= 0.12;`,
-        )
-        .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.55, clamp(vScuff, 0.0, 1.0));');
-      if ((m as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial) {
-        shader.fragmentShader = shader.fragmentShader.replace(
-          '#include <lights_physical_fragment>',
-          '#include <lights_physical_fragment>\nmaterial.clearcoat *= (1.0 - clamp(vScuff, 0.0, 1.0));',
-        );
-      }
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        if (!gl_FrontFacing) diffuseColor.rgb *= 0.12;`,
+      );
     };
-    m.customProgramCacheKey = () => 'paint-scuff-' + name;
+    m.customProgramCacheKey = () => 'paint-' + name;
   } else if (/glass|lens/.test(name)) {
     m.transparent = true;
     m.depthWrite = false;

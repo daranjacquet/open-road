@@ -61,7 +61,7 @@ The in-game garage (`G`) edits the same values live; `src/vehicle/tuning.ts` map
 | `RULES` in `PartsManager.ts` | Dent depth (m) at which each part springs open, is fully open, tears off or breaks. Glass starts cracking at 15 mm and shatters at 7 cm. |
 | Capacities in `DamageModel.ts` | Energy that wrecks a zone, the engine or a wheel; `ZONE_DEPTH`, the crush depth that alone wrecks a zone (the HUD shows the worse of the two). |
 | `LAND_SAFE`, `LAND_WRECK` in `DamageModel.ts` | Speed (m/s) at which a corner can hit its bump stop without harm (5.5, a drop of about 2.5 m), and the speed that wrecks its wheel and suspension (13, about 9 m). |
-| `SCRAPE_SPEED`, `SCRAPE_FORCE` in `CrushSystem.ts`; `SCRAPE_RADIUS`, `SCRAPE_LENGTH` in `Deformer.ts` | A contact scrapes the paint when it slides faster than 1 m/s and presses harder than 300 N; each scrape strips a 17 cm patch, bare after 0.8 m of sliding. |
+| `SCRAPE_SPEED`, `SCRAPE_FORCE` in `CrushSystem.ts` | A contact throws sparks on hard ground when it slides faster than 1 m/s and presses harder than 300 N. |
 
 Supercar reference (`tests/supercar.test.ts`): 0-100 km/h 2.7 s, 0-200 km/h 6.6 s, 347 km/h, 100-0 km/h in 29 m, keyboard full-lock cornering 1.37 g at 80 km/h up to 1.76 g at 220 km/h, rear never sliding more than the front.
 

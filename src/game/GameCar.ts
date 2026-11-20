@@ -73,10 +73,7 @@ export class GameCar {
     this.vehicle.fixedUpdate(dt, input);
     this.damage.afterStep();
     this.deformer.imprint(this.vehicle.currPos, this.vehicle.currQuat, this.crush.contacts, this.crushNear);
-    if (this.crush.scrapes.length > 0) {
-      this.deformer.scrape(this.crush.scrapes, dt);
-      this.effects.scrape(this.crush.scrapes, this.hardGround);
-    }
+    if (this.crush.scrapes.length > 0) this.effects.scrape(this.crush.scrapes, this.hardGround);
   }
 
   /** Per rendered frame: deformation, mechanical state, detached panels, visuals. */
