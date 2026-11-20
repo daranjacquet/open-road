@@ -51,13 +51,17 @@ The in-game garage (`G`) edits the same values live; `src/vehicle/tuning.ts` map
 | `crush[].force` | Total force (N) at which a grid of crush rays yields when fully engaged. Higher means a stiffer car and a harsher pulse. |
 | `crush[].elastic` | Elastic travel (m) before the zone crushes for good: bumper foam and crash boxes that swallow parking knocks and spring back. Defaults: front and rear 8 cm, corners 6 cm, sides and roof 3 cm. |
 | `crush[].origin`, `u`, `v`, `nu`, `nv`, `dir` | Where the rays start (on the hard core) and where they point. The distance to the visible shell is the available crush depth. |
-| `colliders` | The hard core, also pinned in the deformation field (the passenger cell never deforms). Keep it smaller than the body by the crush depth you want. |
-| `outline` | Boxes other cars' rays (and dents) can hit: the visible shell. |
+| `colliders` | The hard core, also pinned in the deformation field. Keep it smaller than the body by the crush depth you want. The upper box only bounds the passenger cell: in the game it is replaced by a hull fitted to the model (`src/damage/cabin.ts`). |
+| `outline` | Boxes other cars' rays (and dents) can hit: the visible shell (the upper one is replaced by a hull of the greenhouse). |
+| `cabin.top`, `cabin.side`, `cabin.ends` | Strength of the passenger cell's roof, greenhouse sides and pillars (front and back) when a whole face bears, in multiples of the car's weight. Defaults 10, 10 and 8 (`CABIN_STRENGTH`): a roof holds the car resting on it, a 70 km/h rollover folds it in by 5 to 15 cm. |
+| `DEPTH`, `MARGIN` in `cabin.ts` | Crush depth between the greenhouse and the cell's hard core (roof 24 cm, sides 13 cm, pillars 18 cm), and the least clearance the shrink-wrap keeps everywhere (6 cm). |
 | `CrushSystem.stiffening` | How much the crumple zone stiffens as it compacts (default 4.5). |
 | `CrushSystem.softStart` | Strength of an untouched zone as a fraction of its full strength (default 0.85). Lower values let small knocks crush the metal. |
 | `H`, `DECAY`, `WAVE` in `Deformer.ts` | Lattice spacing (10 cm), how far a dent drags the metal around it (smaller decay = wider dents), crumple wavelength (13 cm). |
 | `RULES` in `PartsManager.ts` | Dent depth (m) at which each part springs open, is fully open, tears off or breaks. Glass starts cracking at 15 mm and shatters at 7 cm. |
-| Capacities in `DamageModel.ts` | Energy that wrecks a zone, the engine or a wheel. |
+| Capacities in `DamageModel.ts` | Energy that wrecks a zone, the engine or a wheel; `ZONE_DEPTH`, the crush depth that alone wrecks a zone (the HUD shows the worse of the two). |
+| `LAND_SAFE`, `LAND_WRECK` in `DamageModel.ts` | Speed (m/s) at which a corner can hit its bump stop without harm (5.5, a drop of about 2.5 m), and the speed that wrecks its wheel and suspension (13, about 9 m). |
+| `SCRAPE_SPEED`, `SCRAPE_FORCE` in `CrushSystem.ts`; `SCRAPE_RADIUS`, `SCRAPE_LENGTH` in `Deformer.ts` | A contact scrapes the paint when it slides faster than 1 m/s and presses harder than 300 N; each scrape strips a 17 cm patch, bare after 0.8 m of sliding. |
 
 Supercar reference (`tests/supercar.test.ts`): 0-100 km/h 2.7 s, 0-200 km/h 6.6 s, 347 km/h, 100-0 km/h in 29 m, keyboard full-lock cornering 1.37 g at 80 km/h up to 1.76 g at 220 km/h, rear never sliding more than the front.
 
@@ -73,3 +77,12 @@ Crash calibration (saloon, rigid wall):
 | 70 km/h and up | to the core | Bumper torn off, engine dead. |
 
 The visible dent follows the permanent crush (`Deformer.imprint` caps it with `CrushSystem.crushNear`), so the elastic travel never shows as a dent.
+
+Rollover calibration (`tests/rollover.test.ts`, flat ground, thrown sideways at 70 km/h with a roll spin):
+
+| Car | Roof crush | Result |
+| --- | --- | --- |
+| Saloon | about 13 cm | Roof edge and A-pillar folded, windscreen and a side window burst, roof zone about 0.5. |
+| 4x4 | about 14 cm | Same, four windows gone, a mirror torn off. |
+| Supercar | about 6 cm | Low and wide: more of the hit goes into the sides; glass and mirrors gone. |
+| Saloon tipped over from a standstill | about 5 cm | Light dents, a mirror at most, engine untouched. |

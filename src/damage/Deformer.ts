@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { CarModel, DeformableMeshData } from '../render/carModel';
 import type { VehicleConfig } from '../vehicle/types';
+import { convexQuery, type Cabin } from './cabin';
+import type { Scrape } from './CrushSystem';
 
 /** A plastic contact reported by the crumple zones during one physics step. */
 export interface ImprintContact {
@@ -10,6 +12,8 @@ export interface ImprintContact {
   point: THREE.Vector3;
   /** Crush direction in the chassis frame (unit, pointing OUT of the car through the contact). */
   dir: THREE.Vector3;
+  /** Surface normal of the obstacle at the contact, world space, pointing towards the car. */
+  normal: THREE.Vector3;
   /** The obstacle is another car with its own crumple zones (share the overlap). */
   shared: boolean;
 }
@@ -44,6 +48,9 @@ const H = 0.1; // lattice spacing (m)
 const NORMALS_BUDGET = 40000;
 const WAVE = 0.13; // crumple wavelength (m)
 const DECAY = 0.12; // screened-Laplace decay per iteration (larger = more local dents)
+/** Lattice nodes beyond which a dirty region counts as big (a rollover), and how often those update (ms). */
+const BIG_REGION = 9000;
+const BIG_EVERY = 66;
 
 /** Smooth 3D value noise in [0, 1] (scratch patterns for scuffed paint). */
 function hash3(x: number, y: number, z: number): number {
@@ -85,6 +92,19 @@ const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _d = new THREE.Vector3();
 const _pt = { x: 0, y: 0, z: 0 };
+/** How far inside the car the open-surface test starts (m): deeper than any dent. */
+const OPEN_REACH = 1.0;
+/** Radius of the paint a sliding contact scrapes (m), and how far it slides to strip it bare (m). */
+const SCRAPE_RADIUS = 0.17;
+const SCRAPE_LENGTH = 0.8;
+/** How far on the car's side of a surface's tangent plane a node can still be past a curved surface (m). */
+const OPEN_SLACK = 0.12;
+
+/** Shapes with an inside (containsPoint works); terrain, road decks and polylines are open surfaces. */
+function hasInside(c: RAPIER.Collider): boolean {
+  const t = c.shapeType();
+  return t !== 4 && t !== 6 && t !== 7; // Polyline, TriMesh, HeightField
+}
 
 /**
  * Crash deformation as a volumetric field over the car.
@@ -109,6 +129,8 @@ export class Deformer {
   private readonly flag: Uint8Array;
   /** Per-node in-plane compression (0..0.9) and its axis (0 x, 1 y, 2 z). */
   private readonly comp: Float32Array;
+  /** Per-node paint scraped off by sliding contacts (0..1). */
+  private readonly scraped: Float32Array;
   private readonly compAxis: Uint8Array;
   private readonly bindings: MeshBinding[] = [];
   private readonly ray: RAPIER.Ray;
@@ -121,10 +143,11 @@ export class Deformer {
   private dmin = [0, 0, 0];
   private dmax = [0, 0, 0];
   private lastNormals = 0;
+  private lastBig = -Infinity;
   /** Total number of imprinted node updates (debug). */
   imprints = 0;
 
-  constructor(RAPIER_: typeof RAPIER, model: CarModel, cfg: VehicleConfig) {
+  constructor(RAPIER_: typeof RAPIER, model: CarModel, cfg: VehicleConfig, cabin: Cabin | null = null) {
     // Lattice bounds: every deformable vertex in the chassis frame, plus a margin.
     const box = new THREE.Box3();
     const m4 = new THREE.Matrix4();
@@ -146,16 +169,19 @@ export class Deformer {
     this.missCall = new Uint32Array(n);
     this.missHandle = new Float64Array(n);
     this.comp = new Float32Array(n);
+    this.scraped = new Float32Array(n);
     this.compAxis = new Uint8Array(n);
     this.ray = new RAPIER_.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
 
-    // Pin the passenger-cell core (hard colliders shrunk a little).
-    for (const c of cfg.colliders) {
+    // Pin the hard core (colliders shrunk a little): the lower body's box and the passenger cell.
+    const s = 0.05;
+    cfg.colliders.forEach((c, k) => {
+      if (cabin && k === cabin.collider) return;
       const [cx, cy, cz] = c.center;
       const [hx, hy, hz] = c.half;
-      const s = 0.05;
       this.forBox(cx - hx + s, cy - hy + s, cz - hz + s, cx + hx - s, cy + hy - s, cz + hz - s, (i) => (this.flag[i] = 1));
-    }
+    });
+    if (cabin) this.pinHull(RAPIER_, cabin, s);
 
     // Bind every vertex to its lattice cell.
     for (const mesh of model.meshes) {
@@ -240,6 +266,36 @@ export class Deformer {
     }
   }
 
+  /** Pin the nodes inside the passenger cell's hull, shrunk by `s` towards its centre. */
+  private pinHull(R: typeof RAPIER, cabin: Cabin, s: number): void {
+    const [cx, cy, cz] = cabin.centre;
+    const pts = Float32Array.from(cabin.core);
+    const lo = [Infinity, Infinity, Infinity];
+    const hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < pts.length; i += 3) {
+      const dx = pts[i]! - cx;
+      const dy = pts[i + 1]! - cy;
+      const dz = pts[i + 2]! - cz;
+      const k = Math.max(0, 1 - s / (Math.hypot(dx, dy, dz) || 1));
+      pts[i] = cx + dx * k;
+      pts[i + 1] = cy + dy * k;
+      pts[i + 2] = cz + dz * k;
+      for (let a = 0; a < 3; a++) {
+        lo[a] = Math.min(lo[a]!, pts[i + a]!);
+        hi[a] = Math.max(hi[a]!, pts[i + a]!);
+      }
+    }
+    const hull = convexQuery(R, pts);
+    if (!hull) return;
+    this.forBox(lo[0]!, lo[1]!, lo[2]!, hi[0]!, hi[1]!, hi[2]!, (i, ix, iy, iz) => {
+      _pt.x = this.origin.x + ix * H;
+      _pt.y = this.origin.y + iy * H;
+      _pt.z = this.origin.z + iz * H;
+      if (hull.contains(_pt)) this.flag[i] = 1;
+    });
+    hull.free();
+  }
+
   idx(ix: number, iy: number, iz: number): number {
     return (iz * this.ny + iy) * this.nx + ix;
   }
@@ -296,6 +352,7 @@ export class Deformer {
       _v.copy(c.point).sub(carPos).applyQuaternion(_qi);
       const inward = _d.copy(c.dir).negate();
       const handle = c.collider.handle;
+      const solid = hasInside(c.collider);
       this.forBox(_v.x - R, _v.y - R, _v.z - R, _v.x + R, _v.y + R, _v.z + R, (i, ix, iy, iz) => {
         if (this.flag[i] === 1) return;
         if (this.missCall[i] === call && this.missHandle[i] === handle) return;
@@ -306,21 +363,47 @@ export class Deformer {
         _pt.x = _w.x;
         _pt.y = _w.y;
         _pt.z = _w.z;
-        if (!c.collider.containsPoint(_pt)) {
-          this.missCall[i] = call;
-          this.missHandle[i] = handle;
-          return;
-        }
-        // Exit distance along the inward crush direction.
         const dirW = _w.copy(inward).applyQuaternion(_q);
-        this.ray.origin.x = _pt.x;
-        this.ray.origin.y = _pt.y;
-        this.ray.origin.z = _pt.z;
-        this.ray.dir.x = dirW.x;
-        this.ray.dir.y = dirW.y;
-        this.ray.dir.z = dirW.z;
-        let toi = c.collider.castRay(this.ray, 1.5, false);
-        if (!(toi >= 0)) return;
+        let toi: number;
+        if (solid) {
+          if (!c.collider.containsPoint(_pt)) {
+            this.missCall[i] = call;
+            this.missHandle[i] = handle;
+            return;
+          }
+          // Exit distance along the inward crush direction.
+          this.ray.origin.x = _pt.x;
+          this.ray.origin.y = _pt.y;
+          this.ray.origin.z = _pt.z;
+          this.ray.dir.x = dirW.x;
+          this.ray.dir.y = dirW.y;
+          this.ray.dir.z = dirW.z;
+          toi = c.collider.castRay(this.ray, 1.5, false);
+          if (!(toi >= 0)) return;
+        } else {
+          // Terrain and road decks have no inside: the node is past the surface when a ray cast
+          // outward from a point well inside the car meets the surface before reaching the node.
+          // Nodes clearly on the car's side of the surface's tangent plane are skipped first.
+          const above = (_pt.x - c.point.x) * c.normal.x + (_pt.y - c.point.y) * c.normal.y + (_pt.z - c.point.z) * c.normal.z;
+          if (above > OPEN_SLACK) {
+            this.missCall[i] = call;
+            this.missHandle[i] = handle;
+            return;
+          }
+          this.ray.origin.x = _pt.x + dirW.x * OPEN_REACH;
+          this.ray.origin.y = _pt.y + dirW.y * OPEN_REACH;
+          this.ray.origin.z = _pt.z + dirW.z * OPEN_REACH;
+          this.ray.dir.x = -dirW.x;
+          this.ray.dir.y = -dirW.y;
+          this.ray.dir.z = -dirW.z;
+          const t = c.collider.castRay(this.ray, OPEN_REACH, false);
+          if (!(t >= 0)) {
+            this.missCall[i] = call;
+            this.missHandle[i] = handle;
+            return;
+          }
+          toi = OPEN_REACH - t;
+        }
         toi = Math.min(toi + 0.004, 0.9);
         if (c.shared) toi *= 0.5;
         let nx = this.D[o]! + inward.x * toi;
@@ -352,10 +435,30 @@ export class Deformer {
     }
   }
 
+  /**
+   * Paint scraped off where the shell slides over the ground or a wall (call once per physics step):
+   * SCRAPE_LENGTH metres of sliding strip a spot down to the primer, with or without a dent.
+   */
+  scrape(scrapes: readonly Scrape[], dt: number): void {
+    const r = SCRAPE_RADIUS;
+    for (const s of scrapes) {
+      const amount = (s.speed * dt) / SCRAPE_LENGTH;
+      const { x, y, z } = s.local;
+      this.forBox(x - r, y - r, z - r, x + r, y + r, z + r, (i, ix, iy, iz) => {
+        const dx = this.origin.x + ix * H - x;
+        const dy = this.origin.y + iy * H - y;
+        const dz = this.origin.z + iz * H - z;
+        const w = 1 - Math.sqrt(dx * dx + dy * dy + dz * dz) / r;
+        if (w <= 0 || this.scraped[i]! >= 1) return;
+        this.scraped[i] = Math.min(1, this.scraped[i]! + amount * w);
+        this.markDirty(ix, iy, iz);
+      });
+    }
+  }
+
   /** Spread, compute crumples and update meshes (call once per rendered frame). */
   update(now: number): void {
     if (this.dirty) {
-      this.dirty = false;
       const pad = 5;
       const x0 = Math.max(1, this.dmin[0]! - pad);
       const y0 = Math.max(1, this.dmin[1]! - pad);
@@ -363,13 +466,25 @@ export class Deformer {
       const x1 = Math.min(this.nx - 2, this.dmax[0]! + pad);
       const y1 = Math.min(this.ny - 2, this.dmax[1]! + pad);
       const z1 = Math.min(this.nz - 2, this.dmax[2]! + pad);
+      // A car tumbling over dents most of its shell every step: re-skin a region that large at
+      // most every BIG_EVERY ms (the dents keep accumulating in between, nothing is lost).
+      const big = (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) > BIG_REGION;
+      if (big && now - this.lastBig < BIG_EVERY && now >= this.lastBig) return this.updateNormals(now);
+      if (big) this.lastBig = now;
+      this.dirty = false;
       this.relax(x0, y0, z0, x1, y1, z1);
       this.computeCompression(x0, y0, z0, x1, y1, z1);
       this.updateMeshes(x0 - 1, y0 - 1, z0 - 1, x1 + 1, y1 + 1, z1 + 1);
     }
-    // Normals of dented meshes: a vertex budget per frame, round-robin, so a big crash spreads the
-    // work over a few frames instead of one long stall.
-    if (now - this.lastNormals > 30) {
+    this.updateNormals(now);
+  }
+
+  /**
+   * Normals of dented meshes: a vertex budget per frame, round-robin, so a big crash spreads the
+   * work over a few frames instead of one long stall.
+   */
+  private updateNormals(now: number): void {
+    if (now - this.lastNormals > 30 || now < this.lastNormals) {
       this.lastNormals = now;
       let budget = NORMALS_BUDGET;
       const n = this.bindings.length;
@@ -389,7 +504,9 @@ export class Deformer {
     const nx = this.nx;
     const sy = nx;
     const sz = nx * this.ny;
-    const k = 1 / (1 + DECAY);
+    const k6 = 1 / (6 * (1 + DECAY));
+    const sy3 = sy * 3;
+    const sz3 = sz * 3;
     for (let it = 0; it < 14; it++) {
       for (let iz = z0; iz <= z1; iz++) {
         for (let iy = y0; iy <= y1; iy++) {
@@ -397,12 +514,10 @@ export class Deformer {
             const i = (iz * this.ny + iy) * nx + ix;
             if (this.flag[i] !== 0) continue;
             const o = i * 3;
-            for (let a = 0; a < 3; a++) {
-              const avg =
-                (D[(i - 1) * 3 + a]! + D[(i + 1) * 3 + a]! + D[(i - sy) * 3 + a]! + D[(i + sy) * 3 + a]! + D[(i - sz) * 3 + a]! + D[(i + sz) * 3 + a]!) / 6;
-              const nv = avg * k;
+            for (let a = o; a < o + 3; a++) {
+              const nv = (D[a - 3]! + D[a + 3]! + D[a - sy3]! + D[a + sy3]! + D[a - sz3]! + D[a + sz3]!) * k6;
               // Plastic: the field never springs back.
-              if (Math.abs(nv) > Math.abs(D[o + a]!)) D[o + a] = nv;
+              if (Math.abs(nv) > Math.abs(D[a]!)) D[a] = nv;
             }
           }
         }
@@ -430,7 +545,7 @@ export class Deformer {
             const ex = (a === 0 ? 1 : 0) + gx;
             const ey = (a === 1 ? 1 : 0) + gy;
             const ez = (a === 2 ? 1 : 0) + gz;
-            const c = 1 - Math.hypot(ex, ey, ez);
+            const c = 1 - Math.sqrt(ex * ex + ey * ey + ez * ez);
             if (c > best) {
               best = c;
               axis = a;
@@ -472,6 +587,7 @@ export class Deformer {
         let dy = 0;
         let dz = 0;
         let cp = 0;
+        let sc = 0;
         // Trilinear blend of the 8 corners.
         for (let c = 0; c < 8; c++) {
           const ox = c & 1;
@@ -484,6 +600,7 @@ export class Deformer {
           dy += D[j * 3 + 1]! * w;
           dz += D[j * 3 + 2]! * w;
           cp += this.comp[j]! * w;
+          sc += this.scraped[j]! * w;
         }
         const o = v * 3;
         const disp = Math.hypot(dx, dy, dz);
@@ -537,7 +654,9 @@ export class Deformer {
           // Paint flakes off where the metal was pushed hard: patchy, two octaves of noise.
           const nzr = b.noise![v]!;
           const base = Math.max(0, (disp - 0.02) * 7);
-          b.scuff[v] = Math.min(1, Math.max(0, base * 1.4 - (1 - nzr) * 0.9));
+          // Scrapes: streaky, the noise stretched along nothing in particular reads as scratches.
+          const scr = sc > 0 ? sc * 1.7 - (1 - nzr) * 0.8 : 0;
+          b.scuff[v] = Math.min(1, Math.max(0, base * 1.4 - (1 - nzr) * 0.9, scr));
         }
         if (disp > maxDisp) {
           maxDisp = disp;
@@ -580,6 +699,7 @@ export class Deformer {
   reset(): void {
     this.D.fill(0);
     this.comp.fill(0);
+    this.scraped.fill(0);
     for (let i = 0; i < this.flag.length; i++) if (this.flag[i] === 2) this.flag[i] = 0;
     this.dirty = false;
     for (const b of this.bindings) {

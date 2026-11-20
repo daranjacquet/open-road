@@ -106,6 +106,9 @@ export class Vehicle {
   readonly currQuat = new THREE.Quaternion();
 
   private readonly ray: RAPIER.Ray;
+  /** Hard core and outline colliders, in config order. */
+  private readonly core: RAPIER.Collider[] = [];
+  private readonly outline: RAPIER.Collider[] = [];
   private frontTire!: TireParams;
   private rearTire!: TireParams;
   private drivenShare: [number, number, number, number] = [0, 0, 0, 0];
@@ -142,27 +145,8 @@ export class Vehicle {
       .setCcdEnabled(true)
       .setCanSleep(false);
     this.body = world.createRigidBody(desc);
-    for (const c of cfg.colliders) {
-      world.createCollider(
-        RAPIER.ColliderDesc.cuboid(...c.half)
-          .setTranslation(...c.center)
-          .setDensity(0)
-          .setFriction(0.35)
-          .setRestitution(0.05)
-          .setCollisionGroups(groups(GROUP.CHASSIS, 0xffff)),
-        this.body,
-      );
-    }
-
-    for (const o of cfg.outline) {
-      world.createCollider(
-        RAPIER.ColliderDesc.cuboid(...o.half)
-          .setTranslation(...o.center)
-          .setDensity(0)
-          .setCollisionGroups(groups(GROUP.OUTLINE, GROUP.RAY)),
-        this.body,
-      );
-    }
+    for (const c of cfg.colliders) this.core.push(world.createCollider(Vehicle.coreDesc(RAPIER.ColliderDesc.cuboid(...c.half).setTranslation(...c.center)), this.body));
+    for (const o of cfg.outline) this.outline.push(world.createCollider(Vehicle.outlineDesc(RAPIER.ColliderDesc.cuboid(...o.half).setTranslation(...o.center)), this.body));
 
     this.mountLocal = [0, 1, 2, 3].map(() => new THREE.Vector3());
     this.wheels = [0, 1, 2, 3].map((i) => new WheelState(i, i < 2 ? cfg.suspensionFront : cfg.suspensionRear));
@@ -172,6 +156,32 @@ export class Vehicle {
     this.syncFromBody();
     this.prevPos.copy(this.currPos);
     this.prevQuat.copy(this.currQuat);
+  }
+
+  private static coreDesc(d: RAPIER.ColliderDesc): RAPIER.ColliderDesc {
+    return d.setDensity(0).setFriction(0.35).setRestitution(0.05).setCollisionGroups(groups(GROUP.CHASSIS, 0xffff));
+  }
+
+  private static outlineDesc(d: RAPIER.ColliderDesc): RAPIER.ColliderDesc {
+    return d.setDensity(0).setCollisionGroups(groups(GROUP.OUTLINE, GROUP.RAY));
+  }
+
+  /**
+   * Swap the box of the hard core (and of the outline) at `index` for convex hulls fitted to the
+   * model: the passenger cell then stays inside the greenhouse, so the roof and pillars can crush.
+   */
+  fitCell(index: number, core: Float32Array, outline: Float32Array): void {
+    const { RAPIER, world } = this.physics;
+    const c = RAPIER.ColliderDesc.convexHull(core);
+    if (c && this.core[index]) {
+      world.removeCollider(this.core[index], false);
+      this.core[index] = world.createCollider(Vehicle.coreDesc(c), this.body);
+    }
+    const o = RAPIER.ColliderDesc.convexHull(outline);
+    if (o && this.outline[index]) {
+      world.removeCollider(this.outline[index], false);
+      this.outline[index] = world.createCollider(Vehicle.outlineDesc(o), this.body);
+    }
   }
 
   private static principal(cfg: VehicleConfig): { x: number; y: number; z: number } {
@@ -645,12 +655,19 @@ export class Vehicle {
         const stop = w.susp.minLen + 0.025 - len;
         if (stop > 0 || hit.timeOfImpact - R < w.susp.minLen) f += 120000 * Math.max(stop, 0.001);
         w.springForce = Math.max(0, f);
+        // Out of travel: how hard the body comes down on this corner (bent wheels, broken springs).
+        w.bottomSpeed = 0;
+        if (hit.timeOfImpact - R < w.susp.minLen + 0.005) {
+          const v = body.velocityAtPoint(ray.origin);
+          w.bottomSpeed = Math.max(0, v.x * ray.dir.x + v.y * ray.dir.y + v.z * ray.dir.z);
+        }
       } else {
         w.hit = false;
         w.contact = false;
         w.length = w.susp.maxLen;
         w.compression = 0;
         w.springForce = 0;
+        w.bottomSpeed = 0;
         w.groundBody = null;
       }
     }

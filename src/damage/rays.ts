@@ -1,5 +1,6 @@
 import type { CarModel } from '../render/carModel';
 import type { CrushGrid, VehicleConfig, Vec3 } from '../vehicle/types';
+import type { Cabin } from './cabin';
 
 /** One crumple-zone ray, in the chassis frame. */
 export interface CrushRay {
@@ -19,13 +20,30 @@ export interface CrushRay {
   yield: number;
   /** Point on the visible surface (rest), where this ray's dent is centred. */
   surface: Vec3;
+  /** Part of the passenger cell (roof, pillars, glass, upper sides), not of the lower body. */
+  cabin?: boolean;
 }
 
-/** Expand the config's ray grids into individual rays, measuring each against the visible shell. */
 /** Default elastic travel per zone kind (see CrushGrid.elastic). */
 export const ELASTIC: Record<CrushGrid['kind'], number> = { front: 0.08, rear: 0.08, corner: 0.06, left: 0.03, right: 0.03, roof: 0.03 };
 
-export function buildCrushRays(cfg: VehicleConfig, model: Pick<CarModel, 'probe'>): CrushRay[] {
+const cache = new WeakMap<VehicleConfig, { cabin: Cabin | null; rays: CrushRay[] }>();
+
+/**
+ * Expand the config's ray grids into individual rays, measuring each against the visible shell,
+ * then add the passenger cell's rays. The result only depends on the car, so it is shared by every
+ * car of a kind (the rays are never modified).
+ */
+export function buildCrushRays(cfg: VehicleConfig, model: Pick<CarModel, 'probe'>, cabin: Cabin | null = null): CrushRay[] {
+  const cached = cache.get(cfg);
+  if (cached && cached.cabin === cabin) return cached.rays;
+  const rays = gridRays(cfg, model);
+  if (cabin) for (const r of cabin.rays) rays.push({ ...r, index: rays.length });
+  cache.set(cfg, { cabin, rays });
+  return rays;
+}
+
+function gridRays(cfg: VehicleConfig, model: Pick<CarModel, 'probe'>): CrushRay[] {
   const rays: CrushRay[] = [];
   for (const g of cfg.crush) {
     const len = Math.hypot(g.dir[0], g.dir[1], g.dir[2]);

@@ -34,6 +34,7 @@ export function createTerrainCollider(physics: Physics, hm: Heightmap): void {
     body,
   );
   physics.groundColliders.add(collider.handle);
+  physics.groundHeight = (x, z) => hm.heightAt(x, z);
 }
 
 /**

@@ -2,8 +2,10 @@
 // Usage: node scripts/fit-car-config.mjs <id>     (after art/import_car.py wrote art/build/<id>.measure.json)
 //
 // Rewrites, in src/vehicle/cars/<id>.json, only what depends on the body: wheel mounts, wheel size,
-// the outline boxes (what other cars' rays hit), the hard core (colliders) and the crumple-ray grids.
-// Handling, engine and every tuning value are kept. Grid forces are kept in order.
+// the outline boxes (what other cars' rays hit), the hard core (colliders) and the crumple-ray grids
+// of the lower body. Handling, engine and every tuning value are kept. Grid forces are kept in order.
+// The cabin boxes only bound the passenger cell: the game fits it to the model at runtime, with its
+// own crumple rays (src/damage/cabin.ts).
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const id = process.argv[2];
@@ -71,15 +73,19 @@ cfg.crush = [
   grid('rear', [0, cl.cy, coreLow.z0], [coreLow.x - 0.03, 0, 0], [0, vLow, 0], 7, 4, [0, 0, -1]),
   grid('left', [coreLow.x, cl.cy, cl.cz], [0, 0, cl.hz - 0.12], [0, vLow, 0], 11, 3, [1, 0, 0]),
   grid('right', [-coreLow.x, cl.cy, cl.cz], [0, 0, cl.hz - 0.12], [0, vLow, 0], 11, 3, [-1, 0, 0]),
-  grid('left', [coreCab.x, cc.cy, coreCab.cz], [0, 0, coreCab.hz - 0.1], [0, cc.hy * 0.5, 0], 7, 2, [1, 0, 0]),
-  grid('right', [-coreCab.x, cc.cy, coreCab.cz], [0, 0, coreCab.hz - 0.1], [0, cc.hy * 0.5, 0], 7, 2, [-1, 0, 0]),
-  grid('roof', [0, coreCab.y1, coreCab.cz], [coreCab.x - 0.1, 0, 0], [0, 0, coreCab.hz - 0.1], 3, 6, [0, 1, 0]),
   grid('roof', [0, coreLow.y1, coreLow.z1 - 0.35], [coreLow.x * 0.6, 0, 0], [0, 0, 0.3], 3, 3, [0, 1, 0]),
   grid('roof', [0, coreLow.y1, coreLow.z0 + 0.3], [coreLow.x * 0.6, 0, 0], [0, 0, 0.25], 3, 2, [0, 1, 0]),
   grid('corner', [coreLow.x - 0.1, cl.cy, coreLow.z1 - 0.08], [0, 0, 0], [0, vLow, 0], 1, 3, [0.7, 0, 0.7]),
   grid('corner', [coreLow.x - 0.1, cl.cy, coreLow.z0 + 0.08], [0, 0, 0], [0, vLow, 0], 1, 3, [0.7, 0, -0.7]),
   grid('corner', [-(coreLow.x - 0.1), cl.cy, coreLow.z1 - 0.08], [0, 0, 0], [0, vLow, 0], 1, 3, [-0.7, 0, 0.7]),
   grid('corner', [-(coreLow.x - 0.1), cl.cy, coreLow.z0 + 0.08], [0, 0, 0], [0, vLow, 0], 1, 3, [-0.7, 0, -0.7]),
+  // Fans over the overhangs, from the top edges of the core: bonnet front, grille, boot lid.
+  ...[1, -1].flatMap((s) =>
+    [20, 45, 70].map((a) => {
+      const t = (a * Math.PI) / 180;
+      return grid('roof', [0, coreLow.y1, s > 0 ? coreLow.z1 : coreLow.z0], [coreLow.x - 0.1, 0, 0], [0, 0, 0], 5, 1, [0, Math.cos(t), s * Math.sin(t)]);
+    }),
+  ),
 ];
 cfg.crush.forEach((g, i) => {
   g.force = forces[i] ?? forces[forces.length - 1];

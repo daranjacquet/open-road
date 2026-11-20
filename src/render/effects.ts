@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clamp } from '../core/math';
+import type { Scrape } from '../damage/CrushSystem';
 import type { DamageModel, ImpactInfo } from '../damage/DamageModel';
 import type { Vehicle } from '../vehicle/Vehicle';
 import { ParticlePool } from './particles';
@@ -107,6 +108,18 @@ export class Effects {
       );
     }
     this.shake = Math.min(0.5, this.shake + Math.sqrt(e) / 3000);
+  }
+
+  /** Sparks where metal slides over something hard (once per physics step). */
+  scrape(scrapes: readonly Scrape[], hard: (s: Scrape) => boolean): void {
+    for (const s of scrapes) {
+      if (Math.random() > s.speed * 0.025 || !hard(s)) continue;
+      this.sparks.spawn(
+        s.point.x, s.point.y, s.point.z,
+        (Math.random() - 0.5) * 3, 0.4 + Math.random() * 1.8, (Math.random() - 0.5) * 3,
+        0.25 + Math.random() * 0.35, 0.06, 0.03, 1, 0.6 + Math.random() * 0.3, 0.2, 1,
+      );
+    }
   }
 
   /** Shards when a window goes. */

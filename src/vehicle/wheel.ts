@@ -51,6 +51,8 @@ export class WheelState {
   groundHandle = -1;
   hit = false;
   springForce = 0;
+  /** Closing speed (m/s) of the body onto the ground with the suspension at its bump stop, this step. */
+  bottomSpeed = 0;
   compression = 0;
   hubDrive = 0;
   brakeTorque = 0;

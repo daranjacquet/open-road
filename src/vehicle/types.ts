@@ -124,6 +124,11 @@ export interface VehicleConfig {
   outline: { center: Vec3; half: Vec3 }[];
   /** Crumple-zone ray grids (damage milestone). */
   crush: CrushGrid[];
+  /**
+   * Strength of the passenger cell (fitted to the model at runtime) when a whole face bears, in
+   * multiples of the car's weight: roof, sides of the greenhouse, ends (pillars and glass frames).
+   */
+  cabin?: { top?: number; side?: number; ends?: number };
   /** Compound chassis colliders: the HARD CORE, smaller than the visible body by the crush depths. */
   colliders: { center: Vec3; half: Vec3 }[];
   /** Suspension mount points (top of spring), local space. */

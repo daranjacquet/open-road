@@ -5,6 +5,17 @@ import { GROUP, groups, type Physics } from '../core/physics';
 import type { CrushRay } from './rays';
 import type { ImprintContact } from './Deformer';
 
+/** A crumple-zone contact sliding over what it touches this step (paint scrapes, sparks). */
+export interface Scrape {
+  /** World-space contact point. */
+  point: THREE.Vector3;
+  /** The same point in the chassis frame. */
+  local: THREE.Vector3;
+  /** Sliding speed (m/s). */
+  speed: number;
+  collider: RAPIER.Collider;
+}
+
 export interface CrushEvent {
   ray: CrushRay;
   /** New plastic crush depth added this step (m). */
@@ -41,6 +52,10 @@ const _p = { x: 0, y: 0, z: 0 };
 const _imp = { x: 0, y: 0, z: 0 };
 
 const FRICTION = 0.35;
+/** A contact scrapes the paint when it slides faster than this (m/s) and presses harder than this (N). */
+const SCRAPE_SPEED = 1;
+const SCRAPE_FORCE = 300;
+const _qi = new THREE.Quaternion();
 
 /**
  * Crumple zones as one-sided plastic springs along rays. A ray that meets an obstacle inside the
@@ -77,6 +92,9 @@ export class CrushSystem {
   /** Plastic contacts of the last step (obstacles the car actually yielded against). */
   readonly contacts: ImprintContact[] = [];
   private readonly contactPool: ImprintContact[] = [];
+  /** Contacts of the last step that slid over what they touch. */
+  readonly scrapes: Scrape[] = [];
+  private readonly scrapePool: Scrape[] = [];
 
   private readonly ray: RAPIER.Ray;
   private readonly envelope: RAPIER.Cuboid;
@@ -99,12 +117,14 @@ export class CrushSystem {
     this.ray = new physics.RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
     this.envelope = new physics.RAPIER.Cuboid(envelope.half[0], envelope.half[1], envelope.half[2]);
     this.envCenter = new THREE.Vector3(...envelope.center);
+    this.envHalf = envelope.half;
     this.local = rays.map((r) => new THREE.Vector3(...r.origin));
     this.localDir = rays.map((r) => new THREE.Vector3(...r.dir));
     this.ev = { ray: rays[0]!, deltaDepth: 0, energy: 0, point: new THREE.Vector3(), speed: 0 };
   }
 
   private readonly envCenter: THREE.Vector3;
+  private readonly envHalf: readonly [number, number, number];
 
   /** Largest crush depth (m) of the rays whose surface point is within `r` of a chassis-frame point. */
   crushNear(x: number, y: number, z: number, r = 0.5): number {
@@ -135,21 +155,52 @@ export class CrushSystem {
     this.energy = 0;
   }
 
-  private addContact(collider: RAPIER.Collider, point: THREE.Vector3, dir: THREE.Vector3, shared: boolean): void {
+  private addContact(collider: RAPIER.Collider, point: THREE.Vector3, dir: THREE.Vector3, normal: THREE.Vector3, shared: boolean): void {
     for (const c of this.contacts) {
       if (c.collider.handle === collider.handle && c.point.distanceToSquared(point) < 0.04) return;
     }
     if (this.contacts.length >= 48) return;
     let c = this.contactPool[this.contacts.length];
     if (!c) {
-      c = { collider, point: new THREE.Vector3(), dir: new THREE.Vector3(), shared };
+      c = { collider, point: new THREE.Vector3(), dir: new THREE.Vector3(), normal: new THREE.Vector3(), shared };
       this.contactPool.push(c);
     }
     c.collider = collider;
     c.point.copy(point);
     c.dir.copy(dir);
+    c.normal.copy(normal);
     c.shared = shared;
     this.contacts.push(c);
+  }
+
+  /**
+   * Shape queries do not see the terrain heightfield: does a corner of the envelope (pose in
+   * _pos/_q) reach down to the ground? Rolling over, scraping a bank, landing on the nose.
+   */
+  private nearGround(): boolean {
+    const [hx, hy, hz] = this.envHalf;
+    for (let k = 0; k < 8; k++) {
+      _r.set(this.envCenter.x + (k & 1 ? hx : -hx), this.envCenter.y + (k & 2 ? hy : -hy), this.envCenter.z + (k & 4 ? hz : -hz));
+      _r.applyQuaternion(_q).add(_pos);
+      if (_r.y < this.physics.groundHeight(_r.x, _r.z) + 0.05) return true;
+    }
+    return false;
+  }
+
+  private addScrape(collider: RAPIER.Collider, point: THREE.Vector3, speed: number): void {
+    // Neighbouring rays on one patch of metal: one scrape is enough.
+    for (const s of this.scrapes) if (s.point.distanceToSquared(point) < 0.01) return;
+    if (this.scrapes.length >= 32) return;
+    let s = this.scrapePool[this.scrapes.length];
+    if (!s) {
+      s = { point: new THREE.Vector3(), local: new THREE.Vector3(), speed: 0, collider };
+      this.scrapePool.push(s);
+    }
+    s.point.copy(point);
+    s.local.copy(point).sub(_pos).applyQuaternion(_qi);
+    s.speed = speed;
+    s.collider = collider;
+    this.scrapes.push(s);
   }
 
   step(dt: number, posIn: THREE.Vector3, quatIn: THREE.Quaternion): void {
@@ -157,10 +208,12 @@ export class CrushSystem {
     this.stepForce = 0;
     this.active = 0;
     this.contacts.length = 0;
+    this.scrapes.length = 0;
     const world = this.physics.world;
     const body = this.host.body;
     _pos.copy(posIn);
     _q.copy(quatIn);
+    _qi.copy(quatIn).invert();
 
     // Cheap early-out: is anything inside the car's envelope at all?
     _o.copy(this.envCenter).applyQuaternion(_q).add(_pos);
@@ -168,7 +221,7 @@ export class CrushSystem {
     _p.y = _o.y;
     _p.z = _o.z;
     const hit = world.intersectionWithShape(_p, { x: _q.x, y: _q.y, z: _q.z, w: _q.w }, this.envelope, undefined, this.filter, undefined, body);
-    if (!hit) return;
+    if (!hit && !this.nearGround()) return;
 
     const lv = body.linvel();
     const av = body.angvel();
@@ -267,6 +320,7 @@ export class CrushSystem {
         tx = (-_vt.x / vtLen) * ft;
         ty = (-_vt.y / vtLen) * ft;
         tz = (-_vt.z / vtLen) * ft;
+        if (vtLen > SCRAPE_SPEED && F > SCRAPE_FORCE) this.addScrape(h.collider, _hp, vtLen);
       }
       this.host.applyForce(dt, _hp.x, _hp.y, _hp.z, fx + tx, fy + ty, fz + tz);
       if (otherPassive) {
@@ -279,7 +333,7 @@ export class CrushSystem {
         other!.applyImpulseAtPoint(_imp, _p, true);
       }
 
-      if (dc > 0) this.addContact(h.collider, _hp, this.localDir[i]!, hitOther !== null && this.physics.crushBodies.has(hitOther.handle));
+      if (dc > 0) this.addContact(h.collider, _hp, this.localDir[i]!, _n, hitOther !== null && this.physics.crushBodies.has(hitOther.handle));
       if (dc > 0 && this.onCrush) {
         const e = this.ev;
         e.ray = rd;

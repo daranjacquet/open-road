@@ -21,6 +21,11 @@ export interface Physics {
   crushBodies: Set<number>;
   /** Surface under a point of the open ground. The map installs its painted raster here. */
   surfaceAt(x: number, z: number): Surface;
+  /**
+   * Height of the open ground under a point (-Infinity where there is none). The map installs its
+   * heightmap here: shape queries cannot see a heightfield, so the crumple zones ask this instead.
+   */
+  groundHeight(x: number, z: number): number;
   step(): void;
 }
 
@@ -56,6 +61,7 @@ export async function createPhysics(): Promise<Physics> {
     groundColliders: new Set<number>(),
     crushBodies: new Set<number>(),
     surfaceAt: () => 'asphalt',
+    groundHeight: () => -Infinity,
     step() {
       world.step(events);
     },

@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { fitCabin } from '../damage/cabin';
 import { buildCrushRays } from '../damage/rays';
 import { DamageModel } from '../damage/DamageModel';
 import { Deformer } from '../damage/Deformer';
 import { PartsManager } from '../damage/PartsManager';
-import type { CrushSystem } from '../damage/CrushSystem';
+import type { CrushSystem, Scrape } from '../damage/CrushSystem';
 import type { Physics } from '../core/physics';
 import { buildCarModel } from '../render/car';
 import type { CarModel } from '../render/carModel';
@@ -35,6 +36,9 @@ export class GameCar {
   tune: Tune;
   private readonly spawn: { x: number; z: number; yaw: number };
   private readonly crushNear = (x: number, y: number, z: number): number => this.crush.crushNear(x, y, z);
+  /** Metal on asphalt, concrete, rock or another car sparks; on grass or dirt it does not. */
+  private readonly hardGround = (s: Scrape): boolean =>
+    !this.physics.groundColliders.has(s.collider.handle) || this.physics.surfaceAt(s.point.x, s.point.z) === 'asphalt';
 
   constructor(
     private readonly physics: Physics,
@@ -51,8 +55,11 @@ export class GameCar {
     this.model = buildCarModel(def.id, paint);
     scene.add(this.model.root);
     this.view = new VehicleView(this.vehicle, this.model);
-    this.crush = this.vehicle.attachCrush(buildCrushRays(def.cfg, this.model));
-    this.deformer = new Deformer(physics.RAPIER, this.model, def.cfg);
+    // The passenger cell fitted to the model: roof, pillars and glass get their own crumple zones.
+    const cabin = fitCabin(def.cfg, this.model, physics.RAPIER);
+    if (cabin) this.vehicle.fitCell(cabin.collider, cabin.core, cabin.shell);
+    this.crush = this.vehicle.attachCrush(buildCrushRays(def.cfg, this.model, cabin));
+    this.deformer = new Deformer(physics.RAPIER, this.model, def.cfg, cabin);
     this.damage = new DamageModel(this.vehicle, this.crush);
     this.parts = new PartsManager(physics, scene, this.vehicle, this.model, this.crush, this.deformer, this.damage);
     this.effects = new Effects(this.vehicle, this.damage);
@@ -64,7 +71,12 @@ export class GameCar {
   /** One physics step for this car (before `physics.step()`): driving forces, crumple zones, imprints. */
   fixedUpdate(dt: number, input: DriveInput): void {
     this.vehicle.fixedUpdate(dt, input);
+    this.damage.afterStep();
     this.deformer.imprint(this.vehicle.currPos, this.vehicle.currQuat, this.crush.contacts, this.crushNear);
+    if (this.crush.scrapes.length > 0) {
+      this.deformer.scrape(this.crush.scrapes, dt);
+      this.effects.scrape(this.crush.scrapes, this.hardGround);
+    }
   }
 
   /** Per rendered frame: deformation, mechanical state, detached panels, visuals. */

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { ShellProbe } from './probe';
 import type { CarModel, DeformableMeshData, WheelNodes } from '../carModel';
 import { makeCrackable, tunePaint } from './paint';
 
@@ -12,6 +13,7 @@ import { makeCrackable, tunePaint } from './paint';
  * baked and every part is re-centred on the `pivot` stored in the node extras).
  */
 const templates = new Map<string, THREE.Group>();
+const probes = new WeakMap<THREE.Group, ShellProbe>();
 
 export function getCarTemplate(id: string): THREE.Group | undefined {
   return templates.get(id);
@@ -410,27 +412,14 @@ export function modelFromTemplate(template: THREE.Group, opts: BuildOptions = {}
     const n = (m.material as THREE.Material).name;
     return n === 'paint' || n === 'carbon' || n === 'glass' || n === 'glass_dark' || n === 'trim_matte' || n === 'honeycomb';
   });
-  const probeMat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
-  disposables.push(probeMat);
-  const probeMeshes = shell.map((m) => {
-    const pm = new THREE.Mesh(m.geometry, probeMat);
-    m.updateWorldMatrix(true, false);
-    pm.matrixAutoUpdate = false;
-    pm.matrix.copy(m.matrixWorld);
-    pm.matrixWorld.copy(m.matrixWorld);
-    pm.userData['part'] = m.userData['part'];
-    return pm;
-  });
-  const rc = new THREE.Raycaster();
-  const o = new THREE.Vector3();
-  const d = new THREE.Vector3();
-  const probe: CarModel['probe'] = (origin3, dir, maxDist) => {
-    rc.set(o.set(origin3[0], origin3[1], origin3[2]), d.set(dir[0], dir[1], dir[2]).normalize());
-    rc.near = 0;
-    rc.far = maxDist;
-    const hit = rc.intersectObjects(probeMeshes, false)[0];
-    return hit ? { dist: hit.distance, part: String(hit.object.userData['part']) } : null;
-  };
+  // The shell is the same for every car built from a template: its probe grid is built once.
+  let shellProbe = probes.get(template);
+  if (!shellProbe) {
+    shellProbe = new ShellProbe(shell, (m) => String(m.userData['part']));
+    probes.set(template, shellProbe);
+  }
+  const sp = shellProbe;
+  const probe: CarModel['probe'] = (origin, dir, maxDist) => sp.probe(origin, dir, maxDist);
 
   return {
     root,
