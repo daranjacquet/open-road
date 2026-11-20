@@ -84,8 +84,8 @@ src/
 tests/       unit tests plus headless simulations of driving, handling, crashes, collisions, map
 docs/        AUDIT.md (models, performance, architecture), TUNING.md, screenshots
 public/models/  the exported cars (GLB)
-art/         Blender: procedural car library (lib/, cars/), import pipeline for third-party models
-             (import_car.py, inspect_model.py), .blend sources
+art/         Blender: import pipeline for third-party car models (import_car.py, inspect_model.py,
+             lib/importer.py, imports/<id>.json), model sources and .blend files
 scripts/     optimize-models.mjs (meshopt compression of the Blender exports)
 ```
 
@@ -144,7 +144,7 @@ I have not measured on a modest PC. Draw calls are above what I would aim for on
 - **Not a soft-body.** The car does not bend as a structure: the deformation field shapes the panels, the rigid body keeps its mass and inertia, and the passenger cell never deforms.
 - **Very hard hits bottom out.** At 100 km/h into a wall the crumple depth runs out and the rigid core stops the car abruptly (peak deceleration well above real life).
 - **Car vs car is approximate.** Each car sees the other's undeformed outline box; dents are capped by its own crush, so impacts look plausible but not exact.
-- **Models are procedural.** They come from scripts, not a car designer: proportions are right, but surfaces are simpler than a real car's.
+- **Cars are reworked third-party models** (see `CREDITS.md`): crash parts are cut out of a single body by boxes, so panel edges follow straight cuts, not the real shut lines.
 - **Handling was tuned with headless simulations**, not by a human driver: full-lock corners from 60 to 180 km/h, slaloms, handbrake flicks and a keyboard-style drifter that only presses keys fully (`tests/handling.test.ts`).
 - **World.** Flat (no hills). There is no traffic and no chunk system; the whole map is built at load (about 1 s).
 - Skid marks only on asphalt. Audio is synthesised and simple.

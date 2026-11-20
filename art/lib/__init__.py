@@ -1,1 +1,1 @@
-"""Open Road car modelling library (runs inside Blender)."""
+"""Open Road model import helpers (run inside Blender)."""

@@ -6,7 +6,7 @@ import type { CarModel, DeformableMeshData, WheelNodes } from '../carModel';
 import { makeCrackable, tunePaint } from './paint';
 
 /**
- * Cars exported by art/build_cars.py (Blender), compressed with meshopt.
+ * Cars exported by art/import_car.py (Blender), compressed with meshopt.
  * A template is parsed once; every car instance rebuilds its own hierarchy from it with float,
  * chassis-space geometry (meshopt quantisation folds scales into node transforms, so geometry is
  * baked and every part is re-centred on the `pivot` stored in the node extras).

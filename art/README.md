@@ -15,31 +15,19 @@ blender -b --factory-startup -P art/import_car.py -- sedan --views /tmp/views   
 - `import_car.py` + `imports/<id>.json`: the mapping says which source objects make which part, which boxes (game frame: x left, y up, z forward, metres) to cut doors, mirrors or lids out of the body, how to rename materials (`paint`, `glass`, `trim_matte`, `underbody`... the names the game reacts to; textures are kept), which faces to `restyle` so the outer shell counts for the crumple rays, and where the wheels are. `--views DIR` renders orthographic views with a 0.25 m grid (red lines every metre) to place the boxes.
 - It writes `blend/<id>.blend`, `build/<id>.glb` and `build/<id>.measure.json`; `scripts/optimize-models.mjs` compresses into `public/models/`, `scripts/fit-car-config.mjs` fits the physics geometry of `src/vehicle/cars/<id>.json` to the measurements.
 
-## Earlier procedural cars
-
-The first cars were modelled entirely by Python scripts (below). They are kept for reference; `npm run models:procedural` rebuilds them and overwrites the game cars.
-
-```bash
-npm run models:procedural
-blender -b --factory-startup -P art/build_cars.py -- --only sedan --preview /tmp/pv   # one car + preview renders
-blender -b --factory-startup -P art/preview_body.py -- sedan /tmp/body.png 2         # quick body-only check
-```
-
 ## Layout
 
-- `cars/<id>.py`: one design per car. `COLUMNS` (the control cage, see below), the panel layout, wheel arches, wheel spec, paint, interior, engine bay and a `details()` function that places lamps, mirrors, handles, exhausts and so on.
-- `lib/section.py`: one cross-section (15 control points from the bottom centre to the roof centre) from a few named heights and widths.
-- `lib/cage.py`: columns to a closed control cage with creases, end caps closed with quad grids, a material slot per panel.
-- `lib/body.py`: subdivision surface, wheel-arch booleans (the cutter leaves the wheel-well liners), split by material into panels.
-- `lib/assemble.py`, `lib/panels.py`: real panel gaps with flanges, sunk glass with rubber edges, honeycomb grilles, pivots on hinges, hierarchy.
-- `lib/lights.py`, `lib/wheels.py`, `lib/details.py`, `lib/interior.py`, `lib/engine_bay.py`: the parts.
-- `lib/materials.py`, `lib/textures.py`: paint (clear coat), carbon weave, honeycomb, tyre tread normal maps, number plates, gauges; all generated, nothing downloaded.
-- `blend/`: the generated `.blend` scenes.
+- `lib/importer.py`: loading any source format, transforms, bounding boxes, triangle counts, quick renders.
+- `imports/<id>.json`: one mapping per car (see above).
+- `sources/<id>/`: the downloaded models and their licences.
+- `blend/`: the `.blend` scenes written by the import.
 - `build/`: raw exports (ignored by git); `scripts/optimize-models.mjs` writes `public/models/`.
+
+The first cars were modelled entirely by Python scripts (control cage, subdivision, panel gaps). That pipeline was removed; it is kept in git under the tag `procedural-cars`.
 
 ## What the game expects
 
-- Chassis frame: +Y up, +Z forward, +X left, metres. The scripts design in this frame (`lib.util.C` converts to Blender's Z-up), and the glTF exporter converts back.
+- Chassis frame: +Y up, +Z forward, +X left, metres. The import mappings use this frame, and the glTF exporter converts from Blender's Z-up.
 - Every object carries two custom properties exported as glTF extras: `part_name` (its name, which survives glTF de-duplication and meshopt node splits) and `chassis_pivot` (its hinge or bolt point). Do not call it `pivot`: three.js r187 reads that key itself.
 - Named parts: `body`, `hood`, `trunk`, `door_FL/FR/RL/RR`, `bumper_F/R`, `glass_*`, `light_FL/FR/RL/RR`, `mirror_L/R`; wheels as `tire_XX`, `rim_XX`, `nuts_XX`, `disc_XX`, `caliper_XX` built at the origin with the axle along X.
 - Material names matter (`paint`, `carbon`, `glass`, `glass_dark`, `honeycomb`...): the game adds the scuff and crack shaders by name.
