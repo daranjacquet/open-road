@@ -444,6 +444,11 @@ export class Deformer {
     }
   }
 
+  /**
+   * Re-skin the vertices whose lattice cell lies in the box. Contract: the box must start one cell
+   * below the changed nodes (a vertex in cell x0 - 1 interpolates node x0), which `update` does by
+   * passing the relaxed region grown by one cell.
+   */
   private updateMeshes(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): void {
     const D = this.D;
     const nx = this.nx;
