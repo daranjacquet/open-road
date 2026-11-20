@@ -141,6 +141,14 @@ export class SmokeClouds {
     this.live = Math.max(this.live, i + 1);
   }
 
+  /** Remove every puff at once. */
+  clear(): void {
+    this.life.fill(0);
+    this.iData.fill(0);
+    this.live = 0;
+    this.geo.instanceCount = 0;
+  }
+
   update(dt: number): void {
     const drag = Math.exp(-1.6 * dt);
     let last = 0;

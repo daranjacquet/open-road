@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GROUP, groups, type Physics } from '../core/physics';
 import { buildCarPark, buildPlaza } from './cityextras';
 import { Furniture, local } from './furniture';
+import { rect, Skyscrapers, twinTower, type Band, type TowerSpec } from './skyscrapers';
 import { ASPHALT, type SurfaceMap } from './surface';
 
 /** City grid: avenues run along z (at these x), streets along x (at these z). */
@@ -73,6 +74,32 @@ function facadeTexture(kind: Facade, seed: number): THREE.CanvasTexture {
       g.fillStyle = 'rgba(0,0,0,0.12)';
       g.fillRect(0, fy * 56, 256, 3);
     }
+  });
+}
+
+/** High-rises from this height (m) can come down, like the twin towers and the landmark. */
+const TOWER_H = 60;
+
+/**
+ * Facade of the twin towers: narrow slit windows between closely set aluminium-clad columns, one
+ * every metre, and a faint floor line (one tile = 16 m x 14 m, like the city's facades).
+ */
+function twinFacadeTexture(): THREE.CanvasTexture {
+  const r = rng(77);
+  return canvasTex(256, 224, (g) => {
+    g.fillStyle = '#c9cdd1';
+    g.fillRect(0, 0, 256, 224);
+    for (let fy = 0; fy < 4; fy++) {
+      for (let wx = 0; wx < 16; wx++) {
+        const v = 40 + r() * 35;
+        g.fillStyle = `rgb(${v},${v * 1.05},${v * 1.15})`;
+        g.fillRect(wx * 16 + 5, fy * 56 + 4, 6, 46);
+      }
+    }
+    g.fillStyle = 'rgba(255,255,255,0.18)';
+    for (let wx = 0; wx < 16; wx++) g.fillRect(wx * 16, 0, 2, 224);
+    g.fillStyle = 'rgba(0,0,0,0.12)';
+    for (let fy = 0; fy < 4; fy++) g.fillRect(0, fy * 56 + 52, 256, 3);
   });
 }
 
@@ -172,6 +199,8 @@ class BoxBatch {
 
 export interface City {
   group: THREE.Group;
+  /** Towers that come down when their ground floor is knocked out (the WTC, the landmark, high-rises). */
+  skyscrapers: Skyscrapers;
   /** Trees, rooftop clutter and street furniture (the map stops drawing them from afar). */
   details: THREE.Group;
   furniture: Furniture;
@@ -288,11 +317,22 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
     ]);
     world.createCollider(RAPIER.ColliderDesc.convexHull(pts)!.setFriction(0.8).setCollisionGroups(groups(GROUP.WORLD, 0xffff)), staticBody);
   };
+  let seed = 11;
+  const kinds: Facade[] = ['glass', 'office', 'brick', 'concrete'];
+  const facadeMats = Object.fromEntries(
+    kinds.map((kind) => {
+      const glass = kind === 'glass';
+      return [kind, new THREE.MeshStandardMaterial({ map: facadeTexture(kind, seed++), roughness: glass ? 0.25 : 0.85, metalness: glass ? 0.5 : 0 })];
+    }),
+  ) as Record<Facade, THREE.MeshStandardMaterial>;
+  const wtcMat = new THREE.MeshStandardMaterial({ map: twinFacadeTexture(), color: 0xe8ebef, roughness: 0.32, metalness: 0.55 });
+  /** Towers that can come down (built after the blocks). */
+  const towers: TowerSpec[] = [];
   const trees: { x: number; z: number; s: number }[] = [];
   const stalls: THREE.Matrix4[] = [];
   /** Rooftop clutter: air-conditioning boxes, water tanks, antennas (instanced, no colliders). */
   const rooftop = { ac: [] as THREE.Matrix4[], tank: [] as THREE.Matrix4[], mast: [] as THREE.Matrix4[] };
-  const special = { plaza: [2, 4], landmark: [3, 4], parking: [0, 5] } as const;
+  const special = { plaza: [2, 4], landmark: [3, 4], parking: [0, 5], wtcNorth: [2, 3], wtcSouth: [2, 2] } as const;
   const isBlock = (b: readonly [number, number], i: number, j: number): boolean => b[0] === i && b[1] === j;
   const roofClutter = (x0: number, x1: number, y: number, z0: number, z1: number, tall: boolean): void => {
     const w = x1 - x0;
@@ -341,18 +381,29 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
       }
       if (isBlock(special.landmark, i, j)) {
         // The landmark: a 170 m glass tower stepping back twice, with a spire.
-        const steps = [
-          [21, 0, 122],
-          [16, 122, 152],
-          [10.5, 152, 171.5],
-        ] as const;
-        for (const [hw, ya, yb] of steps) {
-          facades.glass.walls(cx - hw, cx + hw, CURB + ya, CURB + yb, cz - hw, cz + hw, TILE_W, TILE_H, ya / TILE_H);
-          roofs.top(cx - hw, cx + hw, CURB + yb, cz - hw, cz + hw, 8);
-        }
-        solid(cx, CURB + 61, cz, 21, 61, 21);
-        solid(cx, CURB + 147, cz, 16, 25, 16);
-        rooftop.mast.push(new THREE.Matrix4().compose(new THREE.Vector3(cx, CURB + 171.5 + 18, cz), new THREE.Quaternion(), new THREE.Vector3(2.2, 36, 2.2)));
+        const steps = [rect(21, 21), rect(16, 16), rect(10.5, 10.5)];
+        towers.push({
+          name: 'Landmark tower',
+          x: cx,
+          z: cz,
+          y: CURB,
+          facade: facadeMats.glass,
+          bands: [
+            { y0: 0, y1: 122, bottom: steps[0]!, top: steps[0]! },
+            { y0: 122, y1: 152, bottom: steps[1]!, top: steps[1]! },
+            { y0: 152, y1: 171.5, bottom: steps[2]!, top: steps[2]! },
+          ],
+          spire: { r: 1.1, h: 36 },
+        });
+        continue;
+      }
+      if (isBlock(special.wtcNorth, i, j) || isBlock(special.wtcSouth, i, j)) {
+        // The twin towers, one per block on either side of a street, offset like the real ones,
+        // each on a paved square with a few trees.
+        const north = isBlock(special.wtcNorth, i, j);
+        const tx = cx + (north ? 13 : -13);
+        towers.push(twinTower(north ? 'North Tower' : 'South Tower', tx, cz, CURB, wtcMat, north));
+        for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) trees.push({ x: cx + sx * 40, z: cz + sz * 44, s: 1 });
         continue;
       }
       const r = rand();
@@ -390,6 +441,21 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
           const h = floors * 3.5;
           const kind: Facade = h > 45 ? (rand() < 0.6 ? 'glass' : 'office') : rand() < 0.5 ? 'brick' : rand() < 0.5 ? 'concrete' : 'office';
           const y0 = CURB;
+          if (h >= TOWER_H) {
+            // A high-rise: it can come down, like the big ones.
+            const hx = (fx1 - fx0) / 2;
+            const hz = (fz1 - fz0) / 2;
+            const body = rect(hx, hz);
+            const bands: Band[] = [{ y0: 0, y1: h, bottom: body, top: body }];
+            if (rand() < 0.55) {
+              const ins = 3 + rand() * 3;
+              const h2 = Math.round((h * (0.25 + rand() * 0.35)) / 3.5) * 3.5;
+              const set = rect(hx - ins, hz - ins);
+              bands.push({ y0: h, y1: h + h2, bottom: set, top: set });
+            }
+            towers.push({ name: `Tower ${i}-${j}-${a}-${b}`, x: (fx0 + fx1) / 2, z: (fz0 + fz1) / 2, y: y0, facade: facadeMats[kind], bands });
+            continue;
+          }
           // Low and mid-rise buildings get shops on the ground floor.
           const shopH = kind !== 'glass' && h <= 45 ? SHOP_H : 0;
           if (shopH) shops.walls(fx0, fx1, y0, y0 + shopH, fz0, fz1, 8, SHOP_H);
@@ -442,14 +508,6 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
   add(pavement, new THREE.MeshStandardMaterial({ map: pavTex, roughness: 0.95 }), false);
   add(grass, new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }), false);
   add(lots, new THREE.MeshStandardMaterial({ map: asphaltMap, color: 0x8f9298, roughness: 0.95 }), false);
-  let seed = 11;
-  const kinds: Facade[] = ['glass', 'office', 'brick', 'concrete'];
-  const facadeMats = Object.fromEntries(
-    kinds.map((kind) => {
-      const glass = kind === 'glass';
-      return [kind, new THREE.MeshStandardMaterial({ map: facadeTexture(kind, seed++), roughness: glass ? 0.25 : 0.85, metalness: glass ? 0.5 : 0 })];
-    }),
-  ) as Record<Facade, THREE.MeshStandardMaterial>;
   const roofMat = new THREE.MeshStandardMaterial({ color: 0x5d5f63, roughness: 0.95 });
   const shopMat = new THREE.MeshStandardMaterial({ map: shopTexture(), roughness: 0.7, emissive: 0xffffff, emissiveIntensity: 0.12 });
   (shopMat as THREE.MeshStandardMaterial).emissiveMap = shopMat.map;
@@ -460,6 +518,12 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
   }
   // Rooftop clutter.
   const clutterMat = new THREE.MeshStandardMaterial({ color: 0x9a9ea4, roughness: 0.6, metalness: 0.3 });
+  const skyscrapers = new Skyscrapers(physics, towers, {
+    roof: roofMat,
+    concrete: new THREE.MeshStandardMaterial({ color: 0x8d8a84, roughness: 0.95 }),
+    mast: clutterMat,
+  });
+  group.add(skyscrapers.group);
   const clutter: THREE.InstancedMesh[] = [];
   const parts: [THREE.Matrix4[], THREE.BufferGeometry][] = [
     [rooftop.ac, new THREE.BoxGeometry(1, 1, 1)],
@@ -675,8 +739,9 @@ export function createCity(physics: Physics, surface: SurfaceMap, asphaltMap: TH
     };
     phase('A', 0);
     phase('B', 12);
+    skyscrapers.update(t);
   };
   update(0);
 
-  return { group, details, furniture: fur, update };
+  return { group, details, furniture: fur, update, skyscrapers };
 }

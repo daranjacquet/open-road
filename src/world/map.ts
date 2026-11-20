@@ -124,6 +124,8 @@ export function createMap(physics: Physics, data: WorldData): GameMap {
   const locations: Location[] = [
     { name: 'Test area', ...SPAWN },
     { name: 'City', x: 516.5, y: 0, z: -560, yaw: 0 },
+    // On the avenue west of the twin towers, heading north: both are ahead on the right.
+    { name: 'World Trade Center', x: 516.5, y: 0, z: -640, yaw: 0 },
     { name: 'Grand Prix circuit', y: 0, ...tracks[0]!.line.at(-30) },
     { name: 'Drift circuit', y: 0, ...tracks[1]!.line.at(-24) },
     onRoad('Mountain pass', 'pass', 60),

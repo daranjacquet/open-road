@@ -103,6 +103,7 @@ export class Game {
       new GameCar(physics, gs.scene, CARS[1]!, -15, -85, Math.PI / 2, 0xe0b020),
     ];
     this.cars = [this.player, ...this.dummies];
+    for (const c of this.dummies) this.hookTowers(c);
     this.race = new RaceSystem(deps.map.tracks, deps.hud, deps.map.stages);
     this.race.setCar(this.player.def.id);
     this.hookPlayer();
@@ -119,6 +120,15 @@ export class Game {
 
   private hookPlayer(): void {
     this.player.damage.addImpactListener((i) => this.d.audio.impact(i));
+    this.hookTowers(this.player);
+  }
+
+  /** A car crashing into a skyscraper's ground floor hits it with its kinetic energy. */
+  private hookTowers(car: GameCar): void {
+    const towers = this.d.map.city.skyscrapers;
+    car.damage.addImpactListener((i) => {
+      if (i.collider >= 0) towers.hit(i.collider, 0.5 * car.vehicle.mass * i.speed * i.speed, i.normal.x, i.normal.z);
+    });
   }
 
   // ---- actions (keys, garage menu, HUD button, debug API) ---------------------------------------
@@ -168,6 +178,8 @@ export class Game {
   }
 
   teleport(loc: Location): void {
+    // Fallen towers stand again (and their rubble goes) whenever you go somewhere.
+    this.d.map.city.skyscrapers.rebuild();
     this.player.vehicle.placeAt(loc.x, loc.y + 1.0, loc.z, loc.yaw);
     this.safe = { x: loc.x, y: loc.y, z: loc.z, yaw: loc.yaw };
     this.race.reset();
@@ -198,6 +210,8 @@ export class Game {
     for (let i = 0; i < cars.length; i++) cars[i]!.fixedUpdate(FIXED_DT, this.inputFor(cars[i]!, cmd));
     this.d.physics.step();
     for (let i = 0; i < cars.length; i++) cars[i]!.vehicle.afterPhysicsStep();
+    // Breaks and collapses from this step's crashes, now that no car holds a collider of it.
+    this.d.map.city.skyscrapers.flush();
     this.simTime += FIXED_DT;
   }
 

@@ -24,6 +24,8 @@ export interface CrushEvent {
   point: THREE.Vector3;
   /** Approach speed at the contact (m/s). */
   speed: number;
+  /** What the zone crushed against. */
+  collider: RAPIER.Collider | null;
 }
 
 /** What the crush system needs from the vehicle (kept minimal so it stays testable). */
@@ -117,7 +119,7 @@ export class CrushSystem {
     this.envHalf = envelope.half;
     this.local = rays.map((r) => new THREE.Vector3(...r.origin));
     this.localDir = rays.map((r) => new THREE.Vector3(...r.dir));
-    this.ev = { ray: rays[0]!, deltaDepth: 0, energy: 0, point: new THREE.Vector3(), speed: 0 };
+    this.ev = { ray: rays[0]!, deltaDepth: 0, energy: 0, point: new THREE.Vector3(), speed: 0, collider: null };
   }
 
   private readonly envCenter: THREE.Vector3;
@@ -336,6 +338,7 @@ export class CrushSystem {
         e.energy = fmax * dc;
         e.point.copy(_hp);
         e.speed = Math.max(vn, 0);
+        e.collider = h.collider;
         this.onCrush(e);
       }
     }

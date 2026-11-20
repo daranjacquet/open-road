@@ -13,6 +13,8 @@ export interface ImpactInfo {
   normal: THREE.Vector3;
   speed: number;
   part: string;
+  /** Handle of the collider the car crushed against (-1 if unknown). */
+  collider: number;
 }
 
 export type Zone = 'front' | 'rear' | 'left' | 'right' | 'roof';
@@ -70,7 +72,7 @@ export class DamageModel {
   /** Peak bump-stop speed of the landing in progress, and landing damage so far, per wheel. */
   private readonly landPeak = [0, 0, 0, 0];
   private readonly landDamage = [0, 0, 0, 0];
-  private readonly impact: ImpactInfo = { energy: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), speed: 0, part: '' };
+  private readonly impact: ImpactInfo = { energy: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), speed: 0, part: '', collider: -1 };
   private readonly rayWheelWeight: Float32Array[]; // [wheel][ray]
 
   constructor(
@@ -103,6 +105,7 @@ export class DamageModel {
       i.normal.copy(_n);
       i.speed = e.speed;
       i.part = e.ray.part;
+      i.collider = e.collider ? e.collider.handle : -1;
       for (const fn of this.impactListeners) fn(i);
     }
   }
