@@ -288,6 +288,7 @@ export class Game {
       rig: d.rig,
       map: d.map,
       resolution: d.resolution,
+      renderer: d.gs.renderer,
       frameStats: this.frameStats,
       frame: (now: number) => this.frame(now),
       get garage() {

@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { GameAudio } from './audio/audio';
 import { Input } from './core/input';
 import { createPhysics } from './core/physics';
@@ -74,6 +75,24 @@ async function boot(): Promise<void> {
     .name('Resolution scale')
     .onChange((v: string) => (resolution.fixed = v === 'auto' ? null : Number(v)));
   gfx.close();
+
+  status('Preparing graphics…');
+  try {
+    await gs.renderer.compileAsync(gs.scene, gs.camera);
+  } catch (err) {
+    console.warn('[boot] Shader compilation failed; it will happen on first render.', err);
+  }
+  mark('shaders');
+  // Upload every texture now rather than on the first frame.
+  const textures = new Set<THREE.Texture>();
+  gs.scene.traverse((o) => {
+    const mats = (o as THREE.Mesh).material;
+    for (const m of Array.isArray(mats) ? mats : mats ? [mats] : []) {
+      for (const v of Object.values(m)) if (v instanceof THREE.Texture) textures.add(v);
+    }
+  });
+  for (const t of textures) gs.renderer.initTexture(t);
+  mark('textures');
 
   // Keep the API object as is (its getters stay live) and add the boot timings to it.
   (window as unknown as { game: unknown }).game = Object.assign(game.debugApi(), { boot: bootTimes });
