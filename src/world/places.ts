@@ -95,6 +95,24 @@ function decal(b: StaticBatch, mat: THREE.Material, x: number, y: number, z: num
   b.add(g, mat, x, y, z, yaw, 0, 0, false);
 }
 
+/**
+ * A decal that follows the ground (2 m grid, `lift` above it): forecourts, squares and car parks
+ * next to roads, where the ground is not quite flat.
+ */
+function groundDecal(b: StaticBatch, hm: Heightmap, mat: THREE.Material, x: number, z: number, w: number, d: number, yaw = 0, lift = 0.03): void {
+  const g = new THREE.PlaneGeometry(w, d, Math.max(1, Math.ceil(w / 2)), Math.max(1, Math.ceil(d / 2))).rotateX(-Math.PI / 2).rotateY(yaw);
+  const pos = g.getAttribute('position') as THREE.BufferAttribute;
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const px = pos.getX(i) + x;
+    const pz = pos.getZ(i) + z;
+    pos.setXYZ(i, px, hm.heightAt(px, pz) + lift, pz);
+    uv.setXY(i, uv.getX(i) * w, uv.getY(i) * d);
+  }
+  g.computeVertexNormals();
+  b.add(g, mat, 0, 0, 0, 0, 0, 0, false);
+}
+
 /** A house with a pitched roof: footprint w (along its front) x d, walls h; front faces yaw. */
 function house(b: StaticBatch, m: PlaceMaterials, x: number, y: number, z: number, w: number, d: number, h: number, yaw: number, wall: THREE.Material, roof: THREE.Material): void {
   b.add(tiledBox(w, h, d, 4, 3), wall, x, y + h / 2, z, yaw);
@@ -125,12 +143,12 @@ export function buildPlaces(physics: Physics, hm: Heightmap, roads: RoadLine[], 
   // ---- village: houses on both sides of the lake road, a church on a little square ----
   {
     const b = new StaticBatch(physics);
-    const lake = road('lake');
+    const lake = road('ring');
     const v = PLACES.village;
     const church = { x: v.x - 34, z: v.z + 6 };
     let lastS = -1e9;
     for (let i = 0; i < lake.n; i++) {
-      const s = (i * lake.length) / (lake.n - 1);
+      const s = i * lake.ds;
       if (Math.hypot(lake.x[i]! - v.x, lake.z[i]! - v.z) > 150 || s - lastS < 19) continue;
       lastS = s;
       for (const side of [1, -1]) {
@@ -154,7 +172,11 @@ export function buildPlaces(physics: Physics, hm: Heightmap, roads: RoadLine[], 
     b.add(gableRoof(11, 22, 4.5), m.slate, church.x, cy + 9, church.z);
     b.box(church.x, cy + 11, church.z + 12.5, 5, 22, 5, m.stone, 0, 3);
     b.add(new THREE.ConeGeometry(3.7, 9, 4).rotateY(Math.PI / 4), m.slate, church.x, cy + 26.5, church.z + 12.5);
-    decal(b, m.asphalt, church.x + 20, cy + 0.03, church.z, 26, 34);
+    // The square runs from the church to the road's verge (never over the road).
+    const k = lake.nearest(church.x, church.z).i;
+    const verge = lake.x[k]! - (lake.def.width / 2 + 1.6);
+    const sx0 = church.x + 6;
+    groundDecal(b, hm, m.asphalt, (sx0 + verge) / 2, church.z, verge - sx0, 34);
     spots.push({ name: 'Lake village', x: lake.x[lake.nearest(v.x, v.z).i]!, y: cy, z: lake.z[lake.nearest(v.x, v.z).i]!, yaw: Math.PI });
     b.build(group);
   }
@@ -207,8 +229,13 @@ export function buildPlaces(physics: Physics, hm: Heightmap, roads: RoadLine[], 
     const b = new StaticBatch(physics);
     const p = PLACES.petrol;
     const y = ground(p.x, p.z);
-    decal(b, m.asphalt, p.x, y + 0.025, p.z + 2, 66, 36);
-    surface.fillRect(p.x - 33, p.z - 16, p.x + 33, p.z + 20, ASPHALT);
+    // Forecourt from the shop to the road's verge (never over the road).
+    const east = road('east');
+    const k = east.nearest(p.x, p.z).i;
+    const edge = east.z[k]! - (east.def.width / 2 + 1.6);
+    const back = p.z - 17;
+    groundDecal(b, hm, m.asphalt, p.x, (back + edge) / 2, 66, edge - back);
+    surface.fillRect(p.x - 33, back, p.x + 33, edge, ASPHALT);
     // Canopy on four pillars, two pump islands.
     b.add(new THREE.BoxGeometry(22, 0.7, 12), m.white, p.x, y + 5.6, p.z);
     b.add(new THREE.BoxGeometry(22.1, 0.55, 12.1), m.accent, p.x, y + 5.67, p.z, 0, 0, 0, false);
@@ -257,8 +284,6 @@ export function buildPlaces(physics: Physics, hm: Heightmap, roads: RoadLine[], 
     const ax = 690;
     decal(b, m.asphalt, ax, y + 0.022, tz + 40, 260, 64);
     surface.fillRect(ax - 130, tz, ax + 130, tz + 72, ASPHALT);
-    decal(b, m.asphalt, 630, y + 0.022, tz + 82, 26, 24);
-    surface.fillRect(617, tz + 66, 643, tz + 96, ASPHALT);
     // Hangars with arched roofs on the apron's west and east ends.
     for (const hx of [ax - 160, ax + 160]) {
       const hz = tz + 46;
@@ -366,23 +391,25 @@ export function buildPlaces(physics: Physics, hm: Heightmap, roads: RoadLine[], 
   // ---- summit viewpoint on the pass: car park, parapet, chalet ----
   {
     const b = new StaticBatch(physics);
-    const pass = road('pass');
+    const pass = road('ring');
     const v = PLACES.viewpoint;
     const i = pass.nearest(v.x, v.z).i;
     const yaw = Math.atan2(pass.tx[i]!, pass.tz[i]!);
     const y = pass.y[i]!;
     // Car park on the downhill (south) side of the road.
     const side = pass.leftZ(i) < 0 ? 1 : -1;
-    const px = pass.x[i]! + pass.leftX(i) * 17 * side;
-    const pz = pass.z[i]! + pass.leftZ(i) * 17 * side;
+    // From the road's verge (5.6 m off its centre) out to 26 m.
+    const px = pass.x[i]! + pass.leftX(i) * 15.8 * side;
+    const pz = pass.z[i]! + pass.leftZ(i) * 15.8 * side;
     const gy = ground(px, pz);
-    decal(b, m.asphalt, px, gy + 0.03, pz, 34, 18, yaw);
+    // 18 m deep (across the road), 34 m long (along it).
+    groundDecal(b, hm, m.asphalt, px, pz, 20.4, 34, yaw);
     surface.fillRect(px - 17, pz - 17, px + 17, pz + 17, ASPHALT);
     for (let k = -14; k <= 14; k += 3.5) {
-      decal(b, m.paint, px + Math.sin(yaw) * k + pass.leftX(i) * side * 3, gy + 0.04, pz + Math.cos(yaw) * k + pass.leftZ(i) * side * 3, 0.15, 5, yaw);
+      groundDecal(b, hm, m.paint, px + Math.sin(yaw) * k + pass.leftX(i) * side * 3, pz + Math.cos(yaw) * k + pass.leftZ(i) * side * 3, 5, 0.15, yaw, 0.045);
     }
-    const wx = px + pass.leftX(i) * side * 9.6;
-    const wz = pz + pass.leftZ(i) * side * 9.6;
+    const wx = px + pass.leftX(i) * side * 10.8;
+    const wz = pz + pass.leftZ(i) * side * 10.8;
     b.box(wx, gy + 0.45, wz, 0.6, 0.9, 34, m.stone, yaw, 1);
     b.box(wx - pass.leftX(i) * side * 1.2, gy + 0.6, wz - pass.leftZ(i) * side * 1.2, 0.15, 1.2, 0.15, m.metal);
     b.add(new THREE.CylinderGeometry(0.15, 0.2, 0.8, 8).rotateX(-0.6), m.metal, wx - pass.leftX(i) * side * 1.2, gy + 1.3, wz - pass.leftZ(i) * side * 1.2, yaw);

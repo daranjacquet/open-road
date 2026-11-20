@@ -63,6 +63,16 @@ export function padDistance(p: Pad, x: number, z: number): number {
   return Math.max(0, Math.hypot(x - cx, z - cz) - r);
 }
 
+/** How far (x, z) lies inside a pad's shape (m; 0 or less outside). */
+export function padInset(p: Pad, x: number, z: number): number {
+  if (p.rect) {
+    const [x0, z0, x1, z1] = p.rect;
+    return Math.min(x - x0, x1 - x, z - z0, z1 - z);
+  }
+  const [cx, cz, r] = p.disc!;
+  return r - Math.hypot(x - cx, z - cz);
+}
+
 /**
  * Rolling hills, the mountain range (+z), the forest hills (-x) (before flattening). `valley` (0..1)
  * calms the relief near the roads: they follow valleys and saddles, as real roads do.
@@ -152,55 +162,37 @@ export const DRIFT: TrackDef = {
  */
 export const ROADS: RoadDef[] = [
   {
-    id: 'pass',
-    name: 'Mountain pass',
+    // One loop, so it flows without a seam: up the mountain pass, down to the lake, through the
+    // village, past the airfield and the farm, through the forest and past the quarry.
+    id: 'ring',
+    name: 'Ring road',
     width: 8,
     maxGrade: 0.1,
-    startY: 0,
+    closed: true,
+    dryAbove: { x: LAKE.x, z: LAKE.z, r: LAKE.r * 1.4 + 120, y: WATER_LEVEL + 1.2 },
     points: [
-      [0, 862], [0, 960], [12, 1060], [70, 1140], [170, 1190], [280, 1220], [350, 1280], [345, 1350],
-      [270, 1385], [160, 1405], [80, 1450], [75, 1520], [150, 1565], [270, 1585], [395, 1610], [520, 1590],
-      [640, 1520], [760, 1420], [880, 1300], [1010, 1170], [1140, 1040], [1250, 900], [1240, 760],
+      [12, 1060], [70, 1140], [170, 1190], [280, 1220], [350, 1280], [345, 1350], [270, 1385], [160, 1405],
+      [80, 1450], [75, 1520], [150, 1565], [270, 1585], [395, 1610], [520, 1590], [640, 1520], [760, 1420],
+      [880, 1300], [1010, 1170], [1140, 1040], [1250, 900], [1240, 760], [1170, 640], [1105, 500], [1080, 340],
+      [1085, 180], [1110, 40], [1135, -90], [1140, -230], [1120, -360], [1110, -520], [1140, -700], [1200, -880],
+      [1230, -1060], [1180, -1200], [1060, -1250], [900, -1215], [700, -1205], [500, -1205], [300, -1215],
+      [130, -1230], [-60, -1300], [-280, -1360], [-500, -1380], [-650, -1345], [-800, -1300], [-980, -1280],
+      [-1150, -1180], [-1300, -1000], [-1400, -800], [-1440, -600], [-1420, -420], [-1360, -290], [-1300, -120],
+      [-1350, 60], [-1450, 220], [-1480, 400], [-1400, 580], [-1270, 720], [-1180, 880], [-1080, 1040],
+      [-930, 1130], [-760, 1160], [-560, 1150], [-380, 1110], [-220, 1070], [-100, 1050],
     ],
   },
-  {
-    id: 'lake',
-    name: 'Lake road',
-    width: 8,
-    minY: 1.2,
-    points: [
-      [1240, 760], [1170, 640], [1105, 500], [1080, 340], [1085, 180], [1110, 40], [1135, -90], [1140, -230],
-      [1120, -360], [1110, -520], [1140, -700], [1200, -880], [1230, -1060], [1180, -1200], [1060, -1250],
-    ],
-  },
-  {
-    id: 'south',
-    name: 'Southern road',
-    width: 8,
-    points: [
-      [1060, -1250], [900, -1215], [700, -1205], [500, -1205], [300, -1215], [130, -1230], [-60, -1300],
-      [-280, -1360], [-500, -1380], [-650, -1345], [-800, -1300], [-980, -1280], [-1150, -1180], [-1300, -1000],
-      [-1400, -800], [-1440, -600], [-1420, -420], [-1360, -290],
-    ],
-  },
-  {
-    id: 'forest',
-    name: 'Forest road',
-    width: 7.5,
-    maxGrade: 0.1,
-    points: [
-      [-1360, -290], [-1300, -120], [-1350, 60], [-1450, 220], [-1480, 400], [-1400, 580], [-1270, 720],
-      [-1180, 880], [-1080, 1040], [-930, 1130], [-760, 1160], [-560, 1150], [-380, 1110], [-220, 1070],
-      [-100, 1050], [12, 1060],
-    ],
-  },
-  { id: 'east', name: 'East road', width: 8, startY: 0, points: [[857, -360], [930, -362], [1000, -355], [1060, -345], [1120, -335]] },
-  { id: 'airport', name: 'Airfield road', width: 8, startY: 0, points: [[630, -847], [632, -950], [628, -1060], [630, -1205]] },
+  // Spurs: each starts at the edge of a flat asphalt area (or on the loop) and ends on the loop.
+  { id: 'pass', name: 'Pass road', width: 8, maxGrade: 0.1, startY: 0.03, points: [[0, 860], [0, 960], [12, 1060]] },
+  { id: 'east', name: 'East road', width: 8, startY: 0.03, points: [[857, -360], [930, -362], [1000, -355], [1060, -345], [1120, -335]] },
+  // From the loop into the airfield apron.
+  { id: 'apron', name: 'Apron access', width: 10, lines: false, points: [[630, -1205], [630, -1224], [630, -1244]] },
+  { id: 'airport', name: 'Airfield road', width: 8, startY: 0.03, points: [[630, -847], [632, -950], [628, -1060], [630, -1205]] },
   {
     id: 'west',
     name: 'West road',
     width: 8,
-    startY: 0,
+    startY: 0.03,
     points: [[-160, -110], [-300, -115], [-450, -120], [-600, -130], [-760, -140], [-920, -150], [-1080, -150], [-1220, -135], [-1300, -120]],
   },
   {

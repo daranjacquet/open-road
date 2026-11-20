@@ -139,8 +139,8 @@ export function drawOverview(hm: Heightmap, roads: RoadLine[], pixels: Uint8Clam
     const pts: [number, number][] = [];
     for (let i = 0; i < r.n; i += 2) pts.push([r.x[i]!, r.z[i]!]);
     const gravel = r.def.surface === 'gravel';
-    stroke(pts, r.def.width / scale + 2.5, gravel ? '#6f5a3e' : '#3b3c40');
-    stroke(pts, r.def.width / scale, gravel ? '#b49a70' : '#e9e2cc');
+    stroke(pts, r.def.width / scale + 2.5, gravel ? '#6f5a3e' : '#3b3c40', r.closed);
+    stroke(pts, r.def.width / scale, gravel ? '#b49a70' : '#e9e2cc', r.closed);
   }
   return { canvas, scale, half };
 }

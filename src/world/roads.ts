@@ -2,8 +2,7 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { GROUP, groups, type Physics } from '../core/physics';
 import type { Heightmap } from './heightmap';
-import { smoothstep } from './noise';
-import { ROAD_SINK, type RoadLine } from './roadline';
+import { junctionSurface, ROAD_SINK, type RoadLine, type SurfaceY } from './roadline';
 import { DIRT, type SurfaceMap } from './surface';
 
 /** Gravel verge on each side of the asphalt (m). */
@@ -13,7 +12,7 @@ const PIECE = 120;
 /** Texture period along the road (m): one centre dash and its gap. */
 const PERIOD = 12;
 
-function roadTexture(gravelOnly: boolean): THREE.CanvasTexture {
+function roadTexture(gravelOnly: boolean, painted = true): THREE.CanvasTexture {
   const w = 256;
   const h = 512;
   const c = document.createElement('canvas');
@@ -51,7 +50,7 @@ function roadTexture(gravelOnly: boolean): THREE.CanvasTexture {
     }
   }
   g.putImageData(img, 0, 0);
-  if (!gravelOnly) {
+  if (!gravelOnly && painted) {
     g.fillStyle = 'rgba(236, 234, 222, 0.92)';
     const line = Math.max(3, px(0.15));
     g.fillRect(s0 + px(0.25), 0, line, h);
@@ -75,6 +74,8 @@ function roadTexture(gravelOnly: boolean): THREE.CanvasTexture {
 
 export interface RoadMaterials {
   asphalt: THREE.MeshStandardMaterial;
+  /** Asphalt without markings (aprons, access lanes). */
+  plain: THREE.MeshStandardMaterial;
   gravel: THREE.MeshStandardMaterial;
   concrete: THREE.MeshStandardMaterial;
   rail: THREE.MeshStandardMaterial;
@@ -83,42 +84,10 @@ export interface RoadMaterials {
 export function roadMaterials(): RoadMaterials {
   return {
     asphalt: new THREE.MeshStandardMaterial({ map: roadTexture(false), roughness: 0.9 }),
+    plain: new THREE.MeshStandardMaterial({ map: roadTexture(false, false), roughness: 0.9 }),
     gravel: new THREE.MeshStandardMaterial({ map: roadTexture(true), roughness: 1 }),
     concrete: new THREE.MeshStandardMaterial({ color: 0xa3a19b, roughness: 0.9 }),
     rail: new THREE.MeshStandardMaterial({ color: 0xb7bcc2, roughness: 0.35, metalness: 0.7 }),
-  };
-}
-
-/** Height of a road's surface at sample i, `off` m to its left (negative: right). */
-type SurfaceY = (i: number, off: number) => number;
-
-/**
- * Where a road starts or ends on an earlier one, its last metres take the other road's surface
- * (its grade and camber included), just under it: no step, no flicker, no ground showing through.
- */
-function junctionSurface(road: RoadLine, earlier: RoadLine[]): SurfaceY {
-  const ds = road.length / (road.n - 1);
-  const ends = [0, road.n - 1]
-    .map((i) => ({ i, other: earlier.find((o) => o.nearest(road.x[i]!, road.z[i]!).dist < 8) }))
-    .filter((e): e is { i: number; other: RoadLine } => e.other !== undefined);
-  return (i, off) => {
-    let y = road.y[i]!;
-    for (const e of ends) {
-      if (Math.abs(i - e.i) * ds > 24) continue;
-      const o = e.other;
-      const px = road.x[i]! + road.leftX(i) * off;
-      const pz = road.z[i]! + road.leftZ(i) * off;
-      const k = o.nearest(px, pz).i;
-      const ods = o.length / (o.n - 1);
-      const k0 = Math.max(0, k - 1);
-      const k1 = Math.min(o.n - 1, k + 1);
-      const slope = (o.y[k1]! - o.y[k0]!) / ((k1 - k0) * ods);
-      const along = (px - o.x[k]!) * o.tx[k]! + (pz - o.z[k]!) * o.tz[k]!;
-      const lat = Math.abs((px - o.x[k]!) * o.leftX(k) + (pz - o.z[k]!) * o.leftZ(k));
-      const w = 1 - smoothstep(o.def.width / 2 + 1, o.def.width / 2 + 10, lat);
-      y += (o.y[k]! + slope * along - 0.015 - y) * w;
-    }
-    return y;
   };
 }
 
@@ -126,7 +95,8 @@ const _l = new THREE.Vector3();
 const _t = new THREE.Vector3();
 const _n = new THREE.Vector3();
 
-/** Visible ribbon of samples [a, b]: verges, asphalt, and skirts down to the ground. */
+/** Visible ribbon of samples [a, b] (b may run past the last sample of a loop): verges, asphalt,
+ * and skirts down to the ground. */
 function pieceGeometry(road: RoadLine, a: number, b: number, surfaceY: SurfaceY): THREE.BufferGeometry {
   const hw = road.def.width / 2;
   const total = road.def.width + 2 * SHOULDER;
@@ -134,7 +104,7 @@ function pieceGeometry(road: RoadLine, a: number, b: number, surfaceY: SurfaceY)
   const nor: number[] = [];
   const uv: number[] = [];
   const idx: number[] = [];
-  const ds = road.length / (road.n - 1);
+  const ds = road.ds;
   // Cross-section, left to right: outer verge (sunk), asphalt edge, asphalt edge, outer verge.
   const cols = [
     { off: hw + SHOULDER, dy: -ROAD_SINK + 0.02, u: 0 },
@@ -143,16 +113,14 @@ function pieceGeometry(road: RoadLine, a: number, b: number, surfaceY: SurfaceY)
     { off: -hw - SHOULDER, dy: -ROAD_SINK + 0.02, u: 1 },
   ];
   const per = cols.length + 4; // + skirt top and bottom on each side
-  for (let i = a; i <= b; i++) {
+  for (let s = a; s <= b; s++) {
+    const i = road.wrap(s);
     const lx = road.leftX(i);
     const lz = road.leftZ(i);
-    const ip = Math.max(0, i - 1);
-    const inx = Math.min(road.n - 1, i + 1);
-    const grade = (road.y[inx]! - road.y[ip]!) / ((inx - ip) * ds);
-    _t.set(road.tx[i]!, grade, road.tz[i]!).normalize();
+    _t.set(road.tx[i]!, road.slope(i), road.tz[i]!).normalize();
     _l.set(lx, 0, lz);
     _n.crossVectors(_t, _l).normalize();
-    const v = (i * ds) / PERIOD;
+    const v = (s * ds) / PERIOD;
     for (const c of cols) {
       pos.push(road.x[i]! + lx * c.off, surfaceY(i, Math.sign(c.off) * Math.min(Math.abs(c.off), hw)) + c.dy, road.z[i]! + lz * c.off);
       nor.push(_n.x, _n.y, _n.z);
@@ -193,8 +161,9 @@ function pieceCollider(physics: Physics, body: RAPIER.RigidBody, road: RoadLine,
   const { RAPIER, world } = physics;
   const hw = road.def.width / 2 + 0.2;
   const v = new Float32Array((b - a + 1) * 6);
-  for (let i = a; i <= b; i++) {
-    const o = (i - a) * 6;
+  for (let s = a; s <= b; s++) {
+    const i = road.wrap(s);
+    const o = (s - a) * 6;
     v[o] = road.x[i]! + road.leftX(i) * hw;
     v[o + 1] = surfaceY(i, hw);
     v[o + 2] = road.z[i]! + road.leftZ(i) * hw;
@@ -233,14 +202,24 @@ export function buildRoads(physics: Physics, roads: RoadLine[], hm: Heightmap, s
   const pillars: THREE.Matrix4[] = [];
   const decks: THREE.BufferGeometry[] = [];
 
+  // Where roads meet: the ends of every open road (they start or stop on another one, or in a
+  // flat asphalt area).
+  const junctions: [number, number][] = [];
+  for (const road of roads) if (!road.closed) junctions.push([road.x[0]!, road.z[0]!], [road.x[road.n - 1]!, road.z[road.n - 1]!]);
+  const surfaces: SurfaceY[] = [];
+  const nearJunction = (x: number, z: number): boolean => junctions.some(([jx, jz]) => (x - jx) ** 2 + (z - jz) ** 2 < 20 * 20);
+
   for (let r = 0; r < roads.length; r++) {
     const road = roads[r]!;
     const gravel = road.def.surface === 'gravel';
-    const ds = road.length / (road.n - 1);
+    const ds = road.ds;
     const surfaceY = junctionSurface(road, roads.filter((_, k) => k < r));
-    for (let a = 0; a < road.n - 1; a += PIECE) {
-      const b = Math.min(road.n - 1, a + PIECE);
-      const mesh = new THREE.Mesh(pieceGeometry(road, a, b, surfaceY), gravel ? mats.gravel : mats.asphalt);
+    surfaces.push(surfaceY);
+    // A loop's last piece runs back to its first sample.
+    const last = road.closed ? road.n : road.n - 1;
+    for (let a = 0; a < last; a += PIECE) {
+      const b = Math.min(last, a + PIECE);
+      const mesh = new THREE.Mesh(pieceGeometry(road, a, b, surfaceY), gravel ? mats.gravel : road.def.lines === false ? mats.plain : mats.asphalt);
       mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false;
       group.add(mesh);
@@ -249,19 +228,19 @@ export function buildRoads(physics: Physics, roads: RoadLine[], hm: Heightmap, s
     }
     if (gravel) for (let i = 0; i < road.n; i++) surface.fillDisc(road.x[i]!, road.z[i]!, road.def.width / 2 + 1, DIRT);
 
-    // Guard rails: both sides of bridges, and the side where the ground falls away steeply.
+    // Guard rails: both sides of bridges, and the side where the ground falls away steeply; never
+    // across a junction.
     const hw = road.def.width / 2;
     for (const side of [1, -1]) {
-      let run = 0;
-      for (let i = 0; i + 2 < road.n; i += 2) {
+      for (let i = 0; i + 2 < last + 1; i += 2) {
+        const j = road.wrap(i + 2);
+        if (nearJunction(road.x[i]!, road.z[i]!) || nearJunction(road.x[j]!, road.z[j]!)) continue;
         const off = (hw + 0.6) * side;
         const px = road.x[i]! + road.leftX(i) * off;
         const pz = road.z[i]! + road.leftZ(i) * off;
         const drop = road.y[i]! - hm.heightAt(road.x[i]! + road.leftX(i) * (hw + 5) * side, road.z[i]! + road.leftZ(i) * (hw + 5) * side);
         const need = road.bridge[i] === 1 || drop > 2.2;
-        run = need ? run + 1 : 0;
         if (!need) continue;
-        const j = i + 2;
         const qx = road.x[j]! + road.leftX(j) * off;
         const qz = road.z[j]! + road.leftZ(j) * off;
         const len = Math.hypot(qx - px, qz - pz);
@@ -302,6 +281,7 @@ export function buildRoads(physics: Physics, roads: RoadLine[], hm: Heightmap, s
     }
   }
 
+  junctionFillets(roads, surfaces, physics, body, mats, group);
   if (decks.length) {
     for (const g of decks) {
       const m = new THREE.Mesh(g, mats.concrete);
@@ -343,6 +323,111 @@ export function buildRoads(physics: Physics, roads: RoadLine[], hm: Heightmap, s
     group.add(rm);
   }
   return { group, rails: rails.length };
+}
+
+/**
+ * Rounded asphalt corners where a road ends on another one (both sides of the mouth): a fan from
+ * the corner to a curve tangent to the two road edges, at the main road's surface height.
+ */
+function junctionFillets(roads: RoadLine[], surfaces: SurfaceY[], physics: Physics, body: RAPIER.RigidBody, mats: RoadMaterials, group: THREE.Group): void {
+  const { RAPIER, world } = physics;
+  const R = 9;
+  const N = 10;
+  const asphalt: number[] = [];
+  const gravel: number[] = [];
+  roads.forEach((road, r) => {
+    if (road.closed) return;
+    for (const end of [0, road.n - 1]) {
+      const main = roads.find((o, k) => k < r && o.nearest(road.x[end]!, road.z[end]!).dist < 1);
+      if (!main) continue;
+      const jx = road.x[end]!;
+      const jz = road.z[end]!;
+      // Direction from the spur into the junction, and the spur's half width.
+      const s = end === 0 ? -1 : 1;
+      const dx = road.tx[end]! * s;
+      const dz = road.tz[end]! * s;
+      const hw = road.def.width / 2;
+      const m = main.nearest(jx, jz).i;
+      const tx = main.tx[m]!;
+      const tz = main.tz[m]!;
+      // The main road's edge on the spur's side.
+      const sideM = -(dx * main.leftX(m) + dz * main.leftZ(m)) >= 0 ? 1 : -1;
+      const ex = jx + main.leftX(m) * (main.def.width / 2) * sideM;
+      const ez = jz + main.leftZ(m) * (main.def.width / 2) * sideM;
+      for (const side of [1, -1]) {
+        const nx = dz * side;
+        const nz = -dx * side;
+        // Spur edge: (jx + nx hw) - d u. Main edge: e + t v. Corner = their intersection.
+        const px = jx + nx * hw;
+        const pz = jz + nz * hw;
+        const det = -dx * tz + dz * tx;
+        if (Math.abs(det) < 0.2) continue; // nearly parallel: no corner to round
+        const u = ((ex - px) * tz - (ez - pz) * tx) / det;
+        const cx = px - dx * u;
+        const cz = pz - dz * u;
+        // Along the main edge, away from the spur on this side.
+        const away = tx * nx + tz * nz >= 0 ? 1 : -1;
+        const ax = cx - dx * R;
+        const az = cz - dz * R;
+        const bx = cx + tx * away * R;
+        const bz = cz + tz * away * R;
+        // Height: the spur's surface along its edge, the main road's along its own, blended
+        // in between by distance to each edge.
+        const spurY = surfaces[r]!;
+        const yAt = (x: number, z: number): number => {
+          const k = main.nearest(x, z).i;
+          const along = (x - main.x[k]!) * main.tx[k]! + (z - main.z[k]!) * main.tz[k]!;
+          const lat = Math.abs((x - main.x[k]!) * main.leftX(k) + (z - main.z[k]!) * main.leftZ(k));
+          const ym = main.y[k]! + main.slope(k) * along;
+          const ks = road.nearest(x, z).i;
+          const latS = (x - road.x[ks]!) * road.leftX(ks) + (z - road.z[ks]!) * road.leftZ(ks);
+          const ys = spurY(ks, Math.sign(latS) * hw);
+          const dm = Math.max(0, lat - main.def.width / 2);
+          const dsp = Math.max(0, Math.abs(latS) - hw);
+          const w = dm + dsp > 1e-3 ? dsp / (dm + dsp) : 0.5;
+          return ys + (ym - ys) * w - 0.02;
+        };
+        const out = road.def.surface === 'gravel' ? gravel : asphalt;
+        let qx = ax;
+        let qz = az;
+        for (let k = 1; k <= N; k++) {
+          const t = k / N;
+          // Quadratic curve A -> B with control point C.
+          const fx = (1 - t) * (1 - t) * ax + 2 * (1 - t) * t * cx + t * t * bx;
+          const fz = (1 - t) * (1 - t) * az + 2 * (1 - t) * t * cz + t * t * bz;
+          // Upward winding.
+          const cross = (qx - cx) * (fz - cz) - (qz - cz) * (fx - cx);
+          const tri = cross < 0 ? [cx, cz, qx, qz, fx, fz] : [cx, cz, fx, fz, qx, qz];
+          for (let v = 0; v < 6; v += 2) out.push(tri[v]!, yAt(tri[v]!, tri[v + 1]!), tri[v + 1]!);
+          qx = fx;
+          qz = fz;
+        }
+      }
+    }
+  });
+  for (const [pos, mat] of [
+    [asphalt, mats.asphalt],
+    [gravel, mats.gravel],
+  ] as const) {
+    if (!pos.length) continue;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    // Plain asphalt (or gravel) from the road texture, away from the painted lines.
+    const uv = new Float32Array((pos.length / 3) * 2);
+    for (let i = 0; i < pos.length / 3; i++) {
+      uv[i * 2] = 0.32;
+      uv[i * 2 + 1] = pos[i * 3]! / PERIOD + pos[i * 3 + 2]! / 37;
+    }
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.computeVertexNormals();
+    g.computeBoundingSphere();
+    const mesh = new THREE.Mesh(g, mat);
+    mesh.receiveShadow = true;
+    mesh.matrixAutoUpdate = false;
+    group.add(mesh);
+    const idx = new Uint32Array(pos.length / 3).map((_, i) => i);
+    world.createCollider(RAPIER.ColliderDesc.trimesh(Float32Array.from(pos), idx).setFriction(1).setCollisionGroups(groups(GROUP.WORLD, 0xffff)), body);
+  }
 }
 
 /** Deck slab under a bridge span: sides and underside, 1.2 m deep, a little wider than the road. */

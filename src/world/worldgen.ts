@@ -3,10 +3,13 @@
  * the roads carved in. Headless (no three.js rendering, no physics), deterministic.
  */
 import { Heightmap } from './heightmap';
-import { baseDetail, baseHeight, baseLow, CELL, CELLS, DRIFT, lakeShape, LAKE, PADS, padDistance, RACE, rimHeight, ROADS, type Pad } from './layout';
+import { baseDetail, baseHeight, baseLow, CELL, CELLS, DRIFT, lakeShape, LAKE, PADS, padDistance, padInset, RACE, rimHeight, ROADS, type Pad } from './layout';
 import { sampledField, smoothstep } from './noise';
 import { carveRoads, RoadLine } from './roadline';
 import { TrackLine, type TrackDef } from './track';
+
+/** Height of a road surface across a flat area (just above the asphalt and ground there). */
+export const ROAD_ON_PAD = 0.03;
 
 export interface World {
   hm: Heightmap;
@@ -191,22 +194,39 @@ export function generateWorld(times?: Record<string, number>): World {
   lap('rim');
   // Roads, in order: a road that starts or ends on an earlier one takes its height there.
   const natural = (x: number, z: number): number => hm.heightAt(x, z);
+  // The flat areas the spurs start from (asphalt already there): never carved, and a road crossing
+  // them stays just on top of them.
+  const startPads = PADS.filter((p) => p.name === 'test area' || p.name === 'city' || p.name === 'airfield');
+  // 12 m in from their edges, so a road passing just outside still carves its verge.
+  const inStartPad = (x: number, z: number): boolean => startPads.some((p) => padInset(p, x, z) >= 12);
+  const floorAt = (x: number, z: number): number => (inStartPad(x, z) ? ROAD_ON_PAD : -Infinity);
   const roads: RoadLine[] = [];
   for (const def of ROADS) {
-    const pinned = { ...def };
+    // An end that lands on an earlier road is moved exactly onto its centre line and takes its
+    // height there, so the two meet without a gap or a step.
+    const points = def.points.map((p) => [...p] as [number, number]);
     const join = (p: [number, number]): number | undefined => {
       for (const r of roads) {
         const near = r.nearest(p[0], p[1]);
-        if (near.dist < 8) return r.y[near.i]!;
+        if (near.dist < 15) {
+          p[0] = r.x[near.i]!;
+          p[1] = r.z[near.i]!;
+          return r.y[near.i]!;
+        }
       }
       return undefined;
     };
-    if (pinned.startY === undefined) pinned.startY = join(def.points[0]!);
-    if (pinned.endY === undefined) pinned.endY = join(def.points[def.points.length - 1]!);
-    roads.push(new RoadLine(pinned, natural));
+    const pinned = { ...def, points };
+    if (!def.closed) {
+      const startY = join(points[0]!);
+      const endY = join(points[points.length - 1]!);
+      if (pinned.startY === undefined) pinned.startY = startY;
+      if (pinned.endY === undefined) pinned.endY = endY;
+    }
+    roads.push(new RoadLine(pinned, natural, floorAt));
   }
   lap('roads');
-  const roadEdge = carveRoads(hm, roads);
+  const roadEdge = carveRoads(hm, roads, inStartPad);
   lap('carve');
   return { hm, roads, roadEdge };
 }

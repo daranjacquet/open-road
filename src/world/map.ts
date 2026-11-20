@@ -111,6 +111,11 @@ export function createMap(physics: Physics, data: WorldData): GameMap {
     const p = road(id).at(s);
     return { name, ...p };
   };
+  /** The spot of a road nearest to (x, z), heading along it. */
+  const nearRoad = (name: string, id: string, x: number, z: number): Location => {
+    const r = road(id);
+    return { name, ...r.at(r.nearest(x, z).i * r.ds) };
+  };
   const spot = (name: string): Location => places.spots.find((p) => p.name === name)!;
   const locations: Location[] = [
     { name: 'Test area', ...SPAWN },
@@ -124,7 +129,7 @@ export function createMap(physics: Physics, data: WorldData): GameMap {
     spot('Petrol station'),
     spot('Airfield runway'),
     spot('Farm'),
-    onRoad('Forest road', 'forest', 900),
+    nearRoad('Forest road', 'ring', -1180, 880),
     spot('Quarry'),
   ];
 

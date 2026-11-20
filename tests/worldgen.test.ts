@@ -3,7 +3,7 @@ import { createPhysics, FIXED_DT } from '../src/core/physics';
 import { CARS } from '../src/game/catalog';
 import { Vehicle } from '../src/vehicle/Vehicle';
 import { DRIFT, LAKE, lakeRadius, LIMIT, PLACES, RACE, WATER_LEVEL } from '../src/world/layout';
-import { ROAD_SINK } from '../src/world/roadline';
+import { roadSurfaces } from '../src/world/roadline';
 import { createTerrainCollider } from '../src/world/terrain';
 import { TrackLine } from '../src/world/track';
 import { generateWorld, type World } from '../src/world/worldgen';
@@ -37,6 +37,7 @@ describe('world generation', () => {
 
   it('joins the roads end to end (no step where one meets another)', () => {
     for (const r of world.roads) {
+      if (r.closed) continue;
       for (const end of [0, r.n - 1]) {
         for (const o of world.roads) {
           if (o === r) continue;
@@ -63,24 +64,25 @@ describe('world generation', () => {
     for (const [x, z] of points) expect(Math.abs(hm.heightAt(x, z)), `${x}, ${z}`).toBeLessThan(0.05);
   });
 
-  it('never lets the ground poke through the asphalt', () => {
+  it('never lets the ground poke through the asphalt, junctions included', () => {
     const { hm } = world;
+    const surfaces = roadSurfaces(world.roads);
     let worst = -Infinity;
-    // Where a road runs into another one, its last metres take the other's surface (see
-    // junctionSurface in roads.ts), so the profile alone does not apply there: skip them.
-    const underAnother = (r: (typeof world.roads)[number], i: number): boolean =>
-      world.roads.some((o) => o !== r && o.nearest(r.x[i]!, r.z[i]!).dist < o.def.width / 2 + r.def.width / 2 + 12);
-    for (const r of world.roads) {
+    let where = '';
+    world.roads.forEach((r, ri) => {
       const hw = r.def.width / 2;
-      for (let i = 0; i < r.n; i += 3) {
-        if ((i < 30 || i > r.n - 30) && underAnother(r, i)) continue;
-        for (const off of [-hw, 0, hw]) {
-          const g = hm.heightAt(r.x[i]! + r.leftX(i) * off, r.z[i]! + r.leftZ(i) * off);
-          worst = Math.max(worst, g - r.y[i]!);
+      for (let i = 0; i < r.n; i++) {
+        for (const f of [-1, -0.5, 0, 0.5, 1]) {
+          const off = f * hw;
+          const d = hm.heightAt(r.x[i]! + r.leftX(i) * off, r.z[i]! + r.leftZ(i) * off) - surfaces[ri]!(i, off);
+          if (d > worst) {
+            worst = d;
+            where = `${r.def.id} sample ${i}/${r.n} offset ${off}`;
+          }
         }
       }
-    }
-    console.log('highest ground relative to the asphalt', worst.toFixed(3), 'm (sunk by', ROAD_SINK, ')');
+    });
+    console.log('highest ground relative to the asphalt', worst.toFixed(3), 'm at', where);
     expect(worst).toBeLessThan(0);
   });
 
@@ -102,15 +104,15 @@ describe('world generation', () => {
 });
 
 describe('driving the new roads', () => {
-  it('a sedan climbs the steepest stretch of the mountain pass from a standstill', async () => {
-    const pass = world.roads.find((r) => r.def.id === 'pass')!;
+  it('a sedan climbs the steepest stretch of the ring road from a standstill', async () => {
+    const pass = world.roads.find((r) => r.def.id === 'ring')!;
     // Steepest 40 m uphill, away from bridges (the heightfield is carved to the road there).
     let best = 0;
     let at = 0;
     const k = 20;
     for (let i = 0; i + k < pass.n; i++) {
       if (pass.bridge[i] || pass.bridge[i + k]) continue;
-      const g = (pass.y[i + k]! - pass.y[i]!) / (k * pass.step);
+      const g = (pass.y[i + k]! - pass.y[i]!) / (k * pass.ds);
       if (g > best) {
         best = g;
         at = i;
