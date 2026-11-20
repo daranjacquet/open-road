@@ -320,18 +320,8 @@ export class Game {
 
   /** `window.game`: the handle the automated browser checks drive the game with. */
   debugApi(): Record<string, unknown> {
-    const self = this;
     const d = this.d;
-    return {
-      get paused() {
-        return self.paused;
-      },
-      set paused(v: boolean) {
-        self.paused = v;
-      },
-      get player() {
-        return self.player;
-      },
+    const api: Record<string, unknown> = {
       dummies: this.dummies,
       physics: d.physics,
       input: d.input,
@@ -341,9 +331,6 @@ export class Game {
       renderer: d.gs.renderer,
       frameStats: this.frameStats,
       frame: (now: number) => this.frame(now),
-      get garage() {
-        return self.garage;
-      },
       advance: (s: number, drive?: () => DriveInput) => this.advance(s, drive),
       renderNow: () => this.renderNow(),
       renderFrom: (p: [number, number, number], t: [number, number, number]) => this.renderFrom(p, t),
@@ -351,5 +338,12 @@ export class Game {
       teleport: (l: Location) => this.teleport(l),
       repairCar: () => this.repair(),
     };
+    // Live views of state that changes (the player car is replaced on a swap).
+    Object.defineProperties(api, {
+      paused: { get: () => this.paused, set: (v: boolean) => (this.paused = v), enumerable: true },
+      player: { get: () => this.player, enumerable: true },
+      garage: { get: () => this.garage, enumerable: true },
+    });
+    return api;
   }
 }

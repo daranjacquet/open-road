@@ -89,7 +89,7 @@ art/         Blender: procedural car library (lib/, cars/), import pipeline for 
 scripts/     optimize-models.mjs (meshopt compression of the Blender exports)
 ```
 
-Layering: `core` <- `vehicle`, `damage` (simulation, no rendering) <- `render`, `world`, `ui` <- `game` <- `main`. The simulation code never imports the world or the renderer.
+Layering, enforced by ESLint (`npm run lint`, `eslint.config.js`): `core` <- `vehicle`, `damage` (simulation, no rendering) <- `render`, `world`, `audio` <- `game` <- `ui` <- `main`. Only type-only imports may point up (damage names render's mesh types, game names the HUD and garage types). `npm run check` runs lint, types and tests; CI runs lint, tests and the build before deploying.
 
 **Performance**: the render resolution adapts to the frame rate (pixel ratio 0.6 to 1.5; *Garage > Graphics* pins it), the physics loop does not allocate, and a crash's dent normals are recomputed under a per-frame budget. See [docs/AUDIT.md](docs/AUDIT.md) for measurements.
 

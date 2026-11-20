@@ -7,19 +7,12 @@ import type { CrushRay } from '../damage/rays';
 import { absScale, espControl, tcScale, type EspOut } from './assists';
 import { autoShift, engineTorque, totalRatio, type GearState } from './drivetrain';
 import { ackermann, SteeringController, type SteerContext } from './steering';
+import type { DriveInput } from '../core/input';
+
+export type { DriveInput } from '../core/input';
 import { tireForces, type TireOut } from './tire';
 import type { AxleSuspension, TireParams, VehicleConfig } from './types';
 
-export interface DriveInput {
-  /** 0..1 */
-  throttle: number;
-  /** 0..1 (also reverse when stopped) */
-  brake: number;
-  /** -1..1, +1 = left */
-  steer: number;
-  /** 0..1 */
-  handbrake: number;
-}
 
 export interface Assists {
   tc: boolean;
@@ -335,8 +328,8 @@ export class Vehicle {
 
   /** Enable crumple zones from rays measured on the visible shell. */
   attachCrush(rays: CrushRay[]): CrushSystem {
-    let min = [Infinity, Infinity, Infinity];
-    let max = [-Infinity, -Infinity, -Infinity];
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
     for (const r of rays) {
       for (const p of [r.origin, r.surface]) {
         for (let k = 0; k < 3; k++) {

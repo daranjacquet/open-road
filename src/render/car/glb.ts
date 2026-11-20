@@ -247,7 +247,13 @@ export function modelFromTemplate(template: THREE.Group, opts: BuildOptions = {}
         disposables.push(mat);
         const nrmArr = g.getAttribute('normal')?.array as Float32Array | undefined;
         const avg = new THREE.Vector3();
-        if (nrmArr) for (let k = 0; k < nrmArr.length; k += 3) avg.x += nrmArr[k]!, avg.y += nrmArr[k + 1]!, avg.z += nrmArr[k + 2]!;
+        if (nrmArr) {
+          for (let k = 0; k < nrmArr.length; k += 3) {
+            avg.x += nrmArr[k]!;
+            avg.y += nrmArr[k + 1]!;
+            avg.z += nrmArr[k + 2]!;
+          }
+        }
         if (avg.lengthSq() === 0) avg.set(0, 0, 1);
         const uniforms = makeCrackable(mat, avg);
         tunePaintGlass(mat);

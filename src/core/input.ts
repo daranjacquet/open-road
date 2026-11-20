@@ -1,5 +1,16 @@
 import { clamp, damp, moveToward } from './math';
-import type { DriveInput } from '../vehicle/Vehicle';
+
+/** What the driver asks of a car this step (keyboard, gamepad, AI or a test script). */
+export interface DriveInput {
+  /** 0..1 */
+  throttle: number;
+  /** 0..1 (also reverse when stopped) */
+  brake: number;
+  /** -1..1, +1 = left */
+  steer: number;
+  /** 0..1 */
+  handbrake: number;
+}
 
 /** Keyboard + gamepad input. One call to `sample(dt)` per rendered frame returns the drive command. */
 export class Input {
