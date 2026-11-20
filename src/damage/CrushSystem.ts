@@ -55,6 +55,9 @@ export class CrushSystem {
   static softStart = 0.85;
   /** Permanent crush depth per ray (m). */
   readonly crush: Float32Array;
+  /** Indices of the rays that have crushed at all, so crushNear only looks at those. */
+  private readonly crushed: Int32Array;
+  private crushedCount = 0;
   /** Energy absorbed per ray (J). */
   readonly work: Float32Array;
   /** Last contact force per ray (N), for debug. */
@@ -90,6 +93,7 @@ export class CrushSystem {
   ) {
     const n = rays.length;
     this.crush = new Float32Array(n);
+    this.crushed = new Int32Array(n);
     this.work = new Float32Array(n);
     this.force = new Float32Array(n);
     this.ray = new physics.RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
@@ -106,7 +110,9 @@ export class CrushSystem {
   crushNear(x: number, y: number, z: number, r = 0.5): number {
     let m = 0;
     const r2 = r * r;
-    for (let i = 0; i < this.rays.length; i++) {
+    // Rays that never crushed cannot raise the maximum: only visit the crushed ones.
+    for (let k = 0; k < this.crushedCount; k++) {
+      const i = this.crushed[k]!;
       const s = this.rays[i]!.surface;
       const dx = s[0] - x;
       const dy = s[1] - y;
@@ -123,6 +129,7 @@ export class CrushSystem {
 
   reset(): void {
     this.crush.fill(0);
+    this.crushedCount = 0;
     this.work.fill(0);
     this.force.fill(0);
     this.energy = 0;
@@ -235,6 +242,7 @@ export class CrushSystem {
         F = fmax;
         if (p > rd.yield && this.grace === 0) {
           dc = Math.min(p - rd.yield, reach - 0.005);
+          if (c === 0) this.crushed[this.crushedCount++] = i;
           this.crush[i] = c + dc;
           this.work[i] = this.work[i]! + fmax * dc;
           this.energy += fmax * dc;

@@ -295,10 +295,6 @@ export class Deformer {
       // Contact point in the chassis frame.
       _v.copy(c.point).sub(carPos).applyQuaternion(_qi);
       const inward = _d.copy(c.dir).negate();
-      // The obstacle overlap also holds the elastic travel of the bumper (which springs back), and
-      // against another car we only see its undeformed outline: cap the dent to what our own
-      // crumple zone actually took for good there, so the metal follows the physics.
-      const cap = crushNear ? crushNear(_v.x, _v.y, _v.z) * 1.1 + 0.01 : Infinity;
       const handle = c.collider.handle;
       this.forBox(_v.x - R, _v.y - R, _v.z - R, _v.x + R, _v.y + R, _v.z + R, (i, ix, iy, iz) => {
         if (this.flag[i] === 1) return;
@@ -331,6 +327,11 @@ export class Deformer {
         let ny = this.D[o + 1]! + inward.y * toi;
         let nz = this.D[o + 2]! + inward.z * toi;
         const len = Math.hypot(nx, ny, nz);
+        // The obstacle overlap also holds the elastic travel of the bumper (which springs back), and
+        // against another car we only see its undeformed outline: cap the dent to what our own
+        // crumple zone actually took for good at this node, so the metal follows the physics. The
+        // cap belongs to the node, not to the contact, so it does not matter which contact got here first.
+        const cap = crushNear ? crushNear(this.origin.x + ix * H, this.origin.y + iy * H, this.origin.z + iz * H) * 1.1 + 0.01 : Infinity;
         if (len > cap) {
           const k = Math.max(cap, Math.hypot(this.D[o]!, this.D[o + 1]!, this.D[o + 2]!)) / len;
           nx *= k;

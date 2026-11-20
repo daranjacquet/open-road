@@ -28,6 +28,8 @@ export interface GameDeps {
   audio: GameAudio;
   debug: DebugOverlay;
   resolution: AdaptiveResolution;
+  /** Unrecoverable error (the game is paused): show it to the player. */
+  onFatal?: (message: string) => void;
 }
 
 const CAR_KEY = 'open-road:car';
@@ -98,7 +100,10 @@ export class Game {
 
   /** Switch the player's car, loading its model first if it is not loaded yet. */
   async swapCar(id: string): Promise<void> {
-    if (this.swapping) return;
+    if (this.swapping) {
+      this.garage.syncCar();
+      return;
+    }
     this.swapping = true;
     try {
       if (!getCarTemplate(id)) {
@@ -107,6 +112,7 @@ export class Game {
           await ensureCarTemplate(id, import.meta.env.BASE_URL);
         } catch {
           this.d.hud.toast('Could not load this car', 1500);
+          this.garage.syncCar();
           return;
         }
       }
@@ -133,7 +139,7 @@ export class Game {
 
   nextCar(): void {
     const i = CARS.findIndex((c) => c.id === this.player.def.id);
-    void this.swapCar(CARS[(i + 1) % CARS.length]!.id);
+    this.swapCar(CARS[(i + 1) % CARS.length]!.id).catch((err) => console.error('[swapCar]', err));
   }
 
   teleport(loc: Location): void {
@@ -241,7 +247,16 @@ export class Game {
 
     this.stepper.advance(frameDt, this.res);
     const p0 = performance.now();
-    for (let i = 0; i < this.res.steps; i++) this.step(cmd);
+    try {
+      for (let i = 0; i < this.res.steps; i++) this.step(cmd);
+    } catch (err) {
+      // A panic inside the physics engine leaves its state unusable: stop and offer a reload
+      // rather than throwing every frame.
+      console.error('[physics]', err);
+      this.paused = true;
+      this.d.onFatal?.('The physics engine stopped working.');
+      return;
+    }
     if (this.res.steps > 0) this.physMs = (performance.now() - p0) / this.res.steps;
     this.lap('physics');
 

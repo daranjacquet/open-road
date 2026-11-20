@@ -114,16 +114,16 @@ Measured on the production build (`vite preview`, frames driven at 60 Hz with a 
 | --- | --- | --- |
 | First frame after the loading screen | 311 ms | 45-59 ms (shaders and textures prepared under the loading screen) |
 | Car files before the first frame | 3 (4.0 MB), after physics init | 2 (2.6 MB), in parallel with physics init; the third loads in the background |
-| Worst frame of a warm 70 km/h wall crash | 21-24 ms (saloon), 26 ms (4x4) | 9.3 ms (saloon), 13.7 ms (4x4), 9.5 ms (supercar) |
+| Worst frame of a warm 70 km/h wall crash | 21-24 ms (saloon), 26 ms (4x4) | 10-11 ms (saloon), 13 ms (4x4), 9.5-10.5 ms (supercar) |
 | First frame after switching to a car loaded later | 140 ms | 37 ms |
 | Idle frame, p50 / CPU | 3.2-3.7 ms / 1.2 ms | unchanged |
 
 What changed:
 
-- **Crash cost**: `Deformer.imprint` handles each lattice node once per obstacle per step (it was redone by every contact: 21 contacts and about 20,000 node updates per step on the 4x4); `updateMeshes` uses precomputed wear noise and inverse matrices, skips unchanged vertices and no longer allocates.
+- **Crash cost**: `Deformer.imprint` handles each lattice node once per obstacle per step (it was redone by every contact: 21 contacts and about 20,000 node updates per step on the 4x4); `updateMeshes` uses precomputed wear noise and inverse matrices, skips unchanged vertices and no longer allocates. The crush cap of each node is read at the node itself, from the crush rays that have actually crushed.
 - **Loading**: physics and car downloads in parallel, byte progress, cars not on screen loaded after the first frame; `render/warmup.ts` compiles shaders against the game scene and uploads textures, at boot and for cars loaded later.
-- **Robustness**: a watchdog resets a car whose state goes non-finite; a full-screen error with Reload for a failed boot or a lost WebGL context; the audio ignores non-finite input.
-- **Architecture**: ESLint with enforced layering (`core <- vehicle, damage <- render, world, audio <- game <- ui <- main`, type-only imports may point up), lint in CI; `Vehicle.fixedUpdate` split into 12 named phases with one reused step object; `WheelState` and tyre helpers in their own modules; boot and per-frame timings (`window.game.boot`, `frameStats`, debug overlay).
+- **Robustness**: a watchdog resets a car whose state goes non-finite; a full-screen error with Reload for a failed boot or a lost WebGL context; the audio ignores non-finite input; an exception in the physics step pauses the game and shows the error instead of failing every frame; the garage car menu goes back to the car actually driven when a switch fails.
+- **Architecture**: ESLint with enforced layering (`core <- vehicle, damage <- render, world, audio, debug <- game <- ui <- main`; type-only imports allowed only from damage to render and from game to ui), lint in CI; `Vehicle.fixedUpdate` split into 12 named phases with one reused step object; `WheelState` and tyre helpers in their own modules; boot and per-frame timings (`window.game.boot`, `frameStats`, debug overlay).
 - **Checks**: 68 tests, lint, types, build; gitleaks (history and tree), npm audit (production) and Semgrep: nothing found.
 
 Not done: Rapier without the base64-inlined WASM (`@dimforge/rapier3d` would save about 0.6 MB gzipped but needs a WASM plugin and top-level await in the build and tests); the very first crash of a session still costs one frame of 19-27 ms while the JavaScript engine optimises the crash code (JIT warm-up).

@@ -76,7 +76,7 @@ async function boot(): Promise<void> {
   const audio = new GameAudio();
   audio.muted = false;
 
-  const game = new Game({ physics, gs, map, props, input: new Input(), rig, hud, audio, debug, resolution });
+  const game = new Game({ physics, gs, map, props, input: new Input(), rig, hud, audio, debug, resolution, onFatal: showFatal });
   mark('cars-built');
 
   canvas.addEventListener('webglcontextlost', (event) => {
@@ -86,7 +86,7 @@ async function boot(): Promise<void> {
   });
 
   // Garage panel: car choice, setups, settings, repair, teleports, graphics.
-  const garage = new Garage(() => game.player, (id) => game.swapCar(id));
+  const garage = new Garage(() => game.player, (id) => game.swapCar(id).catch((err) => console.error('[swapCar]', err)));
   game.garage = garage;
   garage.gui.add({ repair: () => game.repair() }, 'repair').name('Repair (F)');
   const go = garage.gui.addFolder('Go to (T)');

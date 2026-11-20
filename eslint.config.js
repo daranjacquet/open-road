@@ -1,6 +1,6 @@
 // ESLint (flat config): TypeScript rules plus the layering of src/.
 //
-//   core  <-  vehicle, damage (simulation)  <-  render, world, audio  <-  game  <-  ui  <-  main
+//   core  <-  vehicle, damage (simulation)  <-  render, world, audio, debug  <-  game  <-  ui  <-  main
 //
 // A folder may only import from the layers below it. Type-only imports are allowed in two places:
 // damage may name render's model types (the meshes it deforms), and game may name ui's types (the
@@ -26,24 +26,28 @@ export default tseslint.config(
   },
   {
     files: ['src/core/**/*.ts'],
-    rules: { '@typescript-eslint/no-restricted-imports': ['error', { patterns: upper('vehicle', 'damage', 'render', 'world', 'ui', 'game') }] },
+    rules: { '@typescript-eslint/no-restricted-imports': ['error', { patterns: upper('vehicle', 'damage', 'render', 'world', 'audio', 'debug', 'ui', 'game') }] },
   },
   {
-    files: ['src/vehicle/**/*.ts', 'src/damage/**/*.ts'],
+    files: ['src/vehicle/**/*.ts'],
+    rules: { '@typescript-eslint/no-restricted-imports': ['error', { patterns: upper('render', 'world', 'audio', 'debug', 'ui', 'game') }] },
+  },
+  {
+    files: ['src/damage/**/*.ts'],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',
         {
           patterns: [
-            ...upper('world', 'ui', 'game', 'audio'),
-            { group: ['**/render/*', '../render/*'], allowTypeImports: true, message: 'Layering: simulation code may only import types from render.' },
+            ...upper('world', 'audio', 'debug', 'ui', 'game'),
+            { group: ['**/render/*', '../render/*'], allowTypeImports: true, message: 'Layering: damage may only import types from render.' },
           ],
         },
       ],
     },
   },
   {
-    files: ['src/render/**/*.ts', 'src/world/**/*.ts', 'src/audio/**/*.ts'],
+    files: ['src/render/**/*.ts', 'src/world/**/*.ts', 'src/audio/**/*.ts', 'src/debug/**/*.ts'],
     rules: { '@typescript-eslint/no-restricted-imports': ['error', { patterns: upper('game', 'ui') }] },
   },
   {

@@ -137,6 +137,12 @@ export class Garage {
     this.refresh();
   }
 
+  /** Show the car actually driven in the car menu (after a refused or failed swap). */
+  syncCar(): void {
+    this.choice.car = this.getCar().def.id;
+    this.gui.controllersRecursive().forEach((c) => c.updateDisplay());
+  }
+
   toggle(): void {
     if (this.gui._closed) this.gui.open();
     else this.gui.close();
