@@ -127,3 +127,25 @@ What changed:
 - **Checks**: 68 tests, lint, types, build; gitleaks (history and tree), npm audit (production) and Semgrep: nothing found.
 
 Not done: Rapier without the base64-inlined WASM (`@dimforge/rapier3d` would save about 0.6 MB gzipped but needs a WASM plugin and top-level await in the build and tests); the very first crash of a session still costs one frame of 19-27 ms while the JavaScript engine optimises the crash code (JIT warm-up).
+
+## 6. Open world (2026-11-20)
+
+The world grew from a flat 2 km square to a 4 km terrain with relief, 13 km of country roads, seven places, about 50,000 trees and a lake. Measured on the production build like section 5 (frames driven at 60 Hz with a GPU sync, pixel ratio 1.5, the Mac's GPU).
+
+| | Flat 2 km world | Open world |
+| --- | --- | --- |
+| Frame time while driving (GPU bound) | 3.2-3.7 ms | 6.5-8 ms depending on the place |
+| CPU per frame | 1.2-1.3 ms | 2.7-3.5 ms |
+| Draw calls | 276-341 | 250-450 |
+| Boot, scripts to first frame | about 0.6 s | about 0.9 s |
+
+How the cost is kept down:
+
+- **Terrain**: one height texture, four shared chunk grids (4, 8, 16, 32 m) displaced in the vertex shader; 64 chunks of 512 m, each culled and given a level of detail by distance; skirts hide the seams. The physics uses the same heights as a Rapier heightfield with the same triangle split (checked by a test to 1 cm).
+- **Generation in a worker**: terrain, road profiles and carving, ground cover, tree positions and the map picture (about 300 ms of work) run in a Web Worker while the physics engine and the cars load; the main thread then spends about 100 ms building meshes and colliders. Large noise is sampled on coarse grids.
+- **Trees**: the first version drew 85,000 trees with non-indexed models and cost about 4 ms of GPU time (3.6 million vertices per frame, whatever the resolution). Now: about 50,000 trees, indexed flat-shaded models, far models in 512 m blocks culled like any mesh, detailed models only within 170 m (refilled as the camera moves), shadows only from trees within 70 m. Trees now cost about 0.7 ms.
+- **Shadow casters**: merged meshes that spanned the whole world (all the places in one batch, the whole city in one mesh per material) were drawn into the shadow map from anywhere. Places now have one batch each, city buildings are merged per district (2 x 3 blocks), and the city's small things (trees, rooftop clutter, street furniture) stop drawing beyond 700 m.
+- **Sky**: follows the camera and draws after the opaque scenery, on the far plane, so its scattering shader only runs where nothing else covers the screen.
+- **Colliders**: trees get colliders from a pool of 320 that follows the player; roads are trimeshes in 240 m pieces with internal-edge fixing; bridges and guard rails are boxes.
+
+Remaining costs, in order: terrain fragment shading (about 1.4 ms), shadows (receiving and casting, about 1.5 ms), the cars themselves. Not done: streaming the world in and out, impostors for far trees, a texture atlas to merge the city's facade materials (it would save about 40 draw calls in the city).

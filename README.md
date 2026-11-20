@@ -1,6 +1,6 @@
 # Open Road
 
-A browser driving sandbox built around **realistic car physics and crash damage**. A flat open test world, obstacles to wreck cars on, three detailed cars modelled in Blender. Everything runs client-side: Three.js for rendering, Rapier (WASM) for rigid-body physics, and custom code for the tyres, drivetrain, crumple zones and crash deformation.
+A browser driving sandbox built around **realistic car physics and crash damage**. A 4 km open world with mountains, country roads, a city, two circuits and places to visit, obstacles to wreck cars on, three detailed cars reworked in Blender. Everything runs client-side: Three.js for rendering, Rapier (WASM) for rigid-body physics, and custom code for the tyres, drivetrain, crumple zones and crash deformation.
 
 **Play:** https://daranjacquet.github.io/open-road/
 
@@ -30,7 +30,8 @@ A browser driving sandbox built around **realistic car physics and crash damage*
 | Repair and respawn | `Shift+R` | |
 | Camera (chase, hood, bumper) | `C` | `B` |
 | Orbit the camera around the car / zoom | hold right mouse button and move / wheel | |
-| Teleport (test area, city, circuits, skid pad) | `T` (or the garage menu) | |
+| Teleport to the next place | `T` (or the garage menu) | |
+| Map (click a place to go there) | `N` | |
 | Switch car | `V` (or the menu) | |
 | Reset the parked target cars | `B` | |
 | Mute | `M` | |
@@ -50,12 +51,15 @@ The top-right panel (`G`) changes the car live and saves the setup per car:
 
 ### The map
 
-A 2 km x 2 km world. Leaving it (or falling off) puts the car back at the start, repaired.
+A 4 km x 4 km world with hills, a mountain range and a ring of peaks at the edge. The minimap (bottom left) turns with the car; `N` opens the whole map, where clicking a place drives you there. Driving off the edge or into the lake puts the car back on the last spot where it stood on dry ground, repaired.
 
-- **Test area** (start): crash wall, barriers, ramps, props, a long straight.
-- **City** (east): a grid of avenues and streets with raised pavements, a couple of hundred buildings that get taller towards downtown, parks and car parks, lane markings, zebra crossings and stop lines, traffic lights that cycle, stop and speed-limit signs, and street lamps. Lamps and signs fall over when you hit them.
-- **Grand Prix circuit** (north-west): 2.9 km, 14 m wide, long main straight, hairpin, esses, kerbs, armco and a start gantry.
-- **Drift circuit** (south-west): 2 km, 16 m wide, tight and twisty, red and white block walls, plus a 110 m skid pad.
+- **Test area** (start): crash wall, barriers, ramps, props, a long straight that leads to the mountain pass.
+- **City**: a grid of avenues and streets with raised pavements, a couple of hundred buildings that get taller towards downtown, shops on the ground floors, street trees, a central square with a fountain, a 170 m landmark tower, a **multi-storey car park you can drive up**, parks and car parks, lane markings, zebra crossings and stop lines, traffic lights that cycle, stop and speed-limit signs, and street lamps. Lamps and signs fall over when you hit them.
+- **Country roads** (13 km): a **mountain pass** with hairpins and a viaduct up to a summit viewpoint at about 80 m, a lake road, a southern road past the farm and the airfield, a forest road, gravel tracks; guard rails where the ground drops away, direction signs at the junctions.
+- **Places**: a **lake village** with a church and a harbour jetty you can drive onto, a petrol station, an **airfield** with a 1.3 km runway (top-speed runs), hangars and a tower, a **farm** among fields, a **quarry** with jumps and dirt mounds, the **summit viewpoint**.
+- **Forests** of about 50,000 trees (you can hit them), thicker on the hills and mountains.
+- **Grand Prix circuit**: 2.9 km, 14 m wide, long main straight, hairpin, esses, kerbs, armco and a start gantry.
+- **Drift circuit**: 2 km, 16 m wide, tight and twisty, red and white block walls.
 - **Lap timer** on both circuits: a lap counts only if you went through every sector; best laps are saved per car and circuit.
 
 ## Run locally
@@ -77,7 +81,8 @@ src/
   vehicle/   Vehicle.ts (suspension, tyres, drivetrain, assists), SteeringController, tuning, car JSON configs
   damage/    crumple zones, dents, mechanical damage, detachable parts
   render/    scene, camera, adaptive resolution, GLB car loader and paint/glass shaders, effects, smoke
-  world/     test area, city, circuits, surface raster, street furniture, map layout
+  world/     world plan (layout.ts), terrain generation (worldgen.ts, in a worker), terrain chunks,
+             roads, places, city, circuits, trees, lake, minimap picture, surface raster
   game/      Game (frame loop, cars, actions), GameCar (one complete car), RaceSystem and lap timer, catalogue
   audio/     procedural Web Audio
   ui/        HUD and garage panel
@@ -126,18 +131,19 @@ Everything is deterministic: the same crash gives the same damage.
 
 ## Measured performance
 
-Measured on a Mac with a 120 Hz display (dev server, Chromium in the Claude desktop app), with the player car, two parked cars and all props:
+Measured on a Mac with a 120 Hz display (production build, Chromium in the Claude desktop app, frames driven at 60 Hz with a GPU sync), with the player car, two parked cars and all props:
 
 | Metric | Result |
 | --- | --- |
-| Frame rate | 120 fps (display limit) while driving |
+| Frame time while driving | 6.5 to 8 ms (GPU), 2.7 to 3.5 ms of CPU, depending on the place |
 | Physics + vehicles | 0.05 to 0.3 ms per 120 Hz step for 3 cars |
-| Crash frame | about 40 ms for the single worst frame of a 80 km/h crash (dent field + normals), then back to normal |
-| Draw calls | about 580 with three cars in view (meshes merged per material at load, small parts cast no shadow) |
-| Triangles | about 740k with three cars in view |
-| Download | 113 kB app + 560 kB three + 4.3 MB Rapier + 3.4 MB of cars (meshopt) |
+| Crash frame | 10 to 13 ms for the worst frame of a warm 70 km/h wall crash |
+| Draw calls | 250 to 450 (city and test area are the busiest) |
+| Triangles | 450k to 650k |
+| Loading | about 0.9 s from scripts to the first frame (the world is built in a worker meanwhile) |
+| Download | 215 kB app + 107 kB world worker + 670 kB three + 4.3 MB Rapier + the cars on screen (meshopt) |
 
-I have not measured on a modest PC. Draw calls are above what I would aim for on weak hardware; the next step would be merging the wheel meshes and the test-world props.
+I have not measured on a modest PC; the render resolution adapts to the frame rate. See [docs/AUDIT.md](docs/AUDIT.md) for the details.
 
 ## Known limits
 
@@ -146,7 +152,7 @@ I have not measured on a modest PC. Draw calls are above what I would aim for on
 - **Car vs car is approximate.** Each car sees the other's undeformed outline box; dents are capped by its own crush, so impacts look plausible but not exact.
 - **Cars are reworked third-party models** (see `CREDITS.md`): crash parts are cut out of a single body by boxes, so panel edges follow straight cuts, not the real shut lines.
 - **Handling was tuned with headless simulations**, not by a human driver: full-lock corners from 60 to 180 km/h, slaloms, handbrake flicks and a keyboard-style drifter that only presses keys fully (`tests/handling.test.ts`).
-- **World.** Flat (no hills). There is no traffic and no chunk system; the whole map is built at load (about 1 s).
+- **World.** No traffic and no pedestrians. The whole world is built at load (terrain in a worker, about 1 s in all); no streaming. Trees and the terrain far away use simpler models.
 - Skid marks only on asphalt. Audio is synthesised and simple.
 
 ## License
