@@ -7,12 +7,14 @@ import type { CrushRay } from '../damage/rays';
 import { absScale, espControl, tcScale, type EspOut } from './assists';
 import { autoShift, engineTorque, totalRatio, type GearState } from './drivetrain';
 import { ackermann, SteeringController, type SteerContext } from './steering';
+import { axleTire, tireForces, type TireOut } from './tire';
+import type { TireParams, VehicleConfig } from './types';
+import { WheelState } from './wheel';
 import type { DriveInput } from '../core/input';
 
 export type { DriveInput } from '../core/input';
-import { tireForces, type TireOut } from './tire';
-import type { AxleSuspension, TireParams, VehicleConfig } from './types';
-
+export { WheelState } from './wheel';
+export { axleTire, camberLateral, camberLongitudinal } from './tire';
 
 export interface Assists {
   tc: boolean;
@@ -23,70 +25,6 @@ export interface Assists {
 const RHO = 1.2; // air density
 const V_MIN_SLIP = 1.2; // m/s, slip normalisation floor
 const SURFACE_ROLLING: Record<Surface, number> = { asphalt: 1, dirt: 2.4, grass: 3.2 };
-
-/** Per-wheel simulation state. Index order: FL, FR, RL, RR. */
-export class WheelState {
-  readonly isFront: boolean;
-  readonly isLeft: boolean;
-  readonly mount = new THREE.Vector3();
-  susp: AxleSuspension;
-  /** Static camber (rad, negative = top leans in) and tyre width (m), for the view. */
-  camber = 0;
-  width = 0.25;
-  /** Spin speed (rad/s), positive = rolling forward. */
-  omega = 0;
-  spin = 0;
-  steer = 0;
-  /** Suspension length (mount to hub centre, m). */
-  length: number;
-  prevLength: number;
-  contact = false;
-  fz = 0;
-  fx = 0;
-  fy = 0;
-  slipRatio = 0;
-  /** Slip ratio with a high speed floor, used by ABS/TC so they stay calm at walking speed. */
-  slipAssist = 0;
-  slipAngle = 0;
-  /** Speed (m/s) at which the contact patch slides over the ground (smoke, skid marks, audio). */
-  slideSpeed = 0;
-  surface: Surface = 'asphalt';
-  contactPoint = new THREE.Vector3();
-  contactNormal = new THREE.Vector3(0, 1, 0);
-  // Damage hooks (milestone 4/5): all neutral by default.
-  gripScale = 1;
-  steerBias = 0;
-  springScale = 1;
-  detached = false;
-  flat = false;
-
-  // Render interpolation history.
-  prevSteer = 0;
-  prevSpin = 0;
-
-  // Scratch values for the step.
-  mountWorldX = 0;
-  mountWorldY = 0;
-  mountWorldZ = 0;
-  groundBody: RAPIER.RigidBody | null = null;
-  groundHandle = -1;
-  hit = false;
-  springForce = 0;
-  compression = 0;
-  hubDrive = 0;
-  brakeTorque = 0;
-
-  constructor(
-    readonly index: number,
-    susp: AxleSuspension,
-  ) {
-    this.isFront = index < 2;
-    this.isLeft = index % 2 === 0;
-    this.susp = susp;
-    this.length = susp.maxLen;
-    this.prevLength = susp.maxLen;
-  }
-}
 
 // Scratch objects (the step must not allocate).
 const _q = new THREE.Quaternion();
@@ -127,30 +65,6 @@ function accumulate(dt: number, px: number, py: number, pz: number, fx: number, 
 const _o2 = { x: 0, y: 0, z: 0 };
 const _ack: [number, number] = [0, 0];
 const _steerCtx: SteerContext = { dt: 0, input: 0, vLong: 0, vLat: 0, speed: 0, yawRate: 0, lf: 0, wheelbase: 0, frontPeak: 0, rearPeak: 0, first: false };
-
-/** Lateral grip factor from static camber (deg): a little negative camber helps in corners. */
-export function camberLateral(deg: number): number {
-  const c = -deg;
-  if (c >= 0) return 1 + 0.03 * Math.min(c, 3.5) - 0.012 * Math.max(c - 3.5, 0);
-  return 1 + 0.05 * c; // positive camber hurts quickly
-}
-/** Longitudinal grip factor from static camber (deg): a leaning tyre has less patch to brake and drive on. */
-export function camberLongitudinal(deg: number): number {
-  return clamp(1 - 0.022 * Math.abs(deg), 0.75, 1);
-}
-
-/** Tyre parameters for one axle after width, camber and stiffness. */
-export function axleTire(base: TireParams, widthRatio: number, camberDeg: number, stiffness: number): TireParams {
-  const lat = camberLateral(camberDeg);
-  const lon = camberLongitudinal(camberDeg);
-  return {
-    ...base,
-    mu: base.mu * Math.pow(widthRatio, 0.22) * lat,
-    longGripRatio: (base.longGripRatio * lon) / lat,
-    peakSlipAngle: base.peakSlipAngle / (stiffness * Math.pow(widthRatio, 0.45)),
-    rollingResistance: base.rollingResistance * Math.pow(widthRatio, 0.5),
-  };
-}
 
 export class Vehicle {
   readonly body: RAPIER.RigidBody;

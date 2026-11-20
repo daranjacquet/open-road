@@ -66,3 +66,27 @@ export function tireForces(
   out.fy = (-mag * an) / s;
   return out;
 }
+
+/** Lateral grip factor from static camber (deg): a little negative camber helps in corners. */
+export function camberLateral(deg: number): number {
+  const c = -deg;
+  if (c >= 0) return 1 + 0.03 * Math.min(c, 3.5) - 0.012 * Math.max(c - 3.5, 0);
+  return 1 + 0.05 * c; // positive camber hurts quickly
+}
+/** Longitudinal grip factor from static camber (deg): a leaning tyre has less patch to brake and drive on. */
+export function camberLongitudinal(deg: number): number {
+  return clamp(1 - 0.022 * Math.abs(deg), 0.75, 1);
+}
+
+/** Tyre parameters for one axle after width, camber and stiffness. */
+export function axleTire(base: TireParams, widthRatio: number, camberDeg: number, stiffness: number): TireParams {
+  const lat = camberLateral(camberDeg);
+  const lon = camberLongitudinal(camberDeg);
+  return {
+    ...base,
+    mu: base.mu * Math.pow(widthRatio, 0.22) * lat,
+    longGripRatio: (base.longGripRatio * lon) / lat,
+    peakSlipAngle: base.peakSlipAngle / (stiffness * Math.pow(widthRatio, 0.45)),
+    rollingResistance: base.rollingResistance * Math.pow(widthRatio, 0.5),
+  };
+}
