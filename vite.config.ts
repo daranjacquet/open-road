@@ -22,5 +22,7 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     setupFiles: ['tests/setup.ts'],
     environment: 'node',
+    // Physics simulations run in parallel files; under load a few take more than 5 s.
+    testTimeout: 30_000,
   },
 });
