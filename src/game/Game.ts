@@ -53,6 +53,14 @@ export class Game {
   private last = performance.now();
   private locIndex = 0;
   private readonly d: GameDeps;
+  /** CPU time (ms) of each part of the last frame, smoothed (debug overlay, profiling). */
+  readonly frameStats = { physics: 0, race: 0, visuals: 0, camera: 0, render: 0, hud: 0, total: 0 };
+  private tick = 0;
+  private lap(key: keyof Game['frameStats']): void {
+    const now = performance.now();
+    this.frameStats[key] += (now - this.tick - this.frameStats[key]) * 0.1;
+    this.tick = now;
+  }
 
   constructor(deps: GameDeps) {
     this.d = deps;
@@ -178,6 +186,8 @@ export class Game {
     this.last = now;
     resolution.sample(frameDt);
 
+    const start = performance.now();
+    this.tick = start;
     const cmd = this.d.input.sample(frameDt);
     this.handleKeys();
 
@@ -185,6 +195,7 @@ export class Game {
     const p0 = performance.now();
     for (let i = 0; i < this.res.steps; i++) this.step(cmd);
     if (this.res.steps > 0) this.physMs = (performance.now() - p0) / this.res.steps;
+    this.lap('physics');
 
     // Off the edge of the world: back to the start, repaired.
     const pt = this.player.vehicle.body.translation();
@@ -196,19 +207,25 @@ export class Game {
     }
     this.race.update(pt.x, pt.z, this.simTime);
     map.update(now / 1000);
+    this.lap('race');
 
     const vh = gs.renderer.domElement.clientHeight;
     for (const c of this.cars) c.updateVisuals(now, this.res.alpha, frameDt, vh);
     props.update();
+    this.lap('visuals');
     const player = this.player;
     rig.shake = Math.max(rig.shake, player.effects.shake);
     player.effects.shake = 0;
     rig.update(frameDt, player.vehicle, player.view.pos, player.view.quat);
     gs.followSun(player.view.pos);
+    this.lap('camera');
     gs.renderer.render(gs.scene, gs.camera);
+    this.lap('render');
 
     hud.update(player, now);
     audio.update(player.vehicle, now);
+    this.lap('hud');
+    this.frameStats.total += (performance.now() - start - this.frameStats.total) * 0.1;
     if (debug.isVisible) this.debugPanel();
     debug.frame(frameDt, now);
   }
@@ -217,6 +234,8 @@ export class Game {
     const { debug, gs } = this.d;
     const car = this.player.vehicle;
     const dm = this.player.damage;
+    const f = this.frameStats;
+    debug.set('frame (CPU ms)', `total ${f.total.toFixed(2)}: physics ${f.physics.toFixed(2)}, race+map ${f.race.toFixed(2)}, visuals ${f.visuals.toFixed(2)}, camera ${f.camera.toFixed(2)}, render ${f.render.toFixed(2)}, hud+audio ${f.hud.toFixed(2)}`);
     debug.set('physics', `${this.physMs.toFixed(2)} ms/step @ ${(1 / FIXED_DT).toFixed(0)} Hz, ${this.res.steps} steps/frame, ${this.cars.length} cars`);
     debug.set('render', `${gs.renderer.info.render.calls} draw calls, ${gs.renderer.info.render.triangles} tris, pixel ratio ${this.d.resolution.ratio}`);
     debug.set('car', `${car.speedKmh.toFixed(0)} km/h, gear ${car.gear}, ${car.rpm.toFixed(0)} rpm, steer ${(car.steerAngle * 57.3).toFixed(1)} deg`);
@@ -269,6 +288,8 @@ export class Game {
       rig: d.rig,
       map: d.map,
       resolution: d.resolution,
+      frameStats: this.frameStats,
+      frame: (now: number) => this.frame(now),
       get garage() {
         return self.garage;
       },
