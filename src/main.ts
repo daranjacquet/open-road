@@ -24,6 +24,14 @@ function mark(phase: string): void {
   lastMark = now;
 }
 
+function showFatal(message: string): void {
+  const fatal = document.getElementById('fatal');
+  if (!fatal) return;
+  const text = fatal.querySelector<HTMLElement>('[data-fatal-message]');
+  if (text) text.textContent = message;
+  fatal.style.display = 'grid';
+}
+
 /** Build every system, then hand them to the Game, which owns the frame loop. */
 async function boot(): Promise<void> {
   const loading = document.getElementById('loading');
@@ -60,6 +68,12 @@ async function boot(): Promise<void> {
 
   const game = new Game({ physics, gs, map, props, input: new Input(), rig, hud, audio, debug, resolution });
   mark('cars-built');
+
+  canvas.addEventListener('webglcontextlost', (event) => {
+    event.preventDefault();
+    game.paused = true;
+    showFatal('The graphics context was lost (GPU reset or driver update).');
+  });
 
   // Garage panel: car choice, setups, settings, repair, teleports, graphics.
   const garage = new Garage(() => game.player, (id) => game.swapCar(id));
@@ -110,6 +124,5 @@ async function boot(): Promise<void> {
 
 boot().catch((err) => {
   console.error(err);
-  const el = document.getElementById('loading');
-  if (el) el.textContent = `Failed to start: ${String(err)}`;
+  showFatal(`Failed to start: ${String(err)}`);
 });

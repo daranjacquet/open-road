@@ -53,6 +53,7 @@ export class Game {
   private last = performance.now();
   private locIndex = 0;
   private readonly d: GameDeps;
+  private warned = false;
   /** CPU time (ms) of each part of the last frame, smoothed (debug overlay, profiling). */
   readonly frameStats = { physics: 0, race: 0, visuals: 0, camera: 0, render: 0, hud: 0, total: 0 };
   private tick = 0;
@@ -175,6 +176,33 @@ export class Game {
     if (input.pressed('KeyQ') && v.manual) v.shiftDown();
   }
 
+  /** Reset any car whose state went non-finite (a physics blow-up must never freeze the game). */
+  private watchdog(): void {
+    for (const c of this.cars) {
+      const pos = c.vehicle.body.translation();
+      const vel = c.vehicle.body.linvel();
+      const rpm = c.vehicle.rpm;
+      if (
+        Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z) &&
+        Number.isFinite(vel.x) && Number.isFinite(vel.y) && Number.isFinite(vel.z) &&
+        Number.isFinite(rpm)
+      ) continue;
+
+      if (c === this.player) {
+        this.player.repair();
+        this.player.vehicle.placeAt(SPAWN.x, 1.0, SPAWN.z, SPAWN.yaw);
+        this.race.reset();
+        this.d.hud.toast('Physics glitch - car reset');
+      } else {
+        c.respawn();
+      }
+      if (!this.warned) {
+        this.warned = true;
+        console.warn('[watchdog] Non-finite vehicle state; car reset', { id: c.def.id, pos, vel, rpm });
+      }
+    }
+  }
+
   /** One rendered frame. */
   frame(now: number): void {
     if (this.paused) {
@@ -196,6 +224,8 @@ export class Game {
     for (let i = 0; i < this.res.steps; i++) this.step(cmd);
     if (this.res.steps > 0) this.physMs = (performance.now() - p0) / this.res.steps;
     this.lap('physics');
+
+    this.watchdog();
 
     // Off the edge of the world: back to the start, repaired.
     const pt = this.player.vehicle.body.translation();
