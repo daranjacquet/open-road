@@ -116,6 +116,8 @@ export class Vehicle {
   private lf = 1.3;
   private first = true;
   private readonly invG = 1 / G;
+  /** Values shared by phases of one step; reused without allocation. */
+  private readonly s = { vLong: 0, speed: 0, yawRate: 0, throttleCmd: 0, brakeCmd: 0, throttleScale: 1, assistW: 0, plainMax: 0, reflected: 0 };
 
   constructor(
     private readonly physics: Physics,
@@ -328,12 +330,26 @@ export class Vehicle {
 
   /** Advance the vehicle by one fixed step. Forces are applied as impulses; the world step follows. */
   fixedUpdate(dt: number, input: DriveInput): void {
-    const cfg = this.cfg;
-    const body = this.body;
-    const wheels = this.wheels;
-    const R = cfg.wheel.radius;
+    this.readChassis();
+    this.driverIntent(input);
+    this.updateSteering(dt, input);
+    this.runAssists();
+    this.updateDrivetrain(dt, input);
+    this.updateBrakes(input);
+    this.castSuspension(dt);
+    this.applyAntiRoll();
+    this.applyWheelForces(dt);
+    this.applySlideControl(dt);
+    this.applyAero(dt);
+    if (this.crush) this.crush.step(dt, this.currPos, this.currQuat);
+    this.flushImpulse();
+    this.throttleCmd = this.s.throttleCmd;
+    this.brakeCmd = this.s.brakeCmd;
+  }
 
-    // ---- chassis state ---------------------------------------------------------
+  /** Read chassis transform, velocity and telemetry for this step. */
+  private readChassis(): void {
+    const body = this.body;
     this.syncFromBodyPrevAware();
     _q.copy(this.currQuat);
     _pos.copy(this.currPos);
@@ -345,48 +361,59 @@ export class Vehicle {
     _vel.set(lv.x, lv.y, lv.z);
     _ang.set(av.x, av.y, av.z);
     _com.copy(this.comLocal).applyQuaternion(_q).add(_pos);
-    const vLong = _vel.dot(_fwd);
-    const speed = _vel.length();
-    const yawRate = _ang.dot(_up);
-    this.vLong = vLong;
-    this.speed = speed;
-    this.yawRate = yawRate;
+    this.s.vLong = _vel.dot(_fwd);
+    this.s.speed = _vel.length();
+    this.s.yawRate = _ang.dot(_up);
+    this.vLong = this.s.vLong;
+    this.speed = this.s.speed;
+    this.yawRate = this.s.yawRate;
 
-    // ---- driver intent -----------------------------------------------------------
+  }
+
+  /** Resolve driver throttle, brake and gear intent. */
+  private driverIntent(input: DriveInput): void {
     const gs = this.gearState;
-    let throttleCmd = clamp(input.throttle, 0, 1);
-    let brakeCmd = clamp(input.brake, 0, 1);
-    const stopped = Math.abs(vLong) < 0.8;
+    this.s.throttleCmd = clamp(input.throttle, 0, 1);
+    this.s.brakeCmd = clamp(input.brake, 0, 1);
+    const stopped = Math.abs(this.s.vLong) < 0.8;
     if (this.manual) {
       // Manual: W is always the throttle, S always the brake; the driver picks the gear.
-      if (gs.gear === 0 && stopped && throttleCmd > 0.05) {
+      if (gs.gear === 0 && stopped && this.s.throttleCmd > 0.05) {
         gs.gear = 1;
       }
     } else if (gs.gear === -1) {
       // Reverse: S drives, W brakes until stopped then selects first gear.
       const t = input.brake;
       const b = input.throttle;
-      throttleCmd = clamp(t, 0, 1);
-      brakeCmd = clamp(b, 0, 1);
+      this.s.throttleCmd = clamp(t, 0, 1);
+      this.s.brakeCmd = clamp(b, 0, 1);
       if (input.throttle > 0.05 && input.brake < 0.05 && stopped) {
         gs.gear = 1;
         gs.shiftTimer = 0.2;
-        throttleCmd = clamp(input.throttle, 0, 1);
-        brakeCmd = 0;
+        this.s.throttleCmd = clamp(input.throttle, 0, 1);
+        this.s.brakeCmd = 0;
       }
     } else if (input.brake > 0.05 && input.throttle < 0.05) {
-      if (vLong > 0.8) {
-        throttleCmd = 0;
-        brakeCmd = clamp(input.brake, 0, 1);
+      if (this.s.vLong > 0.8) {
+        this.s.throttleCmd = 0;
+        this.s.brakeCmd = clamp(input.brake, 0, 1);
       } else if (stopped) {
         gs.gear = -1;
         gs.shiftTimer = 0.2;
-        throttleCmd = clamp(input.brake, 0, 1);
-        brakeCmd = 0;
+        this.s.throttleCmd = clamp(input.brake, 0, 1);
+        this.s.brakeCmd = 0;
       }
     }
 
-    // ---- steering ----------------------------------------------------------------
+  }
+
+  /** Update steering angle and wheel steer values. */
+  private updateSteering(dt: number, input: DriveInput): void {
+    const cfg = this.cfg;
+    const wheels = this.wheels;
+    const vLong = this.s.vLong;
+    const speed = this.s.speed;
+    const yawRate = this.s.yawRate;
     const vLat = _vel.dot(_left);
     const sc = this.steering;
     _steerCtx.dt = dt;
@@ -401,20 +428,29 @@ export class Vehicle {
     _steerCtx.rearPeak = this.rearTire.peakSlipAngle;
     _steerCtx.first = this.first;
     sc.update(cfg.steering, _steerCtx);
-    const w = sc.assistWeight;
-    const plainMax = sc.plainMax;
+    this.s.assistW = sc.assistWeight;
+    this.s.plainMax = sc.plainMax;
     const ack = ackermann(sc.angle, this.wheelbase, this.trackFront, _ack);
     wheels[0]!.steer = ack[0] + wheels[0]!.steerBias;
     wheels[1]!.steer = ack[1] + wheels[1]!.steerBias;
     wheels[2]!.steer = wheels[2]!.steerBias;
     wheels[3]!.steer = wheels[3]!.steerBias;
 
-    // ---- assists (use last step's slip, one-step latency is fine at 120 Hz) --------
+  }
+
+  /** Apply traction, stability and ABS assist state. */
+  private runAssists(): void {
+    const cfg = this.cfg;
+    const wheels = this.wheels;
+    const gs = this.gearState;
+    const vLong = this.s.vLong;
+    const yawRate = this.s.yawRate;
+    const sc = this.steering;
     let throttleScale = 1;
     this.tcActive = false;
     this.absActive = false;
     this.espActivity = 0;
-    if (this.assists.tc && throttleCmd > 0.05) {
+    if (this.assists.tc && this.s.throttleCmd > 0.05) {
       let maxK = 0;
       for (let i = 0; i < 4; i++) if (this.drivenShare[i]! > 0) maxK = Math.max(maxK, wheels[i]!.slipAssist * Math.sign(totalRatio(cfg.gearbox, gs.gear) || 1));
       const s = tcScale(maxK);
@@ -427,14 +463,25 @@ export class Vehicle {
     if (this.assists.esp) {
       const v = Math.max(Math.abs(vLong), 1);
       const cap = (0.95 * G) / v;
-      const plain = (Math.sign(vLong) * v * Math.tan(sc.input * plainMax)) / this.wheelbase;
-      const desired = clamp(lerp(plain, sc.input * cap, w), -cap, cap);
+      const plain = (Math.sign(vLong) * v * Math.tan(sc.input * this.s.plainMax)) / this.wheelbase;
+      const desired = clamp(lerp(plain, sc.input * cap, this.s.assistW), -cap, cap);
       espControl(vLong, yawRate, desired, _esp);
       throttleScale *= _esp.throttleScale;
       this.espActivity = _esp.activity;
     }
+    this.s.throttleScale = throttleScale;
+  }
 
-    // ---- drivetrain ----------------------------------------------------------------
+  /** Update engine, gearbox, clutch, differential and driven wheel torques. */
+  private updateDrivetrain(dt: number, input: DriveInput): void {
+    const cfg = this.cfg;
+    const wheels = this.wheels;
+    const R = cfg.wheel.radius;
+    const vLong = this.s.vLong;
+    const speed = this.s.speed;
+    const gs = this.gearState;
+    const throttleCmd = this.s.throttleCmd;
+    const throttleScale = this.s.throttleScale;
     const gb = cfg.gearbox;
     const eng = cfg.engine;
     const ratio = totalRatio(gb, gs.gear);
@@ -488,7 +535,7 @@ export class Vehicle {
     if (crank < 0) crank *= 1 - cs;
     const shifting = gs.shiftTimer > 0;
     const wheelTorqueTotal = shifting || ratio === 0 || declutch ? 0 : crank * ratio * gb.efficiency;
-    const reflected = ratio === 0 || declutch ? 0 : (eng.inertia * absRatio * absRatio * (1 - cs)) / Math.max(nDriven, 1);
+    this.s.reflected = ratio === 0 || declutch ? 0 : (eng.inertia * absRatio * absRatio * (1 - cs)) / Math.max(nDriven, 1);
 
     for (let i = 0; i < 4; i++) wheels[i]!.hubDrive = wheelTorqueTotal * this.drivenShare[i]!;
 
@@ -498,7 +545,7 @@ export class Vehicle {
         if (this.drivenShare[a]! > 0 && this.drivenShare[b]! > 0) {
           const slip = wheels[a]!.omega - wheels[b]!.omega;
           // Coupling stiffness capped by what an explicit step can take without ringing.
-          const kMax = (0.45 * (this.wheelIdleInertia + reflected)) / dt;
+          const kMax = (0.45 * (this.wheelIdleInertia + this.s.reflected)) / dt;
           const tr = clamp(Math.min(cfg.diff.lsdK, kMax) * slip, -cfg.diff.lsdMax, cfg.diff.lsdMax);
           wheels[a]!.hubDrive -= tr;
           wheels[b]!.hubDrive += tr;
@@ -506,7 +553,15 @@ export class Vehicle {
       }
     }
 
-    // ---- brakes ----------------------------------------------------------------------
+  }
+
+  /** Calculate brake torque for each wheel. */
+  private updateBrakes(input: DriveInput): void {
+    const cfg = this.cfg;
+    const wheels = this.wheels;
+    const speed = this.s.speed;
+    const throttleCmd = this.s.throttleCmd;
+    const brakeCmd = this.s.brakeCmd;
     const bk = cfg.brakes;
     const baseBrake = brakeCmd * bk.torque;
     const autoHold = speed < 0.4 && throttleCmd < 0.02 && brakeCmd < 0.02 ? 450 : 0;
@@ -523,6 +578,14 @@ export class Vehicle {
       w.brakeTorque = t + autoHold;
     }
 
+  }
+
+  /** Cast wheel suspension rays and calculate spring forces. */
+  private castSuspension(dt: number): void {
+    const cfg = this.cfg;
+    const body = this.body;
+    const wheels = this.wheels;
+    const R = cfg.wheel.radius;
     // ---- suspension pass 1: rays + springs -----------------------------------------
     const ray = this.ray;
     const world = this.physics.world;
@@ -570,6 +633,11 @@ export class Vehicle {
     }
     this.first = false;
 
+  }
+
+  /** Couple left and right spring forces with the anti-roll bars. */
+  private applyAntiRoll(): void {
+    const wheels = this.wheels;
     // ---- anti-roll bars (couple left/right on each axle) ------------------------------
     for (const [a, b] of AXLES) {
       const wa = wheels[a]!;
@@ -582,6 +650,14 @@ export class Vehicle {
       }
     }
 
+  }
+
+  /** Apply suspension and tyre forces, then update wheel spin and slip. */
+  private applyWheelForces(dt: number): void {
+    const cfg = this.cfg;
+    const wheels = this.wheels;
+    const R = cfg.wheel.radius;
+    const reflected = this.s.reflected;
     // ---- pass 2: apply suspension + tyre forces ---------------------------------------
     _jTot.set(0, 0, 0);
     _tTot.set(0, 0, 0);
@@ -701,6 +777,13 @@ export class Vehicle {
       w.spin += om * dt;
     }
 
+  }
+
+  /** Apply the optional yaw damper for controllable slides. */
+  private applySlideControl(dt: number): void {
+    const cfg = this.cfg;
+    const vLong = this.s.vLong;
+    const speed = this.s.speed;
     // ---- slide control (arcade) -----------------------------------------------------------
     // A yaw damper on the rate of change of the slip angle: it does not change how much the car
     // can slide, only how violently the angle swings, so slides and drifts can be held on a keyboard.
@@ -710,6 +793,12 @@ export class Vehicle {
       _tTot.addScaledVector(_up, tz);
     }
 
+  }
+
+  /** Apply drag and aerodynamic downforce impulses. */
+  private applyAero(dt: number): void {
+    const cfg = this.cfg;
+    const speed = this.s.speed;
     // ---- aerodynamics ------------------------------------------------------------------
     if (speed > 0.5) {
       const q = 0.5 * RHO * speed;
@@ -731,9 +820,11 @@ export class Vehicle {
       }
     }
 
-    // ---- crumple zones ---------------------------------------------------------------
-    if (this.crush) this.crush.step(dt, this.currPos, this.currQuat);
+  }
 
+  /** Flush accumulated linear and angular impulses to the rigid body. */
+  private flushImpulse(): void {
+    const body = this.body;
     // ---- hand the accumulated impulse to the rigid body --------------------------------
     _o.x = _jTot.x;
     _o.y = _jTot.y;
@@ -744,8 +835,6 @@ export class Vehicle {
     _o.z = _tTot.z;
     body.applyTorqueImpulse(_o, true);
 
-    this.throttleCmd = throttleCmd;
-    this.brakeCmd = brakeCmd;
   }
 
   /** After the world step: read the new rigid-body transform for rendering/interpolation. */
