@@ -98,6 +98,12 @@ export function baseLow(x: number, z: number, valley = 1): number {
   // Forest hills on the -x side.
   const west = smoothstep(-960, -1420, x);
   if (west > 0) h += west * (28 + 42 * valley * fbm(x / 330, z / 330, 4, 41));
+  // Rally country: hills between the city, the test straight and the mountains.
+  const rally = smoothstep(0, 140, Math.min(x - 230, 1080 - x, z - 330, 1200 - z));
+  if (rally > 0) h += rally * (14 + 20 * valley * fbm(x / 240, z / 240, 3, 91));
+  // Steep little hills along the west edge, for the forest trail.
+  const trail = smoothstep(-1470, -1560, x) * smoothstep(-520, -440, z) * (1 - smoothstep(620, 700, z));
+  if (trail > 0) h += trail * 16 * fbm(x / 95, z / 95, 3, 113);
   // The lake country sits a little higher, so the lake is the lowest ground around.
   h += 9 * smoothstep(900, 1250, x);
   // Gentle farmland swell on the -z side.
@@ -180,6 +186,46 @@ export const ROADS: RoadDef[] = [
       [-1150, -1180], [-1300, -1000], [-1400, -800], [-1440, -600], [-1420, -420], [-1360, -290], [-1300, -120],
       [-1350, 60], [-1450, 220], [-1480, 400], [-1400, 580], [-1270, 720], [-1180, 880], [-1080, 1040],
       [-930, 1130], [-760, 1160], [-560, 1150], [-380, 1110], [-220, 1070], [-100, 1050],
+    ],
+  },
+  {
+    // Rally stage: from the city's north edge to the loop under the mountains, through the hills,
+    // asphalt and gravel in turn. Timed between the start and finish gantries.
+    id: 'stage',
+    name: 'Rally stage',
+    width: 7,
+    maxGrade: 0.14,
+    smoothing: 22,
+    startY: 0.03,
+    sections: [
+      [0, 'asphalt'],
+      [0.13, 'gravel'],
+      [0.44, 'asphalt'],
+      [0.6, 'gravel'],
+      [0.9, 'asphalt'],
+    ],
+    stage: { name: 'Rally stage', start: 0.05, finish: 0.95 },
+    points: [
+      [520, 247], [522, 330], [470, 405], [380, 440], [300, 500], [255, 580], [270, 670], [340, 720], [430, 690],
+      [500, 620], [590, 575], [690, 590], [770, 640], [850, 610], [930, 660], [920, 750], [840, 790], [740, 760],
+      [650, 800], [570, 860], [600, 950], [710, 985], [800, 935], [880, 870], [970, 860], [1030, 940], [1095, 975],
+      [1165, 1012],
+    ],
+  },
+  {
+    // A dirt trail through the forest hills along the world's west edge: narrow, steep, for the
+    // 4x4 and rally setups. Timed end to end.
+    id: 'trail',
+    name: 'Forest trail',
+    width: 5.5,
+    maxGrade: 0.2,
+    smoothing: 12,
+    surface: 'gravel',
+    lines: false,
+    stage: { name: 'Forest trail', start: 0.03, finish: 0.97 },
+    points: [
+      [-1420, -420], [-1510, -400], [-1600, -340], [-1665, -250], [-1690, -140], [-1650, -40], [-1600, 50],
+      [-1640, 150], [-1600, 240], [-1660, 330], [-1700, 420], [-1650, 500], [-1560, 520], [-1500, 600], [-1400, 580],
     ],
   },
   // Spurs: each starts at the edge of a flat asphalt area (or on the loop) and ends on the loop.

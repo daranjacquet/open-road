@@ -14,7 +14,9 @@ export function forestDensity(x: number, z: number, h: number, ny: number, n = f
   const north = smoothstep(980, 1250, z) * (1 - smoothstep(150, 200, h));
   const east = smoothstep(980, 1300, x) * 0.55;
   const south = smoothstep(-1050, -1350, z) * 0.22;
-  const base = Math.max(west * 0.95, north * 0.8, east, south, 0.16);
+  // Rally country (between the city and the mountains): woods along the stage.
+  const rally = smoothstep(0, 120, Math.min(x - 230, 1080 - x, z - 330, 1200 - z)) * 0.7;
+  const base = Math.max(west * 0.95, north * 0.8, east, south, rally, 0.16);
   const d = base * smoothstep(0.42, 0.6, n + base * 0.28);
   return d * smoothstep(0.6, 0.78, ny);
 }

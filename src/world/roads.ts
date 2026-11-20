@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { GROUP, groups, type Physics } from '../core/physics';
 import type { Heightmap } from './heightmap';
-import { junctionSurface, ROAD_SINK, type RoadLine, type SurfaceY } from './roadline';
+import { junctionSurface, ROAD_SINK, surfaceOf, type RoadLine, type SurfaceY } from './roadline';
 import { DIRT, type SurfaceMap } from './surface';
 
 /** Gravel verge on each side of the asphalt (m). */
@@ -211,22 +211,33 @@ export function buildRoads(physics: Physics, roads: RoadLine[], hm: Heightmap, s
 
   for (let r = 0; r < roads.length; r++) {
     const road = roads[r]!;
-    const gravel = road.def.surface === 'gravel';
     const ds = road.ds;
     const surfaceY = junctionSurface(road, roads.filter((_, k) => k < r));
     surfaces.push(surfaceY);
-    // A loop's last piece runs back to its first sample.
+    // A loop's last piece runs back to its first sample. Pieces also break where the surface
+    // changes (mixed asphalt and gravel roads).
     const last = road.closed ? road.n : road.n - 1;
-    for (let a = 0; a < last; a += PIECE) {
-      const b = Math.min(last, a + PIECE);
+    let a = 0;
+    while (a < last) {
+      const kind = surfaceOf(road, road.wrap(a));
+      let b = Math.min(last, a + PIECE);
+      for (let k = a + 1; k <= b; k++) {
+        if (surfaceOf(road, road.wrap(k)) !== kind) {
+          b = k;
+          break;
+        }
+      }
+      const gravel = kind === 'gravel';
       const mesh = new THREE.Mesh(pieceGeometry(road, a, b, surfaceY), gravel ? mats.gravel : road.def.lines === false ? mats.plain : mats.asphalt);
       mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false;
       group.add(mesh);
       const col = pieceCollider(physics, body, road, a, b, surfaceY);
+      // Gravel is open ground for the tyres: its grip comes from the surface map (dirt).
       if (gravel) physics.groundColliders.add(col.handle);
+      a = b;
     }
-    if (gravel) for (let i = 0; i < road.n; i++) surface.fillDisc(road.x[i]!, road.z[i]!, road.def.width / 2 + 1, DIRT);
+    for (let i = 0; i < road.n; i++) if (surfaceOf(road, i) === 'gravel') surface.fillDisc(road.x[i]!, road.z[i]!, road.def.width / 2 + 1, DIRT);
 
     // Guard rails: both sides of bridges, and the side where the ground falls away steeply; never
     // across a junction.
@@ -387,7 +398,7 @@ function junctionFillets(roads: RoadLine[], surfaces: SurfaceY[], physics: Physi
           const w = dm + dsp > 1e-3 ? dsp / (dm + dsp) : 0.5;
           return ys + (ym - ys) * w - 0.02;
         };
-        const out = road.def.surface === 'gravel' ? gravel : asphalt;
+        const out = surfaceOf(road, end) === 'gravel' ? gravel : asphalt;
         let qx = ax;
         let qz = az;
         for (let k = 1; k <= N; k++) {

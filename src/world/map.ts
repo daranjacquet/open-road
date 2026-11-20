@@ -8,6 +8,7 @@ import { buildPlaces, placeMaterials } from './places';
 import type { RoadLine } from './roadline';
 import { buildRoads, roadMaterials } from './roads';
 import { buildSigns } from './signs';
+import { buildStages, type Stage } from './stages';
 import { SurfaceMap } from './surface';
 import { createTerrainCollider, createTerrainView, splatTexture } from './terrain';
 import { buildTrack, trackMaterials, type BuiltTrack } from './track';
@@ -31,6 +32,8 @@ export interface Location {
 export interface GameMap {
   group: THREE.Group;
   tracks: BuiltTrack[];
+  /** Timed rally stages (start and finish gantries on a road). */
+  stages: Stage[];
   city: City;
   roads: RoadLine[];
   locations: Location[];
@@ -95,6 +98,7 @@ export function createMap(physics: Physics, data: WorldData): GameMap {
   const places = buildPlaces(physics, hm, world.roads, surface, placeMaterials(asphalt));
   group.add(places.group);
   buildSigns(physics, hm, places.group);
+  const stages = buildStages(physics, world.roads, places.group);
   lap('roads+places');
 
   const vegetation = createVegetation(physics, data.trees);
@@ -131,6 +135,11 @@ export function createMap(physics: Physics, data: WorldData): GameMap {
     spot('Farm'),
     nearRoad('Forest road', 'ring', -1180, 880),
     spot('Quarry'),
+    ...stages.map((s) => {
+      // On the road 60 m before the start gantry, facing it.
+      const i = Math.max(0, s.startI - Math.round(60 / s.line.ds));
+      return { name: s.name, ...s.line.at(i * s.line.ds) };
+    }),
   ];
 
   // Small things only worth drawing from nearby (their instanced meshes span the whole city, so the
@@ -142,6 +151,7 @@ export function createMap(physics: Physics, data: WorldData): GameMap {
   return {
     group,
     tracks,
+    stages,
     city,
     roads: world.roads,
     locations,

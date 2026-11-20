@@ -103,7 +103,7 @@ export class Game {
       new GameCar(physics, gs.scene, CARS[1]!, -15, -85, Math.PI / 2, 0xe0b020),
     ];
     this.cars = [this.player, ...this.dummies];
-    this.race = new RaceSystem(deps.map.tracks, deps.hud);
+    this.race = new RaceSystem(deps.map.tracks, deps.hud, deps.map.stages);
     this.race.setCar(this.player.def.id);
     this.hookPlayer();
     deps.hud.onRepair = () => this.repair();

@@ -24,6 +24,8 @@ const SIGNS: SignDef[] = [
   { x: 32, z: 1070, yaw: Math.PI, lines: ['↑ Summit viewpoint', '→ Forest road'] },
   { x: -1296, z: -146, yaw: Math.PI / 2, lines: ['← Quarry', '← Forest road', '→ Southern road'] },
   { x: -640, z: -1330, yaw: Math.PI / 2, lines: ['→ Farm', '↑ Quarry', '↑ Forest road'] },
+  { x: 534, z: 262, yaw: Math.PI, lines: ['↑ Rally stage', '(asphalt and gravel)'] },
+  { x: -1404, z: -445, yaw: Math.PI, lines: ['→ Forest trail (4x4)', '↑ Quarry'] },
 ];
 
 /** Green direction boards on posts at the main junctions, all drawn from one texture atlas. */

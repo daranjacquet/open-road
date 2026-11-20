@@ -116,7 +116,7 @@ export class Hud {
   }
 
   /** Lap timer panel (null hides it). Updated every frame for a smooth clock. */
-  laps(track: string | null, st: LapState | null): void {
+  laps(track: string | null, st: LapState | null, stage = false): void {
     // The clock text changes every frame; 20 updates a second are plenty (and cheaper on layout).
     const now = performance.now();
     if (now - this.lastLaps < 50 && !(st?.completed)) return;
@@ -126,7 +126,8 @@ export class Hud {
       return;
     }
     this.lapBox.style.display = 'block';
-    this.lapEls.track.textContent = st.running ? `${track} - lap ${st.lap + 1}` : `${track} - cross the line to start`;
+    if (stage) this.lapEls.track.textContent = st.running ? `${track} - on the clock` : `${track} - start at the gantry`;
+    else this.lapEls.track.textContent = st.running ? `${track} - lap ${st.lap + 1}` : `${track} - cross the line to start`;
     this.lapEls.cur.textContent = formatLap(st.running ? st.current : 0);
     this.lapEls.last.textContent = formatLap(st.last);
     this.lapEls.best.textContent = formatLap(st.best);

@@ -137,3 +137,48 @@ describe('driving the new roads', () => {
     expect(car.speedKmh).toBeGreaterThan(25);
   }, 60_000);
 });
+
+describe('rally stages', () => {
+  it('times a run from the start gantry to the finish, and ignores a shortcut', async () => {
+    const { StageTimer } = await import('../src/game/stage');
+    for (const road of world.roads.filter((r) => r.def.stage)) {
+      const st = road.def.stage!;
+      const stage = { id: road.def.id, name: st.name, line: road, startI: Math.round(st.start * (road.n - 1)), finishI: Math.round(st.finish * (road.n - 1)) };
+      expect(road.length, road.def.id).toBeGreaterThan(1200);
+      const timer = new StageTimer(stage, 'test');
+      const v = 25; // m/s
+      let t = 0;
+      const drive = (from: number, to: number): void => {
+        for (let s = from; s <= to; s += v / 60) {
+          const p = road.at(s);
+          t += 1 / 60;
+          timer.update(p.x, p.z, t);
+        }
+      };
+      const sStart = stage.startI * road.ds;
+      const sFinish = stage.finishI * road.ds;
+      drive(sStart - 50, sFinish + 20);
+      expect(timer.state.last, road.def.id).not.toBeNull();
+      expect(timer.state.last!).toBeCloseTo((sFinish - sStart) / v, 0);
+      // Start again, then jump straight to the finish: no time.
+      const before = timer.state.lap;
+      drive(sStart - 30, sStart + 30);
+      drive(sFinish - 20, sFinish + 20);
+      expect(timer.state.lap).toBe(before);
+    }
+  });
+
+  it('has hills and both asphalt and gravel on the rally stage', async () => {
+    const { surfaceOf } = await import('../src/world/roadline');
+    const stage = world.roads.find((r) => r.def.id === 'stage')!;
+    const kinds = new Set<string>();
+    let climb = 0;
+    for (let i = 1; i < stage.n; i++) {
+      kinds.add(surfaceOf(stage, i));
+      climb += Math.max(0, stage.y[i]! - stage.y[i - 1]!);
+    }
+    expect([...kinds].sort()).toEqual(['asphalt', 'gravel']);
+    expect(climb).toBeGreaterThan(40);
+    expect(stage.length).toBeGreaterThan(2400);
+  });
+});

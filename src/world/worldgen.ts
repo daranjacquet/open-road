@@ -95,7 +95,9 @@ function valleyField(size: number): (x: number, z: number) => number {
   const half = size / 2;
   const v = new Float32Array(n * n);
   const segs: number[] = [];
+  // Stages and trails keep the hills around them (that is the point of them).
   for (const r of ROADS) {
+    if (r.stage) continue;
     for (let i = 0; i + 1 < r.points.length; i++) segs.push(...r.points[i]!, ...r.points[i + 1]!);
   }
   for (let i = 0; i < n; i++) {

@@ -57,11 +57,12 @@ A 4 km x 4 km world with hills, a mountain range and a ring of peaks at the edge
 - **Test area** (start): crash wall, barriers, ramps, props, a long straight that leads to the mountain pass.
 - **City**: a grid of avenues and streets with raised pavements, a couple of hundred buildings that get taller towards downtown, shops on the ground floors, street trees, a central square with a fountain, a 170 m landmark tower, a **multi-storey car park you can drive up**, parks and car parks, lane markings, zebra crossings and stop lines, traffic lights that cycle, stop and speed-limit signs, and street lamps. Lamps and signs fall over when you hit them.
 - **Country roads** (13 km): a **mountain pass** with hairpins and a viaduct up to a summit viewpoint at about 80 m, a lake road, a southern road past the farm and the airfield, a forest road, gravel tracks; guard rails where the ground drops away, direction signs at the junctions.
+- **Rally stage** (2.6 km): from the city's north edge to the loop under the mountains, through wooded hills (70 m of climbing), asphalt and gravel in turn, timed between a START and a FINISH gantry. **Forest trail** (1.5 km): a narrow gravel track up and down the steep hills along the west edge (grades up to 20 %), for the 4x4 and rally setups, timed too. Both are on the map and in the teleports; best times are kept per car.
 - **Places**: a **lake village** with a church and a harbour jetty you can drive onto, a petrol station, an **airfield** with a 1.3 km runway (top-speed runs), hangars and a tower, a **farm** among fields, a **quarry** with jumps and dirt mounds, the **summit viewpoint**.
 - **Forests** of about 50,000 trees (you can hit them), thicker on the hills and mountains.
 - **Grand Prix circuit**: 2.9 km, 14 m wide, long main straight, hairpin, esses, kerbs, armco and a start gantry.
 - **Drift circuit**: 2 km, 16 m wide, tight and twisty, red and white block walls.
-- **Lap timer** on both circuits: a lap counts only if you went through every sector; best laps are saved per car and circuit.
+- **Lap timer** on both circuits: a lap counts only if you went through every sector; best laps are saved per car and circuit. Stages are timed start to finish through five checkpoints (cutting a corner is fine, a shortcut voids the run).
 
 ## Run locally
 

@@ -24,7 +24,16 @@ export interface RoadDef {
   /** Centre dashes and edge lines (default: yes; gravel tracks never have them). */
   lines?: boolean;
   /** Surface: asphalt (default) or a gravel track (no markings, dirt grip). */
-  surface?: 'asphalt' | 'gravel';
+  surface?: RoadSurface;
+  /**
+   * A mixed surface: [start, surface] pairs, start as a fraction of the length (the first at 0).
+   * Overrides `surface`.
+   */
+  sections?: [number, RoadSurface][];
+  /** How far (m, half window) the profile averages the ground: small = follows every crest. */
+  smoothing?: number;
+  /** A timed stage between two points (fractions of the length), with gantries and a clock. */
+  stage?: { name: string; start: number; finish: number };
 }
 
 export interface RoadLineData {
@@ -41,6 +50,18 @@ export interface RoadLineData {
   step: number;
   ds: number;
   closed: boolean;
+}
+
+export type RoadSurface = 'asphalt' | 'gravel';
+
+/** Surface of a road at sample i (its sections, or its single surface). */
+export function surfaceOf(road: { def: RoadDef; n: number }, i: number): RoadSurface {
+  const secs = road.def.sections;
+  if (!secs) return road.def.surface ?? 'asphalt';
+  const f = i / Math.max(1, road.n - 1);
+  let s: RoadSurface = secs[0]![1];
+  for (const [from, surf] of secs) if (f >= from) s = surf;
+  return s;
 }
 
 /** Below this the road is a bridge rather than an embankment (m of fill). */
@@ -156,8 +177,9 @@ export class RoadLine {
       const y1 = def.endY ?? ground[n - 1]!;
       for (let i = 0; i < n; i++) y[i] = y0 + ((y1 - y0) * i) / (n - 1);
     } else {
-      box(50);
-      box(50);
+      const k = def.smoothing ?? 50;
+      box(k);
+      box(k);
     }
     const g = (def.maxGrade ?? 0.09) * ds;
     const dry = def.dryAbove;
@@ -197,6 +219,10 @@ export class RoadLine {
     box(6);
     limit();
     for (let i = 0; i < n; i++) this.bridge[i] = y[i]! - ground[i]! > BRIDGE_FILL ? 1 : 0;
+    // Where a road joins another one, an embankment rather than a bridge stub.
+    const nearEnd = Math.round(40 / ds);
+    if (def.startY !== undefined) for (let i = 0; i < Math.min(n, nearEnd); i++) this.bridge[i] = 0;
+    if (def.endY !== undefined) for (let i = Math.max(0, n - nearEnd); i < n; i++) this.bridge[i] = 0;
     // No bridge stubs: a bridge spans at least 30 m.
     const minRun = Math.round(30 / ds);
     let i = 0;

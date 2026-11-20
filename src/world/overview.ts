@@ -1,7 +1,7 @@
 import type { Heightmap } from './heightmap';
 import { AVENUES, STREETS } from './city';
 import { LAKE, lakeRadius, PLACES, WATER_LEVEL } from './layout';
-import type { RoadLine } from './roadline';
+import { surfaceOf, type RoadLine } from './roadline';
 import type { BuiltTrack } from './track';
 
 /**
@@ -136,11 +136,20 @@ export function drawOverview(hm: Heightmap, roads: RoadLine[], pixels: Uint8Clam
   g.fillStyle = '#e8e8e2';
   rect(af.x0 + 20, af.z - 1, af.x1 - 20, af.z + 1);
   for (const r of roads) {
-    const pts: [number, number][] = [];
-    for (let i = 0; i < r.n; i += 2) pts.push([r.x[i]!, r.z[i]!]);
-    const gravel = r.def.surface === 'gravel';
-    stroke(pts, r.def.width / scale + 2.5, gravel ? '#6f5a3e' : '#3b3c40', r.closed);
-    stroke(pts, r.def.width / scale, gravel ? '#b49a70' : '#e9e2cc', r.closed);
+    // One stroke per run of the same surface (mixed roads show their gravel stretches).
+    let i = 0;
+    while (i < r.n) {
+      const kind = surfaceOf(r, i);
+      const pts: [number, number][] = [];
+      let j = i;
+      for (; j < r.n && surfaceOf(r, j) === kind; j += 2) pts.push([r.x[j]!, r.z[j]!]);
+      if (j < r.n) pts.push([r.x[j]!, r.z[j]!]);
+      const gravel = kind === 'gravel';
+      const whole = r.closed && i === 0 && j >= r.n;
+      stroke(pts, r.def.width / scale + 2.5, gravel ? '#6f5a3e' : '#3b3c40', whole);
+      stroke(pts, r.def.width / scale, gravel ? '#b49a70' : '#e9e2cc', whole);
+      i = Math.max(j, i + 1);
+    }
   }
   return { canvas, scale, half };
 }
