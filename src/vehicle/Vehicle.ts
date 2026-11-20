@@ -8,7 +8,7 @@ import { absScale, espControl, tcScale, type EspOut } from './assists';
 import { autoShift, engineTorque, totalRatio, type GearState } from './drivetrain';
 import { ackermann, SteeringController, type SteerContext } from './steering';
 import { axleTire, tireForces, type TireOut } from './tire';
-import type { TireParams, VehicleConfig } from './types';
+import { DEFAULT_ARCADE, type TireParams, type VehicleConfig } from './types';
 import { WheelState } from './wheel';
 import type { DriveInput } from '../core/input';
 
@@ -117,7 +117,7 @@ export class Vehicle {
   private first = true;
   private readonly invG = 1 / G;
   /** Values shared by phases of one step; reused without allocation. */
-  private readonly s = { vLong: 0, speed: 0, yawRate: 0, throttleCmd: 0, brakeCmd: 0, throttleScale: 1, assistW: 0, plainMax: 0, reflected: 0 };
+  private readonly s = { vLong: 0, speed: 0, yawRate: 0, throttleCmd: 0, brakeCmd: 0, throttleScale: 1, assistW: 0, plainMax: 0, reflected: 0, driftHold: 0 };
 
   constructor(
     private readonly physics: Physics,
@@ -340,6 +340,7 @@ export class Vehicle {
     this.applyAntiRoll();
     this.applyWheelForces(dt);
     this.applySlideControl(dt);
+    this.applyDriftDrive(dt);
     this.applyAero(dt);
     if (this.crush) this.crush.step(dt, this.currPos, this.currQuat);
     this.flushImpulse();
@@ -450,10 +451,17 @@ export class Vehicle {
     this.tcActive = false;
     this.absActive = false;
     this.espActivity = 0;
+    // A slide the driver is holding on the throttle (body slip 5 to 35 degrees): with arcade
+    // handling the aids let the wheels spin and do not fight the angle; past that, a spin is
+    // coming and they step in fully.
+    const arcade = cfg.arcade ?? DEFAULT_ARCADE;
+    const slipAbs = Math.abs(sc.slip);
+    const held = arcade * smoothstep(0.05, 0.15, slipAbs) * (1 - smoothstep(0.55, 0.7, slipAbs)) * smoothstep(0.15, 0.4, this.s.throttleCmd);
+    this.s.driftHold = held;
     if (this.assists.tc && this.s.throttleCmd > 0.05) {
       let maxK = 0;
       for (let i = 0; i < 4; i++) if (this.drivenShare[i]! > 0) maxK = Math.max(maxK, wheels[i]!.slipAssist * Math.sign(totalRatio(cfg.gearbox, gs.gear) || 1));
-      const s = tcScale(maxK);
+      const s = tcScale(maxK, 0.15 + 0.85 * held);
       if (s < 1) this.tcActive = true;
       throttleScale *= s;
     }
@@ -466,6 +474,11 @@ export class Vehicle {
       const plain = (Math.sign(vLong) * v * Math.tan(sc.input * this.s.plainMax)) / this.wheelbase;
       const desired = clamp(lerp(plain, sc.input * cap, this.s.assistW), -cap, cap);
       espControl(vLong, yawRate, desired, _esp);
+      // In a held slide, ESP only steps in gently.
+      const keep = 1 - 0.85 * held;
+      for (let i = 0; i < 4; i++) _esp.brake[i] = _esp.brake[i]! * keep;
+      _esp.throttleScale = 1 - (1 - _esp.throttleScale) * keep;
+      _esp.activity *= keep;
       throttleScale *= _esp.throttleScale;
       this.espActivity = _esp.activity;
     }
@@ -537,7 +550,16 @@ export class Vehicle {
     const wheelTorqueTotal = shifting || ratio === 0 || declutch ? 0 : crank * ratio * gb.efficiency;
     this.s.reflected = ratio === 0 || declutch ? 0 : (eng.inertia * absRatio * absRatio * (1 - cs)) / Math.max(nDriven, 1);
 
-    for (let i = 0; i < 4; i++) wheels[i]!.hubDrive = wheelTorqueTotal * this.drivenShare[i]!;
+    // Four-wheel drive in a slide held on the throttle: most of the torque goes to the rear, as in
+    // the drift modes of modern AWD cars, so the throttle keeps the rear stepping out.
+    let rearShift = 1;
+    if (cfg.drive === 'AWD' && this.s.driftHold > 0) rearShift = 1 - 0.8 * this.s.driftHold;
+    const front = (this.drivenShare[0]! + this.drivenShare[1]!) * rearShift;
+    const rear = 1 - front;
+    for (let i = 0; i < 4; i++) {
+      const share = cfg.drive === 'AWD' ? (i < 2 ? front : rear) / 2 : this.drivenShare[i]!;
+      wheels[i]!.hubDrive = wheelTorqueTotal * share;
+    }
 
     // Limited-slip coupling per driven axle.
     if (cfg.diff.lsdK > 0) {
@@ -658,6 +680,8 @@ export class Vehicle {
     const wheels = this.wheels;
     const R = cfg.wheel.radius;
     const reflected = this.s.reflected;
+    const arcade = cfg.arcade ?? DEFAULT_ARCADE;
+    let latSum = 0;
     // ---- pass 2: apply suspension + tyre forces ---------------------------------------
     _jTot.set(0, 0, 0);
     _tTot.set(0, 0, 0);
@@ -729,7 +753,11 @@ export class Vehicle {
       w.slipAngle = Math.atan(tanA);
       w.slideSpeed = Math.hypot(slipSpeed, vy);
 
-      tireForces(w.isFront ? this.frontTire : this.rearTire, kappa, tanA, F, grip, _tire);
+      // Arcade turn-in: a little more front grip (below about 100 km/h, so the car stays steady at
+      // top speed). On dirt and grass the tyre keeps its grip once sliding.
+      const latScale = w.isFront ? 1 + 0.12 * arcade * (1 - smoothstep(25, 45, this.s.speed)) : 1;
+      const loose = surface === 'asphalt' ? 0 : 0.35 + 0.65 * arcade;
+      tireForces(w.isFront ? this.frontTire : this.rearTire, kappa, tanA, F, grip, _tire, latScale, loose);
       let fx = _tire.fx;
       let fy = _tire.fy;
 
@@ -759,6 +787,7 @@ export class Vehicle {
       const gy = _wf.y * fx + _wl.y * fy;
       const gz = _wf.z * fx + _wl.z * fy;
       accumulate(dt, px, py, pz, gx, gy, gz);
+      latSum += fy * _wl.dot(_left);
       if (w.groundBody && w.groundBody.isDynamic()) {
         _o.x = -gx * dt;
         _o.y = -gy * dt;
@@ -777,6 +806,14 @@ export class Vehicle {
       w.spin += om * dt;
     }
 
+    // Arcade cornering: an extra sideways force at the centre of mass, a share of what the tyres
+    // already give (more at speed). It tightens every corner without moving the balance between
+    // the axles, so the car turns in at speed instead of ploughing on, and never spins for it.
+    const boost = arcade * (0.15 + 0.6 * smoothstep(14, 40, this.s.speed));
+    if (boost > 0 && latSum !== 0) {
+      const f = latSum * boost;
+      accumulate(dt, _com.x, _com.y, _com.z, _left.x * f, _left.y * f, _left.z * f);
+    }
   }
 
   /** Apply the optional yaw damper for controllable slides. */
@@ -793,6 +830,26 @@ export class Vehicle {
       _tTot.addScaledVector(_up, tz);
     }
 
+  }
+
+  /**
+   * Arcade drift drive: with the throttle held in a slide, push the car along its heading (the
+   * sliding tyres scrub speed away) and bend its path towards where it points, so a drift can be
+   * driven out on the throttle and aimed with the steering. Off the throttle: plain tyres.
+   */
+  private applyDriftDrive(dt: number): void {
+    const arcade = this.cfg.arcade ?? DEFAULT_ARCADE;
+    const thr = this.s.throttleCmd * this.s.throttleScale;
+    if (arcade <= 0 || thr < 0.05 || this.gearState.gear < 1 || this.s.vLong < 3) return;
+    const slip = Math.abs(this.steering.slip);
+    const f = smoothstep(0.07, 0.2, slip) * (1 - smoothstep(1.0, 1.4, slip));
+    if (f <= 0) return;
+    const m = this.cfg.mass;
+    const k = arcade * thr * f;
+    const push = k * 0.3 * G * m;
+    const vLat = _vel.dot(_left);
+    const align = clamp(-vLat * k * 0.8 * m, -0.35 * G * m, 0.35 * G * m);
+    accumulate(dt, _com.x, _com.y, _com.z, _fwd.x * push + _left.x * align, _fwd.y * push + _left.y * align, _fwd.z * push + _left.z * align);
   }
 
   /** Apply drag and aerodynamic downforce impulses. */

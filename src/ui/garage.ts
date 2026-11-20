@@ -63,6 +63,7 @@ export class Garage {
     num(steer, 'stability', 'Stability assist (%)', 0, 100, 1);
     num(steer, 'slideControl', 'Slide control (%)', 0, 100, 1);
     num(steer, 'steerSpeed', 'Steering speed (x)', 0.5, 2.5, 0.05);
+    num(steer, 'arcade', 'Arcade handling (%)', 0, 100, 1);
 
     const eng = gui.addFolder('Engine');
     this.ranged.push({ c: num(eng, 'power', 'Power (hp)', 50, 1200, 1), max: (s) => Math.max(1200, s.power * 2.5) });

@@ -7,8 +7,8 @@ export type Surface = 'asphalt' | 'dirt' | 'grass';
 /** Friction multiplier per surface. */
 export const SURFACE_GRIP: Record<Surface, number> = {
   asphalt: 1.0,
-  dirt: 0.72,
-  grass: 0.55,
+  dirt: 0.84,
+  grass: 0.74,
 };
 
 export interface Physics {

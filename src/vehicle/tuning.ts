@@ -1,5 +1,5 @@
 import { clamp, interpTable, smoothstep } from '../core/math';
-import type { Drive, VehicleConfig } from './types';
+import { DEFAULT_ARCADE, type Drive, type VehicleConfig } from './types';
 
 /**
  * Garage setup, in the units a player thinks in. `stockTune(cfg)` reads a car's factory setup,
@@ -17,6 +17,8 @@ export interface Tune {
   slideControl: number;
   /** Steering speed (x). */
   steerSpeed: number;
+  /** Arcade handling (%): extra cornering grip, steadier off-road, throttle drives slides. */
+  arcade: number;
   // Engine
   /** Peak power (hp). */
   power: number;
@@ -114,6 +116,7 @@ export function stockTune(cfg: VehicleConfig): Tune {
     stability: Math.round((cfg.steering.stability ?? 0) * 100),
     slideControl: Math.round((cfg.steering.slideControl ?? 0) * 100),
     steerSpeed: 1,
+    arcade: Math.round((cfg.arcade ?? DEFAULT_ARCADE) * 100),
     power: Math.round(pk.power / HP),
     torque: Math.round(pk.torque),
     redline: cfg.engine.redlineRpm,
@@ -183,6 +186,7 @@ export function applyTune(base: VehicleConfig, t: Tune): VehicleConfig {
   cfg.steering.stability = clamp(t.stability / 100, 0, 1);
   cfg.steering.slideControl = clamp(t.slideControl / 100, 0, 1);
   cfg.steering.rate = base.steering.rate * t.steerSpeed;
+  cfg.arcade = clamp(t.arcade / 100, 0, 1);
 
   if (t.power !== stock.power || t.torque !== stock.torque || t.redline !== stock.redline) {
     const e = cfg.engine;

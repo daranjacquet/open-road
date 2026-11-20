@@ -23,6 +23,7 @@ The in-game garage (`G`) edits the same values live; `src/vehicle/tuning.ts` map
 | `rearGripScale` | Rear peak grip. With the steering assist the front always runs at its peak, so the rear needs a few percent more grip for the car to stay stable at the limit. | 1.04 to 1.07 |
 | `tireForceHeight` | Height above the contact patch where tyre forces act. Lower means more load transfer under braking and acceleration. | 0.1 to 0.14 |
 | `steering.lock` | Maximum wheel angle. | 0.55 to 0.6 rad (drift: 1.0) |
+| `arcade` | Arcade handling 0..1: extra cornering force at speed, steadier grip off-road, throttle drives slides (see the README). | 0.7 (default when absent) |
 | `steering.assist` | 0 to 1. At 1 the input asks the front tyres for slip angle (up to their peak) relative to where the front axle is going: full lock gives the best cornering grip at any speed, and the wheels countersteer by themselves in a slide. At 0 it is a plain rack whose lock halves at `speedRef`. | 0.8 |
 | `steering.stability` | 0 to 1. When the rear slides past its peak, stop asking the front for more rotation in that direction. | 0.5 (drift: 0) |
 | `steering.slideControl` | 0 to 1. Yaw damper on the rate of change of the slip angle: slides settle instead of snapping back or spinning, without limiting the angle. 0.4 on road cars, 0.8 for drifting. | 0.3 to 0.8 |

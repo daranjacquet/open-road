@@ -34,6 +34,9 @@ export function effectiveMu(p: TireParams, fz: number): number {
  * @param tanAlpha tangent of slip angle: lateral patch velocity / |longitudinal speed|, +left
  * @param fz       vertical load (N)
  * @param grip     surface grip multiplier (asphalt 1.0)
+ * @param latScale extra lateral grip (arcade cornering), 1 = none
+ * @param loose    0..1: on dirt and grass the grip barely drops once sliding (the tyre ploughs
+ *                 through loose ground instead of skating), so slides stay controllable
  *
  * Slip is normalised by the peak slip of each axis, so the force direction follows the
  * combined slip vector (friction circle): braking or accelerating hard takes lateral grip
@@ -46,6 +49,8 @@ export function tireForces(
   fz: number,
   grip: number,
   out: TireOut,
+  latScale = 1,
+  loose = 0,
 ): TireOut {
   if (fz <= 0 || grip <= 0) {
     out.fx = 0;
@@ -60,10 +65,11 @@ export function tireForces(
     out.fy = 0;
     return out;
   }
-  const mag = frictionCurve(s, p.slideRatio) * effectiveMu(p, fz) * grip * fz;
+  const slideRatio = loose > 0 ? p.slideRatio + (0.95 - p.slideRatio) * loose : p.slideRatio;
+  const mag = frictionCurve(s, slideRatio) * effectiveMu(p, fz) * grip * fz;
   out.fx = (mag * kn * p.longGripRatio) / s;
   // Lateral slip to the left (positive tanAlpha) must push the car to the right.
-  out.fy = (-mag * an) / s;
+  out.fy = (-mag * an * latScale) / s;
   return out;
 }
 

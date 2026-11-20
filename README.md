@@ -44,7 +44,7 @@ The gearbox is automatic by default (manual in the garage). The steering is assi
 The top-right panel (`G`) changes the car live and saves the setup per car:
 
 - **Setups**: Stock, **Drift** (RWD, welded diff, 58 degrees of lock, front camber, wider front track, soft rear grip, big handbrake, no stability aid) and **Track** (stiffer and lower, wider tyres, more grip and downforce).
-- **Steering**: lock, steering assist, stability assist, slide control, steering speed.
+- **Steering**: lock, steering assist, stability assist, slide control, steering speed, **arcade handling**.
 - **Engine**: power, torque, rev limit. **Driveline**: FWD, RWD or AWD, AWD split, diff lock, final drive, auto or manual gearbox.
 - **Suspension**: ride height, springs, dampers, anti-roll bars. **Wheels and tyres**: track width, camber, tyre width, grip, rear grip balance, grip while sliding.
 - **Brakes**: power, bias, handbrake. **Chassis**: mass, weight distribution, downforce. **Driving aids**: TC, ABS, ESP.
@@ -104,7 +104,8 @@ Layering, enforced by ESLint (`npm run lint`, `eslint.config.js`): `core` <- `ve
 - **Tyre model**: slip ratio and slip angle, a Magic-Formula-style curve, a combined-slip friction ellipse, load sensitivity and surface grip. A one-step stability clamp keeps it well behaved at walking speed.
 - **Drivetrain**: engine torque curve, clutch slip at launch, automatic gearbox (shifts on road speed, holds the gear in wheelspin) or manual, open or limited-slip differential, brake bias, handbrake with clutch, drag and downforce.
 - **Arcade layer, each on a slider**: steering assist (the input asks for front slip angle relative to where the front axle is going, so full lock never ploughs and the wheels countersteer in a slide), stability assist (unwinds the steering when the rear slides) and slide control (a damper on how fast the slip angle changes, not on how far it can go, so slides settle instead of snapping).
-- Aids: traction control, ABS and a yaw-rate ESP.
+- **Arcade handling** (garage slider, 70 % by default): a sideways force at the centre of mass worth a share of what the tyres give (15 % at low speed, up to 57 % above 140 km/h), so the car turns in at speed instead of ploughing without changing its balance (the saloon goes from 1.0 to 1.5 g at 150 km/h); a little more front grip below 100 km/h; dirt and grass keep their grip once sliding; and with the throttle held in a slide, a push along the car's heading that bends its path towards where it points, four-wheel drive sending its torque to the rear, so a drift is driven out on the throttle in any setup.
+- Aids: traction control, ABS and a yaw-rate ESP. In a slide held on the throttle (5 to 35 degrees) they let the wheels spin and step in only gently; past that they act fully.
 - Every car is a JSON file in `src/vehicle/cars/`. See [docs/TUNING.md](docs/TUNING.md) for what each value does.
 
 ### Cars and models

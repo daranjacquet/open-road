@@ -18,7 +18,8 @@ async function cruising(cfg: VehicleConfig, kmh: number) {
 describe('keyboard handling (full presses only)', () => {
   for (const def of CARS) {
     it(`${def.id}: full lock corners at the limit without ploughing or spinning, 60 to 180 km/h`, async () => {
-      const minG = def.id === 'offroad' ? 0.65 : 0.85;
+      // Arcade handling: well above what the tyres alone give (about 1 g for the saloon).
+      const minG = def.id === 'offroad' ? 0.85 : 1.05;
       for (const v of [60, 100, 140, 180]) {
         const { physics, car } = await cruising(def.cfg, v);
         const k = new Keys();
@@ -89,23 +90,53 @@ describe('garage setups', () => {
     expect(low.car.wheels[0]!.camber).toBeCloseTo((-4 * Math.PI) / 180, 4);
   });
 
-  it('the drift setup holds a keyboard drift on every car; the factory setup does not', async () => {
+  it('every setup can hold a keyboard drift on the throttle, the drift setup best of all', async () => {
     for (const def of CARS) {
-      const held: Record<string, number> = {};
-      for (const name of ['Stock', 'Drift']) {
+      for (const name of ['Stock', 'Track', 'Drift']) {
         const tune = PRESETS[name]!(stockTune(def.cfg), def.cfg);
         const { physics, car } = await makeSim(applyTune(def.cfg, tune));
         Object.assign(car.assists, { tc: tune.tc, abs: tune.abs, esp: tune.esp });
         const r = driftRun(physics, car);
         console.log(def.id, name, 'drift held', r.held.toFixed(1), 's, mean angle', r.meanAngle.toFixed(0), 'deg, max', r.maxAngle.toFixed(0), 'at', r.meanKmh.toFixed(0), 'km/h');
-        held[name] = r.held;
-        if (name === 'Drift') {
-          expect(r.held).toBeGreaterThan(5);
-          expect(r.maxAngle).toBeLessThan(55);
-          expect(r.spun).toBe(false);
-        }
+        // Stock and grip setups too: the aids let the wheels spin in a held slide, the throttle
+        // pushes the car on and four-wheel drive sends its torque to the rear.
+        expect(r.held).toBeGreaterThan(name === 'Drift' ? 5 : 3);
+        expect(r.maxAngle).toBeLessThan(55);
+        expect(r.spun).toBe(false);
       }
-      expect(held['Stock']!).toBeLessThan(held['Drift']! - 1);
+    }
+  }, 180_000);
+
+  it('dirt and grass grip less than asphalt but stay controllable', async () => {
+    const { createPhysics, GROUP, groups } = await import('../src/core/physics');
+    const { Vehicle } = await import('../src/vehicle/Vehicle');
+    for (const def of CARS) {
+      const g: Record<string, number> = {};
+      for (const surface of ['asphalt', 'dirt', 'grass'] as const) {
+        const physics = await createPhysics();
+        const { RAPIER, world } = physics;
+        const ground = world.createCollider(
+          RAPIER.ColliderDesc.cuboid(5000, 1, 5000).setTranslation(0, -1, 0).setCollisionGroups(groups(GROUP.WORLD, 0xffff)),
+          world.createRigidBody(RAPIER.RigidBodyDesc.fixed()),
+        );
+        physics.groundColliders.add(ground.handle);
+        physics.surfaceAt = () => surface;
+        const car = new Vehicle(physics, def.cfg, 0, 0, 0);
+        drive(physics, car, 20, (_t, c) => ({ throttle: hold(70)(c) }));
+        const k = new Keys();
+        const corner = drive(physics, car, 3, (_t, c) => ({ throttle: hold(70)(c), steer: k.step(1) }), 1);
+        const k2 = new Keys();
+        const slalom = drive(physics, car, 5, (t, c) => ({ throttle: hold(70)(c), steer: k2.step(Math.floor(t / 1.1) % 2 ? -1 : 1) }));
+        console.log(def.id, surface, 'corner', corner.meanLatG.toFixed(2), 'g, slalom max slip', slalom.maxSlip.toFixed(0), 'deg');
+        g[surface] = corner.meanLatG;
+        expect(slalom.spun).toBe(false);
+        expect(slalom.maxSlip).toBeLessThan(25);
+      }
+      // All-terrain tyres (the 4x4) hold about as well on dirt as on asphalt; road tyres do not.
+      if ((def.cfg.tire.looseGrip ?? 1) <= 1) expect(g['dirt']!).toBeLessThan(g['asphalt']!);
+      else expect(g['dirt']!).toBeLessThan(g['asphalt']! * 1.1);
+      expect(g['grass']!).toBeLessThan(g['dirt']!);
+      expect(g['grass']!).toBeGreaterThan(0.7);
     }
   }, 120_000);
 

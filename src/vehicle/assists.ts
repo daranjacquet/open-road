@@ -6,9 +6,12 @@ export function absScale(kappa: number): number {
   return over <= 0 ? 1 : clamp(1 - over * 9, 0.08, 1);
 }
 
-/** Traction control: scale engine torque from the worst driven-wheel slip ratio (positive = spinning). */
-export function tcScale(maxKappa: number): number {
-  const over = maxKappa - 0.15;
+/**
+ * Traction control: scale engine torque from the worst driven-wheel slip ratio (positive = spinning).
+ * `allowed` is the slip let through (higher in a slide, so the throttle can hold a drift).
+ */
+export function tcScale(maxKappa: number, allowed = 0.15): number {
+  const over = maxKappa - allowed;
   return over <= 0 ? 1 : clamp(1 - over * 6, 0.25, 1);
 }
 
