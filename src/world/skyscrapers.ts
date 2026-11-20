@@ -826,6 +826,6 @@ export function twinTower(name: string, x: number, z: number, y: number, facade:
     facade,
     bands: [{ y0: 0, y1: north ? 417 : 415, bottom: plan, top: plan }],
     ...(north ? { spire: { r: 1.8, h: 110 } } : {}),
-    breakers: ['car'],
+    breakers: ['car', 'aircraft'],
   };
 }
