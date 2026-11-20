@@ -450,7 +450,7 @@
     "minLen": 0.05
   },
   "tire": {
-    "mu": 1.4,
+    "mu": 1.45,
     "refLoad": 3600,
     "loadSensitivity": 0.12,
     "peakSlipRatio": 0.11,
@@ -460,6 +460,7 @@
     "rollingResistance": 0.011
   },
   "rearGripScale": 1.02,
+  "driftAssist": 0.15,
   "rearStiffnessScale": 1.12,
   "tireForceHeight": 0.06,
   "steering": {
@@ -548,8 +549,8 @@
   },
   "aero": {
     "cdA": 0.66,
-    "clA": 2.0,
-    "frontShare": 0.36
+    "clA": 2.5,
+    "frontShare": 0.42
   },
   "camber": {
     "front": -3,

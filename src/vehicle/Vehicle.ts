@@ -8,7 +8,7 @@ import { absScale, espControl, tcScale, type EspOut } from './assists';
 import { autoShift, engineTorque, totalRatio, type GearState } from './drivetrain';
 import { ackermann, SteeringController, type SteerContext } from './steering';
 import { axleTire, tireForces, type TireOut } from './tire';
-import { DEFAULT_ARCADE, type TireParams, type VehicleConfig } from './types';
+import { DEFAULT_ARCADE, DEFAULT_DRIFT_ASSIST, type TireParams, type VehicleConfig } from './types';
 import { WheelState } from './wheel';
 import type { DriveInput } from '../core/input';
 
@@ -117,7 +117,7 @@ export class Vehicle {
   private first = true;
   private readonly invG = 1 / G;
   /** Values shared by phases of one step; reused without allocation. */
-  private readonly s = { vLong: 0, speed: 0, yawRate: 0, throttleCmd: 0, brakeCmd: 0, throttleScale: 1, assistW: 0, plainMax: 0, reflected: 0, driftHold: 0 };
+  private readonly s = { vLong: 0, speed: 0, yawRate: 0, throttleCmd: 0, brakeCmd: 0, throttleScale: 1, assistW: 0, plainMax: 0, reflected: 0, driftHold: 0, driveForce: 0 };
 
   constructor(
     private readonly physics: Physics,
@@ -451,12 +451,12 @@ export class Vehicle {
     this.tcActive = false;
     this.absActive = false;
     this.espActivity = 0;
-    // A slide the driver is holding on the throttle (body slip 5 to 35 degrees): with arcade
-    // handling the aids let the wheels spin and do not fight the angle; past that, a spin is
+    // A slide the driver is holding on the throttle (body slip 5 to 35 degrees): with the drift
+    // assist the aids let the wheels spin and do not fight the angle; past that, a spin is
     // coming and they step in fully.
-    const arcade = cfg.arcade ?? DEFAULT_ARCADE;
+    const drift = cfg.driftAssist ?? DEFAULT_DRIFT_ASSIST;
     const slipAbs = Math.abs(sc.slip);
-    const held = arcade * smoothstep(0.05, 0.15, slipAbs) * (1 - smoothstep(0.55, 0.7, slipAbs)) * smoothstep(0.15, 0.4, this.s.throttleCmd);
+    const held = drift * smoothstep(0.05, 0.15, slipAbs) * (1 - smoothstep(0.55, 0.7, slipAbs)) * smoothstep(0.15, 0.4, this.s.throttleCmd);
     this.s.driftHold = held;
     if (this.assists.tc && this.s.throttleCmd > 0.05) {
       let maxK = 0;
@@ -548,6 +548,7 @@ export class Vehicle {
     if (crank < 0) crank *= 1 - cs;
     const shifting = gs.shiftTimer > 0;
     const wheelTorqueTotal = shifting || ratio === 0 || declutch ? 0 : crank * ratio * gb.efficiency;
+    this.s.driveForce = wheelTorqueTotal / R;
     this.s.reflected = ratio === 0 || declutch ? 0 : (eng.inertia * absRatio * absRatio * (1 - cs)) / Math.max(nDriven, 1);
 
     // Four-wheel drive in a slide held on the throttle: most of the torque goes to the rear, as in
@@ -833,22 +834,25 @@ export class Vehicle {
   }
 
   /**
-   * Arcade drift drive: with the throttle held in a slide, push the car along its heading (the
-   * sliding tyres scrub speed away) and bend its path towards where it points, so a drift can be
-   * driven out on the throttle and aimed with the steering. Off the throttle: plain tyres.
+   * Drift drive: with the throttle held in a slide, push the car along its heading with a share of
+   * the engine's drive (the sliding tyres scrub speed away; more power, more push) and bend its
+   * path towards where it points, so a drift can be driven out on the throttle and aimed with the
+   * steering. Off the throttle: plain tyres.
    */
   private applyDriftDrive(dt: number): void {
-    const arcade = this.cfg.arcade ?? DEFAULT_ARCADE;
+    const assist = this.cfg.driftAssist ?? DEFAULT_DRIFT_ASSIST;
     const thr = this.s.throttleCmd * this.s.throttleScale;
-    if (arcade <= 0 || thr < 0.05 || this.gearState.gear < 1 || this.s.vLong < 3) return;
+    if (assist <= 0 || thr < 0.05 || this.gearState.gear < 1 || this.s.vLong < 3) return;
     const slip = Math.abs(this.steering.slip);
     const f = smoothstep(0.07, 0.2, slip) * (1 - smoothstep(1.0, 1.4, slip));
     if (f <= 0) return;
     const m = this.cfg.mass;
-    const k = arcade * thr * f;
-    const push = k * 0.3 * G * m;
+    const k = assist * f;
+    // The engine's drive at the wheels right now (it already includes the throttle).
+    const drive = Math.max(0, this.s.driveForce);
+    const push = Math.min(k * (0.1 * G * m * thr + 0.3 * drive), 0.55 * G * m);
     const vLat = _vel.dot(_left);
-    const align = clamp(-vLat * k * 0.8 * m, -0.35 * G * m, 0.35 * G * m);
+    const align = clamp(-vLat * k * thr * 0.8 * m, -0.35 * G * m, 0.35 * G * m);
     accumulate(dt, _com.x, _com.y, _com.z, _fwd.x * push + _left.x * align, _fwd.y * push + _left.y * align, _fwd.z * push + _left.z * align);
   }
 

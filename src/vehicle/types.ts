@@ -106,8 +106,9 @@ export interface CrushGrid {
   elastic?: number;
 }
 
-/** Arcade handling when a car does not set it. */
+/** Arcade grip and drift assist when a car does not set them. */
 export const DEFAULT_ARCADE = 0.7;
+export const DEFAULT_DRIFT_ASSIST = 0.7;
 
 export interface VehicleConfig {
   name: string;
@@ -134,12 +135,17 @@ export interface VehicleConfig {
   /** Rear tyre peak grip multiplier (balance tuning). */
   rearGripScale: number;
   /**
-   * Arcade handling, 0..1 (default `DEFAULT_ARCADE`): extra cornering grip (more at the front and
-   * at speed, so the car turns in instead of ploughing), steadier grip on dirt and grass once
-   * sliding, and a push along the car's heading when the throttle is held in a slide, so a drift
-   * can be driven out on the throttle.
+   * Arcade grip, 0..1 (default `DEFAULT_ARCADE`): extra cornering force (more at speed, so the
+   * car turns in instead of ploughing) and steadier grip on dirt and grass once sliding.
    */
   arcade?: number;
+  /**
+   * Drift assist, 0..1 (default `DEFAULT_DRIFT_ASSIST`): in a slide held on the throttle, the aids
+   * let the wheels spin, four-wheel drive sends its torque to the rear, and the engine's drive
+   * pushes the car along its heading, so the power holds and steers a drift. 0 for a race car
+   * that must stay planted when the throttle goes down mid-corner.
+   */
+  driftAssist?: number;
   /** Rear cornering stiffness multiplier: >1 = more stable/understeering, <1 = lively rear. */
   rearStiffnessScale: number;
   /** Height above the contact patch where tyre forces are applied (m). Controls load transfer feel. */

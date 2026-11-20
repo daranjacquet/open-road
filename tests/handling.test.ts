@@ -107,6 +107,41 @@ describe('garage setups', () => {
     }
   }, 180_000);
 
+  it('the rally setup slides on dirt and asphalt and still grips', async () => {
+    const def = CARS.find((c) => c.id === 'sedan')!;
+    const tune = PRESETS['Rally']!(stockTune(def.cfg), def.cfg);
+    const cfg = applyTune(def.cfg, tune);
+    const { createPhysics, GROUP, groups } = await import('../src/core/physics');
+    const { Vehicle } = await import('../src/vehicle/Vehicle');
+    for (const surface of ['asphalt', 'dirt'] as const) {
+      const make = async (): Promise<{ physics: Awaited<ReturnType<typeof createPhysics>>; car: InstanceType<typeof Vehicle> }> => {
+        const physics = await createPhysics();
+        const { RAPIER, world } = physics;
+        const ground = world.createCollider(
+          RAPIER.ColliderDesc.cuboid(5000, 1, 5000).setTranslation(0, -1, 0).setCollisionGroups(groups(GROUP.WORLD, 0xffff)),
+          world.createRigidBody(RAPIER.RigidBodyDesc.fixed()),
+        );
+        physics.groundColliders.add(ground.handle);
+        physics.surfaceAt = () => surface;
+        const car = new Vehicle(physics, cfg, 0, 0, 0);
+        Object.assign(car.assists, { tc: tune.tc, abs: tune.abs, esp: tune.esp });
+        return { physics, car };
+      };
+      let { physics, car } = await make();
+      const r = driftRun(physics, car);
+      ({ physics, car } = await make());
+      drive(physics, car, 20, (_t, c) => ({ throttle: hold(80)(c) }));
+      const k = new Keys();
+      const s = drive(physics, car, 3, (_t, c) => ({ throttle: hold(80)(c), steer: k.step(1) }), 1);
+      console.log('rally', surface, 'drift held', r.held.toFixed(1), 's at', r.meanKmh.toFixed(0), 'km/h; 80 km/h corner', s.meanLatG.toFixed(2), 'g, slip', s.maxSlip.toFixed(0));
+      expect(r.held).toBeGreaterThan(5);
+      expect(r.spun).toBe(false);
+      expect(r.meanKmh).toBeGreaterThan(70);
+      expect(s.meanLatG).toBeGreaterThan(1.2);
+      expect(s.spun).toBe(false);
+    }
+  }, 60_000);
+
   it('dirt and grass grip less than asphalt but stay controllable', async () => {
     const { createPhysics, GROUP, groups } = await import('../src/core/physics');
     const { Vehicle } = await import('../src/vehicle/Vehicle');

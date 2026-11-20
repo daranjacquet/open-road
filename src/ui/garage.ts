@@ -1,7 +1,7 @@
 import GUI, { type Controller } from 'lil-gui';
 import type { GameCar } from '../game/GameCar';
 import { CARS } from '../game/catalog';
-import { curvePeaks, PRESETS, stockTune, type Tune, type TuneKey } from '../vehicle/tuning';
+import { curvePeaks, PRESETS, stockTune, suggestFinalDrive, type Tune, type TuneKey } from '../vehicle/tuning';
 
 const KEY = (id: string): string => `open-road:tune:${id}`;
 
@@ -35,6 +35,7 @@ export class Garage {
   private readonly choice: { car: string };
   private readonly ranged: { c: Controller; max: (stock: Tune) => number }[] = [];
   private readonly info: { power: string };
+  private followGearing = true;
 
   constructor(
     private getCar: () => GameCar,
@@ -50,12 +51,12 @@ export class Garage {
 
     const presets = gui.addFolder('Setups');
     for (const name of Object.keys(PRESETS)) {
-      presets.add({ [name]: () => this.preset(name) }, name).name(name === 'Stock' ? 'Stock (factory)' : name === 'Drift' ? 'Drift' : 'Track (grip)');
+      presets.add({ [name]: () => this.preset(name) }, name).name(name === 'Stock' ? 'Stock (factory)' : name === 'Track' ? 'Track (grip)' : name === 'Rally' ? 'Rally (gravel and drift)' : name);
     }
 
     const t = this.tune;
     const num = (folder: GUI, key: TuneKey, name: string, min: number, max: number, step: number): Controller =>
-      folder.add(t, key, min, max, step).name(name).onChange(() => this.changed());
+      folder.add(t, key, min, max, step).name(name).onChange(() => this.changed(key));
 
     const steer = gui.addFolder('Steering');
     num(steer, 'steerLock', 'Lock (deg)', 20, 70, 0.5);
@@ -63,7 +64,8 @@ export class Garage {
     num(steer, 'stability', 'Stability assist (%)', 0, 100, 1);
     num(steer, 'slideControl', 'Slide control (%)', 0, 100, 1);
     num(steer, 'steerSpeed', 'Steering speed (x)', 0.5, 2.5, 0.05);
-    num(steer, 'arcade', 'Arcade handling (%)', 0, 100, 1);
+    num(steer, 'arcade', 'Arcade grip (%)', 0, 100, 1);
+    num(steer, 'driftAssist', 'Drift assist (%)', 0, 100, 1);
 
     const eng = gui.addFolder('Engine');
     this.ranged.push({ c: num(eng, 'power', 'Power (hp)', 50, 1200, 1), max: (s) => Math.max(1200, s.power * 2.5) });
@@ -96,6 +98,7 @@ export class Garage {
     num(wh, 'grip', 'Tyre grip (x)', 0.6, 1.5, 0.01);
     num(wh, 'rearGrip', 'Rear grip balance (x)', 0.7, 1.3, 0.01);
     num(wh, 'slideGrip', 'Grip while sliding (%)', 60, 97, 1);
+    num(wh, 'looseGrip', 'Dirt and grass grip (x)', 0.5, 1.6, 0.01);
 
     const br = gui.addFolder('Brakes');
     num(br, 'brakes', 'Brake power (x)', 0.5, 2, 0.05);
@@ -178,6 +181,7 @@ export class Garage {
   /** Bind the panel to the current player car (after a swap) and apply its saved setup. */
   attach(): void {
     const car = this.getCar();
+    this.followGearing = true;
     Object.assign(this.tune, loadTune(car));
     this.choice.car = car.def.id;
     const stock = stockTune(car.def.cfg);
@@ -201,11 +205,16 @@ export class Garage {
     const car = this.getCar();
     const keepBox = this.tune.gearbox;
     Object.assign(this.tune, PRESETS[name]!(stockTune(car.def.cfg), car.def.cfg), { gearbox: keepBox });
+    this.followGearing = true;
     this.changed();
   }
 
-  private changed(): void {
+  private changed(key?: TuneKey): void {
     const car = this.getCar();
+    // The gearing follows the power (a stronger engine reaches a higher top speed instead of
+    // hitting the rev limiter in top gear), until the final drive is set by hand.
+    if (key === 'finalDrive') this.followGearing = false;
+    if (key === 'power' && this.followGearing) this.tune.finalDrive = suggestFinalDrive(car.def.cfg, this.tune);
     car.applyTune(this.tune);
     saveTune(car.def.id, this.tune);
     this.refresh();

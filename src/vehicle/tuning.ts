@@ -1,5 +1,5 @@
 import { clamp, interpTable, smoothstep } from '../core/math';
-import { DEFAULT_ARCADE, type Drive, type VehicleConfig } from './types';
+import { DEFAULT_ARCADE, DEFAULT_DRIFT_ASSIST, type Drive, type VehicleConfig } from './types';
 
 /**
  * Garage setup, in the units a player thinks in. `stockTune(cfg)` reads a car's factory setup,
@@ -17,8 +17,10 @@ export interface Tune {
   slideControl: number;
   /** Steering speed (x). */
   steerSpeed: number;
-  /** Arcade handling (%): extra cornering grip, steadier off-road, throttle drives slides. */
+  /** Arcade grip (%): extra cornering force at speed, steadier grip on dirt and grass. */
   arcade: number;
+  /** Drift assist (%): in a slide held on the throttle, the power holds and steers the drift. */
+  driftAssist: number;
   // Engine
   /** Peak power (hp). */
   power: number;
@@ -61,6 +63,8 @@ export interface Tune {
   rearGrip: number;
   /** How much grip is left once sliding (%): high = progressive and easy to hold a slide. */
   slideGrip: number;
+  /** Grip on dirt and grass (x): gravel and all-terrain tyres above 1. */
+  looseGrip: number;
   // Brakes
   /** Brake power (x). */
   brakes: number;
@@ -117,6 +121,7 @@ export function stockTune(cfg: VehicleConfig): Tune {
     slideControl: Math.round((cfg.steering.slideControl ?? 0) * 100),
     steerSpeed: 1,
     arcade: Math.round((cfg.arcade ?? DEFAULT_ARCADE) * 100),
+    driftAssist: Math.round((cfg.driftAssist ?? DEFAULT_DRIFT_ASSIST) * 100),
     power: Math.round(pk.power / HP),
     torque: Math.round(pk.torque),
     redline: cfg.engine.redlineRpm,
@@ -140,6 +145,7 @@ export function stockTune(cfg: VehicleConfig): Tune {
     grip: 1,
     rearGrip: 1,
     slideGrip: Math.round(cfg.tire.slideRatio * 100),
+    looseGrip: cfg.tire.looseGrip ?? 1,
     brakes: 1,
     brakeBias: Math.round(cfg.brakes.frontBias * 100),
     handbrake: 1,
@@ -187,6 +193,7 @@ export function applyTune(base: VehicleConfig, t: Tune): VehicleConfig {
   cfg.steering.slideControl = clamp(t.slideControl / 100, 0, 1);
   cfg.steering.rate = base.steering.rate * t.steerSpeed;
   cfg.arcade = clamp(t.arcade / 100, 0, 1);
+  cfg.driftAssist = clamp(t.driftAssist / 100, 0, 1);
 
   if (t.power !== stock.power || t.torque !== stock.torque || t.redline !== stock.redline) {
     const e = cfg.engine;
@@ -236,6 +243,7 @@ export function applyTune(base: VehicleConfig, t: Tune): VehicleConfig {
   cfg.tire.mu = base.tire.mu * t.grip;
   cfg.rearGripScale = base.rearGripScale * t.rearGrip;
   cfg.tire.slideRatio = clamp(t.slideGrip / 100, 0.6, 0.97);
+  cfg.tire.looseGrip = clamp(t.looseGrip, 0.5, 1.6);
 
   cfg.brakes.torque = base.brakes.torque * t.brakes;
   cfg.brakes.frontBias = clamp(t.brakeBias / 100, 0.3, 0.85);
@@ -246,6 +254,29 @@ export function applyTune(base: VehicleConfig, t: Tune): VehicleConfig {
   if (t.weightFront !== stock.weightFront) cfg.com = [base.com[0], base.com[1], cfg.wheels.RL[2] + (clamp(t.weightFront, 30, 70) / 100) * L];
   cfg.aero.clA = t.downforce;
   return cfg;
+}
+
+/** Top speed (m/s) where a peak power (W) meets drag and rolling resistance. */
+function powerLimitedTop(cfg: VehicleConfig, powerW: number): number {
+  const wheel = powerW * cfg.gearbox.efficiency;
+  let v = 50;
+  for (let i = 0; i < 40; i++) {
+    const need = (0.5 * 1.225 * cfg.aero.cdA * v * v + 0.012 * cfg.mass * 9.81) * v;
+    v *= Math.cbrt(wheel / need);
+  }
+  return v;
+}
+
+/**
+ * Final drive that fits a setup's power: more power than stock lengthens the gearing in proportion
+ * to the extra top speed the power can reach, so a stronger engine is not stopped by the rev
+ * limiter in top gear at the old top speed. Less power keeps the stock gearing.
+ */
+export function suggestFinalDrive(base: VehicleConfig, t: Tune): number {
+  const stock = curvePeaks(base.engine.torqueCurve, base.engine.redlineRpm).power;
+  const v0 = powerLimitedTop(base, stock);
+  const v1 = powerLimitedTop(base, t.power * HP);
+  return round(base.gearbox.finalDrive * Math.min(1, v0 / v1), 3);
 }
 
 /** Ready-made setups, built from the car's factory setup. */
@@ -282,6 +313,39 @@ export const PRESETS: Record<string, (stock: Tune, cfg: VehicleConfig) => Tune> 
     handbrake: 2.5,
     weightFront: 51,
     downforce: 0,
+    // Enough to drive the drift on the throttle; more would straighten it (the path follows the nose).
+    driftAssist: 75,
+    tc: false,
+    abs: true,
+    esp: false,
+  }),
+  // Rally: four-wheel drive with a rear bias, a locked-ish diff, soft and tall suspension, gravel
+  // tyres that keep their grip once sliding and a strong drift assist: slides easily on any
+  // surface and still grips enough to be quick.
+  Rally: (s) => ({
+    ...s,
+    steerLock: 46,
+    steerAssist: 85,
+    stability: 15,
+    slideControl: 65,
+    steerSpeed: 1.3,
+    arcade: 75,
+    driftAssist: 100,
+    drive: 'AWD',
+    frontBias: 35,
+    diffLock: 75,
+    rideHeight: 4,
+    springFront: Math.round(s.springFront * 0.8),
+    springRear: Math.round(s.springRear * 0.8),
+    damping: 0.9,
+    arbFront: Math.round(s.arbFront * 0.85),
+    arbRear: Math.round(s.arbRear * 1.25),
+    grip: 1,
+    rearGrip: 0.93,
+    slideGrip: 93,
+    looseGrip: Math.max(s.looseGrip, 1.3),
+    brakeBias: 58,
+    handbrake: 2.2,
     tc: false,
     abs: true,
     esp: false,
@@ -309,6 +373,7 @@ export const PRESETS: Record<string, (stock: Tune, cfg: VehicleConfig) => Tune> 
     grip: 1.1,
     brakes: 1.2,
     downforce: s.downforce + 1.0,
+    driftAssist: Math.min(s.driftAssist, 30),
     esp: false,
   }),
 };
