@@ -118,6 +118,8 @@ export class GameAudio {
   update(car: Vehicle, now: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
+    // A non-finite value would make setTargetAtTime throw every frame: skip the frame instead.
+    if (!Number.isFinite(car.rpm) || !Number.isFinite(car.speed) || !Number.isFinite(car.throttleCmd)) return;
     if (ctx.state === 'suspended') void ctx.resume();
     const t = ctx.currentTime;
     const e = car.cfg.engine;

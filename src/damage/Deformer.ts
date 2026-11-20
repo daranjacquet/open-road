@@ -110,6 +110,10 @@ export class Deformer {
   private readonly ray: RAPIER.Ray;
   private dirty = false;
   private normalsCursor = 0;
+  // Per-call cache for nodes already found outside a collider.
+  private readonly missCall: Uint32Array;
+  private readonly missHandle: Float64Array;
+  private imprintCall = 0;
   private dmin = [0, 0, 0];
   private dmax = [0, 0, 0];
   private lastNormals = 0;
@@ -135,6 +139,8 @@ export class Deformer {
     const n = this.nx * this.ny * this.nz;
     this.D = new Float32Array(n * 3);
     this.flag = new Uint8Array(n);
+    this.missCall = new Uint32Array(n);
+    this.missHandle = new Float64Array(n);
     this.comp = new Float32Array(n);
     this.compAxis = new Uint8Array(n);
     this.ray = new RAPIER_.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
@@ -227,12 +233,20 @@ export class Deformer {
   private markDirty(ix: number, iy: number, iz: number): void {
     if (!this.dirty) {
       this.dirty = true;
-      this.dmin = [ix, iy, iz];
-      this.dmax = [ix, iy, iz];
+      this.dmin[0] = ix;
+      this.dmin[1] = iy;
+      this.dmin[2] = iz;
+      this.dmax[0] = ix;
+      this.dmax[1] = iy;
+      this.dmax[2] = iz;
       return;
     }
-    this.dmin = [Math.min(this.dmin[0]!, ix), Math.min(this.dmin[1]!, iy), Math.min(this.dmin[2]!, iz)];
-    this.dmax = [Math.max(this.dmax[0]!, ix), Math.max(this.dmax[1]!, iy), Math.max(this.dmax[2]!, iz)];
+    this.dmin[0] = Math.min(this.dmin[0]!, ix);
+    this.dmin[1] = Math.min(this.dmin[1]!, iy);
+    this.dmin[2] = Math.min(this.dmin[2]!, iz);
+    this.dmax[0] = Math.max(this.dmax[0]!, ix);
+    this.dmax[1] = Math.max(this.dmax[1]!, iy);
+    this.dmax[2] = Math.max(this.dmax[2]!, iz);
   }
 
   /**
@@ -249,6 +263,10 @@ export class Deformer {
     _q.copy(carQuat);
     _qi.copy(carQuat).invert();
     const R = 0.75;
+    // Many contacts of one step are on the same obstacle with overlapping boxes: a node found outside
+    // a collider is not tested against it again in this call unless it moves (pure saving, same result).
+    this.imprintCall = (this.imprintCall % 0xfffffffe) + 1;
+    const call = this.imprintCall;
     for (const c of contacts) {
       // Contact point in the chassis frame.
       _v.copy(c.point).sub(carPos).applyQuaternion(_qi);
@@ -257,8 +275,10 @@ export class Deformer {
       // against another car we only see its undeformed outline: cap the dent to what our own
       // crumple zone actually took for good there, so the metal follows the physics.
       const cap = crushNear ? crushNear(_v.x, _v.y, _v.z) * 1.1 + 0.01 : Infinity;
+      const handle = c.collider.handle;
       this.forBox(_v.x - R, _v.y - R, _v.z - R, _v.x + R, _v.y + R, _v.z + R, (i, ix, iy, iz) => {
         if (this.flag[i] === 1) return;
+        if (this.missCall[i] === call && this.missHandle[i] === handle) return;
         const o = i * 3;
         // Deformed node position, chassis then world.
         _w.set(this.origin.x + ix * H + this.D[o]!, this.origin.y + iy * H + this.D[o + 1]!, this.origin.z + iz * H + this.D[o + 2]!);
@@ -266,7 +286,11 @@ export class Deformer {
         _pt.x = _w.x;
         _pt.y = _w.y;
         _pt.z = _w.z;
-        if (!c.collider.containsPoint(_pt)) return;
+        if (!c.collider.containsPoint(_pt)) {
+          this.missCall[i] = call;
+          this.missHandle[i] = handle;
+          return;
+        }
         // Exit distance along the inward crush direction.
         const dirW = _w.copy(inward).applyQuaternion(_q);
         this.ray.origin.x = _pt.x;
@@ -292,6 +316,7 @@ export class Deformer {
         this.D[o] = nx;
         this.D[o + 1] = ny;
         this.D[o + 2] = nz;
+        this.missCall[i] = 0; // moved: test it again
         this.flag[i] = 2;
         this.imprints++;
         this.markDirty(ix, iy, iz);
