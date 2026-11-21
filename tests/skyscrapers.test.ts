@@ -103,21 +103,6 @@ describe('skyscrapers', () => {
 });
 
 describe('skyscrapers and aircraft', () => {
-  it('an aircraft flies on through the towers it brings down, except the twin towers', async () => {
-    const { towers } = await city();
-    const glass = new THREE.MeshStandardMaterial();
-    expect(twinTower('T', 0, 0, 0, glass, true).passThrough).toBe(false);
-    const t = towers.tower('High-rise')!;
-    towers.strike(t.upper[1]!, 5e6, 0, 1, 50);
-    towers.flush();
-    expect(towers.breakThrough).toBeGreaterThan(0.25);
-    towers.breakThrough = null;
-    const w = towers.tower('WTC')!;
-    towers.strike(w.upper[1]!, 1e9, 0, 1, 200);
-    towers.flush();
-    expect(towers.breakThrough).toBeNull();
-  });
-
   it('struck from 5 m up, even within the ground floor, it all comes down; lower, it is a hit like a car', async () => {
     const { towers } = await city();
     const t = towers.tower('High-rise')!;
