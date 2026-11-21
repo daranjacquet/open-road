@@ -76,9 +76,28 @@ describe('aircraft model (GLB)', () => {
       const b = boxes.get(s.part)!.clone().expandByScalar(0.25);
       expect(b.containsPoint(new THREE.Vector3(...s.pos)), s.name).toBe(true);
     }
-    // The propeller hub is the thrust point.
-    const prop = boxes.get('prop')!.getCenter(new THREE.Vector3());
-    expect(prop.distanceTo(new THREE.Vector3(...cfg.engine.pos))).toBeLessThan(0.1);
+    // The propeller turns about its hub (on the shaft, not at the centre of its box: three blades
+    // reach higher than they reach down), which is the thrust point; its blades reach the radius.
+    const hub = m.parts.get('prop')!.position;
+    expect(hub.distanceTo(new THREE.Vector3(...cfg.engine.pos))).toBeLessThan(0.02);
+    const g = m.parts.get('prop')!;
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    let tip = 0;
+    for (const c of g.children) {
+      if (!(c instanceof THREE.Mesh)) continue;
+      const p = c.geometry.getAttribute('position');
+      for (let i = 0; i < p.count; i++) {
+        sx += p.getX(i);
+        sy += p.getY(i);
+        n++;
+        tip = Math.max(tip, Math.hypot(p.getX(i), p.getY(i)));
+      }
+    }
+    // Balanced about the axis (within 2 cm), so it spins without wobbling.
+    expect(Math.hypot(sx / n, sy / n)).toBeLessThan(0.02);
+    expect(Math.abs(tip - cfg.engine.radius)).toBeLessThan(0.03);
     m.dispose();
   });
 });

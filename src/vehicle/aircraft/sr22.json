@@ -146,7 +146,7 @@
       "area": 2.52,
       "chord": 0.62,
       "aspect": 6.1,
-      "cl0": 0.05,
+      "cl0": 0.07,
       "clAlpha": 4.6,
       "clMax": 1.2,
       "clMin": -1.2,
@@ -400,10 +400,10 @@
     "maxRpm": 2700,
     "pos": [
       0,
-      0.314,
+      0.094,
       2.493
     ],
-    "radius": 1
+    "radius": 0.92
   },
   "brakeMu": 0.55,
   "steerLock": 0.45,

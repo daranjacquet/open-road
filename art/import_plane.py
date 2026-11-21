@@ -273,9 +273,23 @@ def main():
         piv, axis = hinge_of(o, kind) if name != "body" else (Vector((0, 0, 0)), None)
         spin = spec.get("spin", {}).get(name)
         if spin:
+            # The spin axis goes through the area centroid of the part (a hub, a three-blade
+            # propeller: its box centre is not on the shaft), at the middle of its length.
+            axis = g2b(*spin).normalized()
             lo, hi = world_bbox(o)
-            piv = (lo + hi) / 2
-            axis = g2b(*spin)
+            mid = (lo + hi) / 2
+            area = 0.0
+            cen = Vector((0, 0, 0))
+            mw = o.matrix_world
+            for poly in o.data.polygons:
+                a = poly.area
+                area += a
+                cen += (mw @ poly.center) * a
+            if area > 0:
+                cen /= area
+                piv = cen + axis * (mid - cen).dot(axis)
+            else:
+                piv = mid
         o["chassis_pivot"] = b2g(piv)
         if axis is not None:
             o["hinge_axis"] = b2g(axis)
