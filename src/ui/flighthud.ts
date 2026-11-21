@@ -31,7 +31,7 @@ export class FlightHud {
   private readonly thrFill: HTMLElement;
   private readonly rpm: HTMLElement;
   private readonly flaps: HTMLElement;
-  private readonly lights: Record<'brake' | 'trim' | 'gnd' | 'prot' | 'boost', HTMLElement>;
+  private readonly lights: Record<'brake' | 'trim' | 'gnd' | 'prot' | 'boost' | 'arcade', HTMLElement>;
   private readonly stall: HTMLElement;
   private readonly eng: HTMLElement;
   private readonly adi: HTMLCanvasElement;
@@ -88,7 +88,7 @@ export class FlightHud {
           <div class="fl-row"><span><b>ALT</b><span id="fl-alt">0</span> ft</span><span><b>VS</b><span id="fl-vs">0</span> ft/min</span></div>
           <div class="fl-row"><span><b>HDG</b><span id="fl-hdg">000</span></span><span><b>G</b><span id="fl-g">1.0</span></span><span><b>RPM</b><span id="fl-rpm">0</span></span></div>
           <div class="fl-row"><b style="font-size:11px;opacity:.7">THR</b><div class="fl-thr"><i id="fl-thr-fill"></i></div><span id="fl-thr">0%</span></div>
-          <div class="fl-lights"><b id="fl-flaps">FLAPS 0</b><b id="fl-trim">AUTO-TRIM</b><b id="fl-prot">STALL PROT</b><b id="fl-boost">BOOST</b><b id="fl-gnd">GROUND</b><b id="fl-brake">BRAKE</b></div>
+          <div class="fl-lights"><b id="fl-flaps">FLAPS 0</b><b id="fl-trim">AUTO-TRIM</b><b id="fl-prot">STALL PROT</b><b id="fl-boost">BOOST</b><b id="fl-arcade">ARCADE</b><b id="fl-gnd">GROUND</b><b id="fl-brake">BRAKE</b></div>
         </div>
       </div>`;
     root.appendChild(el);
@@ -102,7 +102,7 @@ export class FlightHud {
     this.thrFill = q('fl-thr-fill');
     this.rpm = q('fl-rpm');
     this.flaps = q('fl-flaps');
-    this.lights = { brake: q('fl-brake'), trim: q('fl-trim'), gnd: q('fl-gnd'), prot: q('fl-prot'), boost: q('fl-boost') };
+    this.lights = { brake: q('fl-brake'), trim: q('fl-trim'), gnd: q('fl-gnd'), prot: q('fl-prot'), boost: q('fl-boost'), arcade: q('fl-arcade') };
     this.stall = q('fl-stall');
     this.eng = q('fl-eng');
     this.adi = q<HTMLCanvasElement>('fl-adi');
@@ -125,7 +125,7 @@ export class FlightHud {
     const ac = plane.aircraft;
     const st = ac.state;
     // The stall warning sounds a few knots before the stall, in the air only.
-    this.stallWarning = !st.onGround && st.airspeed > 10 && (st.stallMargin < 0.035 || st.stall > 0.05);
+    this.stallWarning = !ac.assists.arcade && !st.onGround && st.airspeed > 10 && (st.stallMargin < 0.035 || st.stall > 0.05);
     if (now - this.last < 50) return;
     this.last = now;
     const fwd = plane.view.quat;
@@ -149,6 +149,7 @@ export class FlightHud {
     this.lights.gnd.classList.toggle('on', st.onGround);
     this.lights.prot.classList.toggle('on', ac.assists.protect);
     this.lights.boost.classList.toggle('on', ac.boost > 1);
+    this.lights.arcade.classList.toggle('on', ac.assists.arcade);
     this.lights.brake.classList.toggle('on', brake > 0.5);
     this.stall.classList.toggle('on', this.stallWarning);
     for (const [part, svg] of this.parts) svg.classList.toggle('off', !(ac.parts.get(part)?.on ?? true));

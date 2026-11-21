@@ -119,9 +119,9 @@ export class Aircraft {
   /**
    * Pilot aids: auto-trim (holds the pitch attitude when the stick is let go), coordinated rudder,
    * and stall protection (the elevator stops just short of the stall, for keyboard flying: the
-   * wing can still be pulled past its load limit at high speed).
+   * wing can still be pulled past its load limit at high speed), and arcade flight (see `arcade`).
    */
-  assists = { trim: true, rudder: true, protect: false };
+  assists = { trim: true, rudder: true, protect: false, arcade: false };
   propBroken = false;
   /** Engine output factor (impacts on the nose reduce it). */
   engineHealth = 1;
@@ -135,6 +135,8 @@ export class Aircraft {
   private readonly ray: RAPIER.Ray;
   private readonly colliderPart = new Map<number, Part>();
   private overload = 0;
+  /** Arcade flight: integral of the rate error per body axis (x pitch, y yaw, z roll). */
+  private readonly rateI = new THREE.Vector3();
   private propAngle = 0;
   /**
    * Steps left after a placement in which the struts take their length without judging a landing
@@ -378,27 +380,38 @@ export class Aircraft {
       if (d.control === 'elevator') a -= DOWNWASH * Math.max(0, wingAlpha + WING_ZERO_LIFT);
       let dcl = 0;
       let flapMax = 0;
+      const arcade = this.assists.arcade;
       switch (d.control) {
         case 'flap':
           dcl = d.controlCl * d.controlMax * c.flaps;
           flapMax = 0.8 * dcl;
           break;
         case 'aileronL':
+          // Arcade: the controls only show; the rate controller turns the aircraft.
+          if (arcade) break;
           dcl = d.controlCl * c.aileron;
           break;
         case 'aileronR':
+          if (arcade) break;
           dcl = -d.controlCl * c.aileron;
           break;
         case 'elevator':
           // Stick back (pitch +) pushes the tail down.
+          if (arcade) break;
           dcl = -d.controlCl * (c.elevator + c.trim);
           break;
         case 'rudder':
           // Left pedal (yaw +) pushes the tail right, the nose left.
+          if (arcade) break;
           dcl = -d.controlCl * c.rudder;
           break;
       }
-      const { cl: cl0, stall: sv } = liftCoefficient(d, a, dcl, flapMax);
+      let { cl: cl0, stall: sv } = liftCoefficient(d, a, dcl, flapMax);
+      if (arcade) {
+        // Arcade: no stall, the lift stays at its maximum past the stalling angle.
+        cl0 = clamp(d.cl0 + d.clAlpha * a + dcl, d.clMin, d.clMax + flapMax);
+        sv = 0;
+      }
       // Ground effect on the wing: more lift, much less induced drag within a span of the ground.
       const h = Math.max(0.3, st.agl + (s.pos.y - lc.y));
       const ge = d.part.startsWith('wing') ? clamp(1 - h / span, 0, 1) : 0;
@@ -476,6 +489,7 @@ export class Aircraft {
       body.applyImpulse(_a, true);
     }
 
+    if (this.assists.arcade) this.arcadeControl(dt, input);
     this.gear(dt, input, mass);
     st.onGround = this.wheels.some((w) => w.contact) || st.agl < 1.2;
     // Load factor the pilot feels: wing lift plus what the wheels carry, over the weight.
@@ -488,6 +502,54 @@ export class Aircraft {
     const worst = Math.max(Math.abs(wingL), Math.abs(wingR));
     this.overload = worst > half ? this.overload + dt : 0;
     if (this.overload > 0.08) this.detach(Math.abs(wingL) > Math.abs(wingR) ? 'wingL' : 'wingR', 'overload');
+  }
+
+  /**
+   * Arcade flight, like a game plane: the stick asks for a rotation rate and a controller turns the
+   * body to it (no stall, no trim to manage). Let go of the stick and the attitude holds; let go of
+   * the roll and the wings come back level. The pitch rate is capped to about 5 g at speed, so
+   * steering never breaks a wing (impacts still do).
+   */
+  private arcadeControl(dt: number, input: FlightInput): void {
+    const st = this.state;
+    const V = st.airspeed;
+    const auth = clamp((V - 12) / 20, 0, 1);
+    const air = !this.wheels.some((w) => w.contact);
+    if (auth <= 0) {
+      this.rateI.set(0, 0, 0);
+      return;
+    }
+    // Bank, right wing down positive.
+    const bank = Math.asin(clamp(_x.set(1, 0, 0).applyQuaternion(_q).y, -1, 1));
+    const qMax = Math.min(0.9, (5 * G) / Math.max(V, 1));
+    const roll = Math.abs(input.roll) > 0.05 ? input.roll * 1.6 : clamp(-bank * 1.2, -0.8, 0.8);
+    // Target body rates (x: + nose down, y: + nose left, z: + right wing down).
+    let pitchRate = input.pitch * qMax;
+    const attitude = Math.asin(clamp(_fwd.y, -1, 1));
+    if (air && _up.y > 0) {
+      // Upright, the nose only climbs as steep as the speed allows (15 degrees near 70 kt, no
+      // limit from about 180 kt: loops need speed); past it, it comes back down by itself.
+      const maxPitch = clamp((V - 30) / 40, 0.25, 1.6);
+      pitchRate = Math.min(pitchRate, (maxPitch - attitude) * 1.5);
+    }
+    if (!air) {
+      // On the wheels: a gentle rotation, and never past 9 degrees (the tail strikes at 12).
+      pitchRate = Math.min(input.pitch * 0.25, (0.16 - attitude) * 3);
+    }
+    _t.set(-pitchRate, input.yaw * 0.6 - (G * Math.sin(bank)) / Math.max(V, 20), roll);
+    if (!air) _t.set(_t.x, 0, 0);
+    _v.copy(_ang).applyQuaternion(_qi);
+    _t.sub(_v);
+    if (!air) _t.y = _t.z = 0;
+    this.rateI.addScaledVector(_t, dt).clampScalar(-0.6, 0.6);
+    if (!air) this.rateI.y = this.rateI.z = 0;
+    const I = this.body.principalInertia();
+    const k = auth;
+    _f.set(I.x * (5 * _t.x + 4 * this.rateI.x), I.y * (3 * _t.y + 2 * this.rateI.y), I.z * (6 * _t.z + 4 * this.rateI.z)).multiplyScalar(k).applyQuaternion(_q);
+    _a.x = _f.x * dt;
+    _a.y = _f.y * dt;
+    _a.z = _f.z * dt;
+    this.body.applyTorqueImpulse(_a, true);
   }
 
   /** Control surfaces and levers follow the pilot through their actuators (and the aids). */

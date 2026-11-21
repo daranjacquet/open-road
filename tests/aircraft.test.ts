@@ -283,7 +283,7 @@ describe('aircraft damage', () => {
 });
 
 describe('boosted engine', () => {
-  it('doubles the power: faster in level flight than the stock engine', async () => {
+  it('quadruples the power: faster in level flight than the stock engine', async () => {
     const top = async (boost: number): Promise<number> => {
       const { ac, input, step } = await setup(250);
       ac.boost = boost;
@@ -297,8 +297,95 @@ describe('boosted engine', () => {
       return ac.state.airspeed * KT;
     };
     const stock = await top(1);
-    const boosted = await top(2);
+    const boosted = await top(4);
     console.log(`full power: stock ${stock.toFixed(0)} kt, boosted ${boosted.toFixed(0)} kt`);
     expect(boosted).toBeGreaterThan(stock + 25);
+  }, 60_000);
+});
+
+describe('arcade flight', () => {
+  it('takes off with the stick held back, never stalls, and climbs', async () => {
+    const { ac, input, step } = await setup();
+    ac.assists.arcade = true;
+    for (let i = 0; i < 240; i++) step();
+    Object.assign(input, { throttle: 1, flaps: 0.5 });
+    let maxStall = 0;
+    let groundPitch = 0;
+    for (let i = 0; i < 120 * 40; i++) {
+      // A keyboard pilot: stick fully back from 60 kt, kept there until 60 m up.
+      input.pitch = ac.state.airspeed > 31 && ac.state.agl < 60 ? 1 : 0;
+      step();
+      maxStall = Math.max(maxStall, ac.state.stall);
+      if (ac.wheels.some((w) => w.contact)) groundPitch = Math.max(groundPitch, pitchOf(ac));
+    }
+    // No tail strike: the rotation stops short of 12 degrees on the wheels.
+    expect(groundPitch).toBeLessThan(0.2);
+    console.log(`arcade: ${ac.body.translation().y.toFixed(0)} m, ${(ac.state.airspeed * KT).toFixed(0)} kt, pitch ${(pitchOf(ac) * 57.3).toFixed(0)} deg`);
+    expect(maxStall).toBe(0);
+    expect(ac.body.translation().y).toBeGreaterThan(50);
+    expect(partsOff(ac)).toEqual([]);
+  }, 60_000);
+
+  it('levels its wings when the roll is let go, holds the attitude, and a full pull at 210 kt breaks nothing', async () => {
+    const { ac, input, step } = await setup(400);
+    ac.assists.arcade = true;
+    ac.body.setLinvel({ x: 0, y: 0, z: 75 }, true);
+    Object.assign(input, { throttle: 0.75 });
+    ac.controls.throttle = 0.75;
+    for (let i = 0; i < 120 * 2; i++) step();
+    input.roll = 1;
+    for (let i = 0; i < 60; i++) step();
+    const banked = rollOf(ac);
+    input.roll = 0;
+    for (let i = 0; i < 120 * 5; i++) step();
+    console.log(`bank ${(banked * 57.3).toFixed(0)} deg, 5 s after letting go ${(rollOf(ac) * 57.3).toFixed(1)} deg`);
+    expect(banked).toBeGreaterThan(0.4);
+    expect(Math.abs(rollOf(ac))).toBeLessThan(0.08);
+    // Hard pull at high speed.
+    ac.body.setLinvel(new THREE.Vector3(0, 0, 108).applyQuaternion(ac.currQuat), true);
+    input.pitch = 1;
+    let g = 0;
+    for (let i = 0; i < 120 * 3; i++) {
+      step();
+      g = Math.max(g, ac.state.g);
+    }
+    console.log(`full pull at 210 kt: ${g.toFixed(1)} g`);
+    expect(partsOff(ac)).toEqual([]);
+  }, 60_000);
+});
+
+describe('arcade flight with the boosted engine', () => {
+  it('takes off and climbs with S held, and a full pull at top speed breaks nothing', async () => {
+    const { ac, input, step } = await setup();
+    ac.assists.arcade = true;
+    ac.boost = 4;
+    for (let i = 0; i < 240; i++) step();
+    Object.assign(input, { throttle: 1, flaps: 0.5 });
+    let groundPitch = 0;
+    let liftoff = -1;
+    for (let i = 0; i < 120 * 20; i++) {
+      input.pitch = ac.state.airspeed > 31 && ac.state.agl < 150 ? 1 : 0;
+      step();
+      if (ac.wheels.some((w) => w.contact)) groundPitch = Math.max(groundPitch, pitchOf(ac));
+      else if (liftoff < 0) liftoff = ac.body.translation().z;
+    }
+    expect(groundPitch).toBeLessThan(0.2);
+    expect(ac.body.translation().y).toBeGreaterThan(100);
+    // Level at full power until it is fast, then pull as hard as the keys allow.
+    input.flaps = 0;
+    for (let i = 0; i < 120 * 40; i++) {
+      input.pitch = clamp((ac.body.translation().y > 300 ? -0.3 : 0.3) - ac.state.vs * 0.05, -1, 1);
+      step();
+    }
+    const v = ac.state.airspeed * KT;
+    input.pitch = 1;
+    let g = 0;
+    for (let i = 0; i < 120 * 3; i++) {
+      step();
+      g = Math.max(g, ac.state.g);
+    }
+    console.log(`boosted arcade: liftoff after ${liftoff.toFixed(0)} m, ${v.toFixed(0)} kt, full pull ${g.toFixed(1)} g`);
+    expect(v).toBeGreaterThan(220);
+    expect(partsOff(ac)).toEqual([]);
   }, 60_000);
 });

@@ -42,8 +42,8 @@ const PLANE_REST = 1.18;
 const BOARD_RANGE = 16;
 /** Past this distance from the centre the aircraft is turned back towards the map (m). */
 const PLANE_LIMIT = LIMIT + 150;
-/** Power multiplier of the boosted engine (B in the aircraft). */
-const BOOST = 2;
+/** Power multiplier of the boosted engine (on by default; B switches to the stock engine). */
+const BOOST = 4;
 
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
@@ -68,6 +68,10 @@ export class Game {
   /** The pilot's commands this frame (in the aircraft). */
   private flightCmd: FlightInput = { ...PARKED };
   private planeLoading: Promise<GameAircraft | null> | null = null;
+  /** Arcade flight (easy, no stall) or the full simulation; H switches. */
+  private arcadeFlight = true;
+  /** Boosted engine (power x4) or the stock one; B switches. */
+  private boosted = true;
 
   private readonly stepper = new FixedStepper(FIXED_DT);
   private readonly res: StepResult = { steps: 0, alpha: 0 };
@@ -268,6 +272,9 @@ export class Game {
     this.flightCmd = this.d.input.flight;
     // Keys are all-or-nothing: they get the stall protection; an analogue stick flies raw.
     plane.aircraft.assists.protect = !this.d.input.usingPad;
+    // Arcade flight unless the player switched to the simulation (H).
+    plane.aircraft.assists.arcade = this.arcadeFlight;
+    plane.aircraft.boost = this.boosted ? BOOST : 1;
     this.d.hud.setMode('plane');
     this.d.hud.hint(null);
     this.d.rig.reset();
@@ -314,10 +321,16 @@ export class Game {
       this.d.hud.toast('Runway 27', 1400);
     }
     if (input.pressed('KeyC')) this.d.rig.cycleAir();
+    if (input.pressed('KeyH')) {
+      this.arcadeFlight = !this.arcadeFlight;
+      plane.aircraft.assists.arcade = this.arcadeFlight;
+    plane.aircraft.boost = this.boosted ? BOOST : 1;
+      this.d.hud.toast(this.arcadeFlight ? 'Arcade flight: no stall, easy controls' : 'Simulation flight', 1600);
+    }
     if (input.pressed('KeyB')) {
-      const ac = plane.aircraft;
-      ac.boost = ac.boost > 1 ? 1 : BOOST;
-      this.d.hud.toast(ac.boost > 1 ? 'Boosted engine: power x2' : 'Stock engine', 1400);
+      this.boosted = !this.boosted;
+      plane.aircraft.boost = this.boosted ? BOOST : 1;
+      this.d.hud.toast(this.boosted ? `Boosted engine: power x${BOOST}` : 'Stock engine', 1400);
     }
     if (input.pressed('KeyP')) {
       const a = plane.aircraft.assists;

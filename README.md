@@ -57,11 +57,14 @@ The aircraft waits at the start of **runway 27** at the airfield (or teleport to
 | Wheel brakes | `Space` | `A` |
 | View: chase or cockpit | `C` | `B` |
 | Stall protection on / off | `P` | |
-| Boosted engine on / off (power x2) | `B` | |
+| Boosted engine (power x4, default) / stock engine | `B` | |
+| Arcade flight (default) / simulation | `H` | |
 | Back to runway 27, repaired | `R` | `Y` |
 | Repair in place | `F` | |
 
 A normal flight: flaps 50 % (`X`), full power (`Shift`), keep straight with `Q`/`E`, ease the stick back at about 65 kt and let go once the nose is 8 to 10 degrees up; it lifts off after about 280 m and climbs at 1,000 to 1,200 ft/min. Flaps up above 300 ft. It cruises at about 160 kt at 75 % power. To land, come back to **runway 09** from the west (the hills east of the airfield rise to 180 m): power to about 20 to 30 %, full flaps, 70 to 75 kt on a 3-degree slope (the PAPI left of the runway shows two white and two red lights), power off and flare over the threshold. It stops in about 200 m with the brakes.
+
+**Arcade flight** is on by default (`H` switches to the simulation): the stick asks for a rotation rate and the aircraft turns at it, without stalling and without trim to manage; let go of the stick and it keeps its attitude, let go of the roll keys and the wings come back level; the pitch rate is capped so that steering never breaks a wing (crashes still do). The rest of this section describes the simulation.
 
 Aids: **auto-trim** holds the attitude whenever you let go of the stick, **coordinated rudder** keeps the slip ball centred in the air, and with the keyboard the **stall protection** (`P`) stops the elevator just short of the stall (a gamepad flies without it). The wings can still be pulled past their load limit at high speed.
 
