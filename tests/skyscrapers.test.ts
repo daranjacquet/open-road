@@ -95,11 +95,58 @@ describe('skyscrapers', () => {
     const t = towers.tower('High-rise')!;
     expect(t.standing).toBeLessThan(t.sections);
     expect(car.crush.energy).toBeGreaterThan(50e3);
+    // It stops against the core behind the wall (the facade is at z = -15, the wall 3 m thick):
+    // it does not drive on into the tower.
+    const nose = car.vehicle.body.translation().z + 2.3;
+    expect(nose).toBeLessThan(-15 + 3.5);
   });
 });
 
 describe('skyscrapers and aircraft', () => {
-  
+  it('struck from 5 m up, even within the ground floor, it all comes down; lower, it is a hit like a car', async () => {
+    const { towers } = await city();
+    const t = towers.tower('High-rise')!;
+    // At 2 m: a wall section, no more.
+    towers.strike(t.handles[0]!, 1e6, 0, 1, 2);
+    towers.flush();
+    expect(towers.tower('High-rise')!.collapsed).toBe(false);
+    expect(towers.tower('High-rise')!.standing).toBeLessThan(t.sections);
+    // At 8 m, on the ground floor wall: the tower goes, ground floor included.
+    for (let i = 0; i < 60; i++) towers.flush();
+    towers.strike(t.handles[5]!, 5e6, 0, 1, 8);
+    towers.flush();
+    const after = towers.tower('High-rise')!;
+    expect(after.collapsed).toBe(true);
+    expect(after.standing).toBe(0);
+  });
+
+  it('after a strike high up, the stump and the ground floor come down a few seconds later', async () => {
+    const { physics, towers } = await city();
+    const t = towers.tower('High-rise')!;
+    towers.strike(t.upper[1]!, 5e6, 0, 1, 50);
+    towers.flush();
+    const stump = (): number => {
+      let n = 0;
+      physics.world.forEachRigidBody((b) => {
+        if (b.isFixed() && b.translation().y > 12) n++;
+      });
+      return n;
+    };
+    expect(stump()).toBeGreaterThan(0);
+    expect(towers.tower('High-rise')!.standing).toBe(t.sections);
+    for (let i = 0; i < 120 * 2; i++) {
+      physics.step();
+      towers.flush();
+    }
+    expect(towers.tower('High-rise')!.standing).toBe(t.sections);
+    for (let i = 0; i < 120 * 1; i++) {
+      physics.step();
+      towers.flush();
+    }
+    expect(towers.tower('High-rise')!.standing).toBe(0);
+    expect(stump()).toBe(0);
+  });
+
 
   it('a strike high up breaks a tower there: the top falls the way the aircraft flew, the stump stands', async () => {
     const { physics, towers } = await city();

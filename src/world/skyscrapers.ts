@@ -51,6 +51,10 @@ export interface SkyscraperMaterials {
   mast: THREE.Material;
 }
 
+/** Lowest height (m above the foot) at which an aircraft breaks a tower; below it, it hits the ground floor like a car. */
+const STRIKE_MIN = 5;
+/** Seconds after a tower broken higher up loses its top before its stump and ground floor come down too. */
+const BASE_FALLS_AFTER = 2.5;
 /** Height of the breakable ground floor (m), thickness of its outer wall and width of a wall section. */
 const BASE_H = 12;
 const WALL = 3;
@@ -283,6 +287,9 @@ interface Tower {
   collapsed: boolean;
   /** Seconds of dust left after a collapse. */
   dust: number;
+  /** After a strike high up: the stump's fixed blocks, and the physics time they come down (-1: never). */
+  stump: RAPIER.RigidBody[];
+  baseFallsAt: number;
   /** Impact energy taken above the ground floor (J), and the physics time of the last strike. */
   struck: number;
   lastStrike: number;
@@ -380,12 +387,14 @@ export class Skyscrapers {
     const b0 = spec.bands[0]!;
     const outer = b0.bottom;
     const inner = inset(outer, WALL);
-    const coreP = inset(outer, Math.min(radius(outer) * 0.3, 18) + WALL);
+    // The core fills the ground floor right behind the wall: a vehicle that knocks a section in
+    // stops against it rather than driving on into a hollow under the tower.
+    const coreP = inset(outer, WALL + 0.05);
     const skin = (band: Band) => (cx: number, cy: number, cz: number): boolean => edgeDistance(sectionAt(band, cy - y), cx - x, cz - z) < 0.3;
     const v3 = (p: [number, number], h: number): THREE.Vector3 => new THREE.Vector3(x + p[0], y + h, z + p[1]);
     const hullDesc = (pts: THREE.Vector3[]): RAPIER.ColliderDesc =>
       RAPIER.ColliderDesc.convexHull(Float32Array.from(pts.flatMap((p) => [p.x, p.y, p.z])))!.setFriction(0.8).setCollisionGroups(groups(GROUP.WORLD, 0xffff));
-    const tower: Tower = { spec, chunks: [], strength: 150e3 + 1200 * (spec.bands[spec.bands.length - 1]!.y1), upperDescs: [], upper: [], intact: [], collapsed: false, dust: 0, struck: 0, lastStrike: -1 };
+    const tower: Tower = { spec, chunks: [], strength: 150e3 + 1200 * (spec.bands[spec.bands.length - 1]!.y1), upperDescs: [], upper: [], intact: [], collapsed: false, dust: 0, struck: 0, lastStrike: -1, stump: [], baseFallsAt: -1 };
 
     // Ground-floor wall: sections along each edge, from the outer skin to the inner face.
     for (let e = 0; e < outer.length; e++) {
@@ -447,6 +456,8 @@ export class Skyscrapers {
     t.dust = 0;
     t.struck = 0;
     t.lastStrike = -1;
+    t.stump = [];
+    t.baseFallsAt = -1;
   }
 
   /** Rebuild the merged meshes of the standing parts. */
@@ -493,7 +504,7 @@ export class Skyscrapers {
 
   /**
    * An aircraft hit the collider `handle` with `energy` joules of kinetic energy, flying along
-   * (dx, dz), at height `y`. On the ground floor it is a hit like a car's. Higher up, the tower
+   * (dx, dz), at height `y`. Below STRIKE_MIN it is a hit like a car's. From there up, the tower
    * takes it as a whole: once it has taken the energy that would knock out the share of its
    * ground floor that brings it down, it breaks at that height and the part above falls over the
    * way the aircraft was going (see `strikeLimit`). Towers whose `breakers` leave out aircraft
@@ -503,7 +514,8 @@ export class Skyscrapers {
     const c = this.chunkOf.get(handle);
     const t = c ? c.tower : this.upperOf.get(handle);
     if (!t || t.collapsed || !breakableBy(t.spec, 'aircraft')) return;
-    if (c) {
+    // Low on the ground floor it is a hit like a car's; from STRIKE_MIN up the whole tower takes it.
+    if (c && y - t.spec.y < STRIKE_MIN) {
       this.hit(handle, energy, dx, dz, 'aircraft');
       return;
     }
@@ -526,7 +538,17 @@ export class Skyscrapers {
    */
   flush(): void {
     this.stepTime += FIXED_DT;
-    if (!this.pending.length && !this.strikes.length) return;
+    let bases = false;
+    for (const t of this.towers) {
+      if (t.baseFallsAt >= 0 && this.stepTime >= t.baseFallsAt) {
+        this.baseFalls(t);
+        bases = true;
+      }
+    }
+    if (!this.pending.length && !this.strikes.length) {
+      if (bases) this.remesh();
+      return;
+    }
     const touched = new Set<Tower>();
     for (const h of this.pending) {
       this.damage(h.c, h.energy, h.dx, h.dz);
@@ -537,7 +559,7 @@ export class Skyscrapers {
       const t = s.t;
       if (t.collapsed) continue;
       t.struck += s.energy;
-      const at = THREE.MathUtils.clamp(s.at, BASE_H, t.spec.bands[t.spec.bands.length - 1]!.y1);
+      const at = THREE.MathUtils.clamp(s.at, STRIKE_MIN, t.spec.bands[t.spec.bands.length - 1]!.y1);
       // A burst of dust and debris where it hit, whether the tower holds or not.
       const r = radius(sectionAt(t.spec.bands.find((b) => at <= b.y1) ?? t.spec.bands[0]!, at));
       for (let k = 0; k < 14; k++) this.puff(t.spec.x - s.dx * r, t.spec.y + at, t.spec.z - s.dz * r, 6, 14, 6);
@@ -672,6 +694,44 @@ export class Skyscrapers {
     });
   }
 
+  /** The ground floor's remaining sections burst out and fall over, as blocks for `add`. */
+  private burstGround(t: Tower, add: (b: Block | null) => void): void {
+    const world = this.physics.world;
+    for (const c of t.chunks) {
+      if (!c.collider) continue;
+      this.chunkOf.delete(c.collider.handle);
+      world.removeCollider(c.collider, false);
+      c.collider = null;
+      const tip = new THREE.Vector3(c.out.z, 0, -c.out.x).multiplyScalar(0.9);
+      add(this.block(c.points, (cx, cy, cz) => this.chunkSkin(c, cx, cy, cz), c.out.clone().multiplyScalar(4).add(new THREE.Vector3(0, -0.5, 0)), tip, true));
+    }
+  }
+
+  /** The stump of a tower broken higher up gives way too: its blocks fall, its ground floor bursts. */
+  private baseFalls(t: Tower): void {
+    t.baseFallsAt = -1;
+    const { RAPIER } = this.physics;
+    const { x, z, y } = t.spec;
+    for (const b of t.stump) {
+      if (!b.isValid() || !b.isFixed()) continue;
+      b.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      const p = b.translation();
+      const out = new THREE.Vector3(p.x - x, 0, p.z - z);
+      const len = out.length() || 1;
+      out.multiplyScalar((1 + 0.03 * (p.y - y)) / len);
+      b.setLinvel({ x: out.x + (Math.random() - 0.5), y: -1 - Math.random() * 2, z: out.z + (Math.random() - 0.5) }, true);
+      b.setAngvel({ x: (Math.random() - 0.5) * 0.4, y: (Math.random() - 0.5) * 0.2, z: (Math.random() - 0.5) * 0.4 }, true);
+    }
+    for (const d of this.debris) if (t.stump.includes(d.body)) d.falling = true;
+    t.stump = [];
+    const blocks: Block[] = [];
+    this.burstGround(t, (b) => {
+      if (b) blocks.push(b);
+    });
+    if (blocks.length) this.batch(blocks, this.slotsOf(t));
+    t.dust = 6;
+  }
+
   /**
    * The tower gives way: storey blocks, split around the axis, lean and fall. From the ground floor
    * (the side that gave way decides where it leans), or, struck higher up (`at` metres above its
@@ -700,6 +760,9 @@ export class Skyscrapers {
     const { seg, k } = breakUp(t.spec);
     let pivotY = top;
     for (const band of t.spec.bands) for (const [y0, y1] of slices(band, seg)) if (y1 > breakAt + 0.01) pivotY = Math.min(pivotY, y0);
+    // Struck within the ground floor: it all goes from there, ground floor included.
+    const low = struck !== undefined && breakAt < BASE_H;
+    if (low) pivotY = breakAt;
     if (!struck) pivotY = 0;
     // Tipping rate of a column of that height falling over (a short one goes over faster).
     const height = Math.max(20, top - pivotY);
@@ -726,14 +789,7 @@ export class Skyscrapers {
       if (b) blocks.push(b);
     };
     // The rest of the ground floor bursts out and falls over: nothing holds the tower up.
-    for (const c of t.chunks) {
-      if (!c.collider || struck) continue;
-      this.chunkOf.delete(c.collider.handle);
-      world.removeCollider(c.collider, false);
-      c.collider = null;
-      const tip = new THREE.Vector3(c.out.z, 0, -c.out.x).multiplyScalar(0.9);
-      add(this.block(c.points, (cx, cy, cz) => this.chunkSkin(c, cx, cy, cz), c.out.clone().multiplyScalar(4).add(new THREE.Vector3(0, -0.5, 0)), tip, true));
-    }
+    if (!struck || low) this.burstGround(t, add);
     const phase = Math.PI / 4;
     for (const band of t.spec.bands) {
       const skin = (cx: number, cy: number, cz: number): boolean => edgeDistance(sectionAt(band, cy - y), cx - x, cz - z) < 0.3;
@@ -758,7 +814,11 @@ export class Skyscrapers {
             const pts = [...p0.map((p) => new THREE.Vector3(x + p[0], y + y0, z + p[1])), ...p1.map((p) => new THREE.Vector3(x + p[0], y + y1, z + p[1]))];
             if (pts.length < 4) continue;
             const centre = pts.reduce((m, p) => m.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
-            if (y1 < pivotY + 0.01) add(this.block(pts, skin, new THREE.Vector3(), new THREE.Vector3(), false, y + band.y1, true));
+            if (y1 < pivotY + 0.01) {
+              const b = this.block(pts, skin, new THREE.Vector3(), new THREE.Vector3(), false, y + band.y1, true);
+              if (b) t.stump.push(b.body);
+              add(b);
+            }
             else add(this.block(pts, skin, velAt(centre), spin(), true, y + band.y1));
           }
         }
@@ -775,6 +835,8 @@ export class Skyscrapers {
       this.spawn(pts, () => false, [this.mats.mast, this.mats.mast, this.mats.mast], velAt(new THREE.Vector3(x, y + top + h / 2, z)), spin(), true);
     }
     t.dust = struck ? 5 : 9;
+    // A stump left standing comes down a little later, ground floor and all.
+    if (t.stump.length || (struck && !low)) t.baseFallsAt = this.stepTime + BASE_FALLS_AFTER;
   }
 
   /** A dust puff around (x, y, z), `size` metres across at first, rolling out `out` m/s. */
