@@ -281,3 +281,24 @@ describe('aircraft damage', () => {
     expect(ac.surfaces.every((s) => s.on)).toBe(true);
   });
 });
+
+describe('boosted engine', () => {
+  it('doubles the power: faster in level flight than the stock engine', async () => {
+    const top = async (boost: number): Promise<number> => {
+      const { ac, input, step } = await setup(250);
+      ac.boost = boost;
+      ac.body.setLinvel({ x: 0, y: 0, z: 75 }, true);
+      input.throttle = 1;
+      ac.controls.throttle = 1;
+      for (let i = 0; i < 120 * 60; i++) {
+        pilot(ac, input, clamp(0.02 + (250 - ac.body.translation().y) * 0.004 - ac.state.vs * 0.02, -0.15, 0.2));
+        step();
+      }
+      return ac.state.airspeed * KT;
+    };
+    const stock = await top(1);
+    const boosted = await top(2);
+    console.log(`full power: stock ${stock.toFixed(0)} kt, boosted ${boosted.toFixed(0)} kt`);
+    expect(boosted).toBeGreaterThan(stock + 25);
+  }, 60_000);
+});

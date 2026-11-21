@@ -125,6 +125,8 @@ export class Aircraft {
   propBroken = false;
   /** Engine output factor (impacts on the nose reduce it). */
   engineHealth = 1;
+  /** Engine power multiplier (1 = stock; the game's boosted engine doubles it). */
+  boost = 1;
   onBreak: ((e: BreakEvent) => void) | null = null;
   readonly prevPos = new THREE.Vector3();
   readonly currPos = new THREE.Vector3();
@@ -443,7 +445,9 @@ export class Aircraft {
     const running = !this.propBroken && this.engineHealth > 0;
     const thr = running ? c.throttle * this.engineHealth : 0;
     const vAxial = Math.max(_vel.dot(_fwd), 0);
-    const thrust = running ? Math.min(e.staticThrust * thr, (e.efficiency * e.power * thr) / Math.max(vAxial, 1)) : 0;
+    // Boosted, the static thrust grows less than the power (the propeller does not change).
+    const t0 = e.staticThrust * (1 + (this.boost - 1) * 0.6);
+    const thrust = running ? Math.min(t0 * thr, (e.efficiency * e.power * this.boost * thr) / Math.max(vAxial, 1)) : 0;
     const rpmTarget = this.propBroken ? 0 : running ? e.idleRpm + (e.maxRpm - e.idleRpm) * Math.pow(c.throttle, 0.8) + vAxial * 4 : vAxial * 18;
     st.rpm += (Math.min(rpmTarget, e.maxRpm * 1.05) - st.rpm) * Math.min(1, dt * 2.5);
     this.propAngle += (st.rpm / 60) * Math.PI * 2 * dt;

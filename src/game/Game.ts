@@ -42,6 +42,8 @@ const PLANE_REST = 1.18;
 const BOARD_RANGE = 16;
 /** Past this distance from the centre the aircraft is turned back towards the map (m). */
 const PLANE_LIMIT = LIMIT + 150;
+/** Power multiplier of the boosted engine (B in the aircraft). */
+const BOOST = 2;
 
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
@@ -312,6 +314,11 @@ export class Game {
       this.d.hud.toast('Runway 27', 1400);
     }
     if (input.pressed('KeyC')) this.d.rig.cycleAir();
+    if (input.pressed('KeyB')) {
+      const ac = plane.aircraft;
+      ac.boost = ac.boost > 1 ? 1 : BOOST;
+      this.d.hud.toast(ac.boost > 1 ? 'Boosted engine: power x2' : 'Stock engine', 1400);
+    }
     if (input.pressed('KeyP')) {
       const a = plane.aircraft.assists;
       a.protect = !a.protect;

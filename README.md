@@ -57,6 +57,7 @@ The aircraft waits at the start of **runway 27** at the airfield (or teleport to
 | Wheel brakes | `Space` | `A` |
 | View: chase or cockpit | `C` | `B` |
 | Stall protection on / off | `P` | |
+| Boosted engine on / off (power x2) | `B` | |
 | Back to runway 27, repaired | `R` | `Y` |
 | Repair in place | `F` | |
 
