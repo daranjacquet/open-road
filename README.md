@@ -68,7 +68,7 @@ A normal flight: flaps 50 % (`X`), full power (`Shift`), keep straight with `Q`/
 
 Aids: **auto-trim** holds the attitude whenever you let go of the stick, **coordinated rudder** keeps the slip ball centred in the air, and with the keyboard the **stall protection** (`P`) stops the elevator just short of the stall (a gamepad flies without it). The wings can still be pulled past their load limit at high speed.
 
-The instruments (bottom right): attitude indicator, airspeed in knots, altitude in feet, vertical speed, heading, load factor, rpm, throttle, flaps, and a stall warning that flashes and sounds a horn about 8 kt before the stall. Bottom left, a top view of the aircraft shows each part that has come off.
+The instruments (bottom right): attitude indicator, airspeed in km/h, altitude in feet, vertical speed, heading, load factor, rpm, throttle, flaps, and a stall warning that flashes and sounds a horn about 8 kt before the stall. Bottom left, a top view of the aircraft shows each part that has come off.
 
 ### Garage
 

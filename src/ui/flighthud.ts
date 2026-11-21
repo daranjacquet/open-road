@@ -1,6 +1,6 @@
 import type { GameAircraft } from '../game/GameAircraft';
 
-const KT = 1.943844;
+const KMH = 3.6;
 const FT = 3.28084;
 
 /** Part of the damage diagram and the physics part it shows. */
@@ -16,7 +16,7 @@ const DIAGRAM: [string, string][] = [
 ];
 
 /**
- * Flight instruments: attitude indicator, airspeed (knots), altitude (feet), vertical speed,
+ * Flight instruments: attitude indicator, airspeed (km/h), altitude (feet), vertical speed,
  * heading, load factor, throttle, rpm, flaps, the stall warning, and a top view of the aircraft
  * whose parts turn red as they come off.
  */
@@ -84,7 +84,7 @@ export class FlightHud {
       <div class="fl-box">
         <canvas class="fl-adi" id="fl-adi" width="264" height="264"></canvas>
         <div class="fl-col">
-          <div><span class="fl-ias" id="fl-ias">0</span><span class="fl-u">kt</span></div>
+          <div><span class="fl-ias" id="fl-ias">0</span><span class="fl-u">km/h</span></div>
           <div class="fl-row"><span><b>ALT</b><span id="fl-alt">0</span> ft</span><span><b>VS</b><span id="fl-vs">0</span> ft/min</span></div>
           <div class="fl-row"><span><b>HDG</b><span id="fl-hdg">000</span></span><span><b>G</b><span id="fl-g">1.0</span></span><span><b>RPM</b><span id="fl-rpm">0</span></span></div>
           <div class="fl-row"><b style="font-size:11px;opacity:.7">THR</b><div class="fl-thr"><i id="fl-thr-fill"></i></div><span id="fl-thr">0%</span></div>
@@ -129,7 +129,7 @@ export class FlightHud {
     if (now - this.last < 50) return;
     this.last = now;
     const fwd = plane.view.quat;
-    this.ias.textContent = Math.round(st.airspeed * KT).toString();
+    this.ias.textContent = Math.round(st.airspeed * KMH).toString();
     // Altimeter: height above the sea (the lake, and the airfield, are at sea level), wheels down.
     this.alt.textContent = String(Math.max(0, Math.round(((st.altitude - 1.15) * FT) / 10) * 10));
     const vs = Math.round((st.vs * FT * 60) / 50) * 50;
