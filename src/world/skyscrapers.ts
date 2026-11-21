@@ -64,6 +64,13 @@ const SIDE_GONE = 0.75;
 /** Window tile of the facade textures (m): matches the city's. */
 const TILE_W = 16;
 const TILE_H = 14;
+/**
+ * How finely a falling tower breaks up: pieces about this tall (m) and wide around the facade,
+ * each wedge cut once more halfway out from the axis, at most this many pieces per tower.
+ */
+const PIECE_H = 8;
+const PIECE_W = 15;
+const MAX_PIECES = 320;
 /** Debris density (kg/m3 of the building's volume: mostly air) and mass limits (kg). */
 const DENSITY = 140;
 const MASS_MIN = 4e3;
@@ -243,6 +250,11 @@ function bySlot(g: THREE.BufferGeometry): THREE.BufferGeometry[] {
 
 // ---- towers ----------------------------------------------------------------------------------------------
 
+const _m = new THREE.Matrix4();
+const _pp = new THREE.Vector3();
+const _qq = new THREE.Quaternion();
+const _one = new THREE.Vector3(1, 1, 1);
+
 interface Chunk {
   tower: Tower;
   /** Index around the ground-floor wall (neighbours are i - 1 and i + 1), and the side it is on. */
@@ -278,9 +290,36 @@ interface Tower {
 
 interface Debris {
   body: RAPIER.RigidBody;
-  mesh: THREE.Mesh;
+  /** Its own mesh (a broken ground-floor section), or its instances in a collapse's batched meshes. */
+  mesh: THREE.Mesh | null;
+  batch: { meshes: THREE.BatchedMesh[]; ids: number[] } | null;
   /** Falling fast last frame (dust when it lands). */
   falling: boolean;
+  /** Seconds it has barely moved: rubble that keeps rocking in a pile is made static. */
+  still: number;
+}
+
+/** A block of a collapse before it is drawn: its body, its geometry (about its centre), where it is. */
+interface Block {
+  body: RAPIER.RigidBody;
+  geo: THREE.BufferGeometry;
+  falling: boolean;
+}
+
+/** How a tower breaks up: storey slices of `seg` metres, `k` wedges around the axis, each cut in two. */
+function breakUp(spec: TowerSpec): { seg: number; k: number } {
+  const r = radius(spec.bands[0]!.bottom);
+  const k = THREE.MathUtils.clamp(Math.round((2 * Math.PI * r) / PIECE_W), 4, 8);
+  const height = spec.bands[spec.bands.length - 1]!.y1 - BASE_H;
+  return { seg: Math.max(PIECE_H, (height * k * 2) / MAX_PIECES), k };
+}
+
+/** The storey slices of a band above the ground floor (heights relative to the foot). */
+function slices(band: Band, seg: number): [number, number][] {
+  const ya = Math.max(band.y0, BASE_H);
+  if (ya >= band.y1) return [];
+  const n = Math.max(1, Math.round((band.y1 - ya) / seg));
+  return Array.from({ length: n }, (_, s) => [ya + ((band.y1 - ya) * s) / n, ya + ((band.y1 - ya) * (s + 1)) / n]);
 }
 
 /**
@@ -548,16 +587,19 @@ export class Skyscrapers {
     return edgeDistance(c.tower.spec.bands[0]!.bottom, cx - s.x, cz - s.z) < 0.3 && cy - s.y < BASE_H + 0.1;
   }
 
-  /** A dynamic block (or a fixed one: the stump of a tower broken higher up) from the convex hull of `points` (world space). */
-  private spawn(points: THREE.Vector3[], onSkin: (cx: number, cy: number, cz: number) => boolean, slots: THREE.Material[], vel: THREE.Vector3, ang: THREE.Vector3, falling: boolean, roofAt = Infinity, fixed = false): void {
+  /**
+   * A block's body from the convex hull of `points` (world space), dynamic or fixed (the stump of a
+   * tower broken higher up), and its geometry about its centre.
+   */
+  private block(points: THREE.Vector3[], onSkin: (cx: number, cy: number, cz: number) => boolean, vel: THREE.Vector3, ang: THREE.Vector3, falling: boolean, roofAt = Infinity, fixed = false): Block | null {
     const { RAPIER, world } = this.physics;
     const centre = points.reduce((s, p) => s.add(p), new THREE.Vector3()).multiplyScalar(1 / points.length);
     // Blocks of a falling tower start a little apart: no contacts to resolve between them at once.
     const k = falling ? 0.95 : 1;
-    const geo = solidGeometry(points, onSkin, roofAt, centre, k);
     const local = Float32Array.from(points.flatMap((p) => [(p.x - centre.x) * k, (p.y - centre.y) * k, (p.z - centre.z) * k]));
     const desc = RAPIER.ColliderDesc.convexHull(local);
-    if (!desc) return;
+    if (!desc) return null;
+    const geo = solidGeometry(points, onSkin, roofAt, centre, k);
     geo.computeBoundingBox();
     const size = geo.boundingBox!.getSize(new THREE.Vector3());
     const volume = Math.max(1, size.x * size.y * size.z * 0.6);
@@ -572,12 +614,62 @@ export class Skyscrapers {
         .setCanSleep(true),
     );
     world.createCollider(desc.setDensity(mass / volume).setFriction(0.45).setRestitution(0.02).setCollisionGroups(groups(fixed ? GROUP.WORLD : GROUP.PROP, 0xffff)), body);
-    const mesh = new THREE.Mesh(geo, slots);
-    mesh.position.copy(centre);
+    return { body, geo, falling };
+  }
+
+  /** One block with its own mesh (a broken ground-floor section, a spire). */
+  private spawn(points: THREE.Vector3[], onSkin: (cx: number, cy: number, cz: number) => boolean, slots: THREE.Material[], vel: THREE.Vector3, ang: THREE.Vector3, falling: boolean, roofAt = Infinity): void {
+    const b = this.block(points, onSkin, vel, ang, falling, roofAt);
+    if (!b) return;
+    const mesh = new THREE.Mesh(b.geo, slots);
+    const t = b.body.translation();
+    mesh.position.set(t.x, t.y, t.z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.group.add(mesh);
-    this.debris.push({ body, mesh, falling });
+    this.debris.push({ body: b.body, mesh, batch: null, falling, still: 0 });
+  }
+
+  /** The blocks of a collapse drawn together: one batched mesh per material slot (a few draw calls for hundreds of blocks). */
+  private batch(blocks: Block[], slots: THREE.Material[]): void {
+    const perSlot = blocks.map((b) => bySlot(b.geo));
+    const meshes: THREE.BatchedMesh[] = [];
+    const slotOf: number[] = [];
+    for (let slot = 0; slot < 3; slot++) {
+      let verts = 0;
+      let n = 0;
+      for (const g of perSlot) {
+        const c = g[slot]!.getAttribute('position').count;
+        if (c) {
+          verts += c;
+          n++;
+        }
+      }
+      if (!n) continue;
+      const m = new THREE.BatchedMesh(n, verts, 0, slots[slot]!);
+      m.castShadow = slot !== 2;
+      m.receiveShadow = true;
+      meshes.push(m);
+      slotOf.push(slot);
+      this.group.add(m);
+    }
+    const mat = new THREE.Matrix4();
+    blocks.forEach((b, i) => {
+      const ids: number[] = [];
+      meshes.forEach((m, j) => {
+        const g = perSlot[i]![slotOf[j]!]!;
+        if (!g.getAttribute('position').count) {
+          ids.push(-1);
+          return;
+        }
+        const id = m.addInstance(m.addGeometry(g));
+        const t = b.body.translation();
+        m.setMatrixAt(id, mat.makeTranslation(t.x, t.y, t.z));
+        ids.push(id);
+      });
+      b.geo.dispose();
+      this.debris.push({ body: b.body, mesh: null, batch: { meshes, ids }, falling: b.falling, still: 0 });
+    });
   }
 
   /**
@@ -605,17 +697,9 @@ export class Skyscrapers {
     const top = t.spec.bands[t.spec.bands.length - 1]!.y1;
     // Where it breaks: blocks that end at or below this height stay.
     const breakAt = struck ? struck.at : 0;
+    const { seg, k } = breakUp(t.spec);
     let pivotY = top;
-    for (const band of t.spec.bands) {
-      const ya = Math.max(band.y0, BASE_H);
-      if (ya >= band.y1) continue;
-      const nSeg = Math.max(1, Math.round((band.y1 - ya) / (radius(sectionAt(band, ya)) > 25 ? 30 : 18)));
-      for (let s = 0; s < nSeg; s++) {
-        const y1 = ya + ((band.y1 - ya) * (s + 1)) / nSeg;
-        const y0 = ya + ((band.y1 - ya) * s) / nSeg;
-        if (y1 > breakAt + 0.01) pivotY = Math.min(pivotY, y0);
-      }
-    }
+    for (const band of t.spec.bands) for (const [y0, y1] of slices(band, seg)) if (y1 > breakAt + 0.01) pivotY = Math.min(pivotY, y0);
     if (!struck) pivotY = 0;
     // Tipping rate of a column of that height falling over (a short one goes over faster).
     const height = Math.max(20, top - pivotY);
@@ -637,6 +721,10 @@ export class Skyscrapers {
     };
     const spin = (): THREE.Vector3 => omega.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.3));
     const slots = this.slotsOf(t);
+    const blocks: Block[] = [];
+    const add = (b: Block | null): void => {
+      if (b) blocks.push(b);
+    };
     // The rest of the ground floor bursts out and falls over: nothing holds the tower up.
     for (const c of t.chunks) {
       if (!c.collider || struck) continue;
@@ -644,36 +732,39 @@ export class Skyscrapers {
       world.removeCollider(c.collider, false);
       c.collider = null;
       const tip = new THREE.Vector3(c.out.z, 0, -c.out.x).multiplyScalar(0.9);
-      this.spawn(c.points, (cx, cy, cz) => this.chunkSkin(c, cx, cy, cz), slots, c.out.clone().multiplyScalar(4).add(new THREE.Vector3(0, -0.5, 0)), tip, true);
+      add(this.block(c.points, (cx, cy, cz) => this.chunkSkin(c, cx, cy, cz), c.out.clone().multiplyScalar(4).add(new THREE.Vector3(0, -0.5, 0)), tip, true));
     }
+    const phase = Math.PI / 4;
     for (const band of t.spec.bands) {
-      const ya = Math.max(band.y0, BASE_H);
-      if (ya >= band.y1) continue;
-      const rr = radius(sectionAt(band, ya));
-      const seg = rr > 25 ? 30 : 18;
-      const k = rr > 18 ? 4 : 2;
-      const nSeg = Math.max(1, Math.round((band.y1 - ya) / seg));
-      const phase = Math.PI / 4;
-      for (let s = 0; s < nSeg; s++) {
-        const y0 = ya + ((band.y1 - ya) * s) / nSeg;
-        const y1 = ya + ((band.y1 - ya) * (s + 1)) / nSeg;
+      const skin = (cx: number, cy: number, cz: number): boolean => edgeDistance(sectionAt(band, cy - y), cx - x, cz - z) < 0.3;
+      for (const [y0, y1] of slices(band, seg)) {
         const sec0 = sectionAt(band, y0);
         const sec1 = sectionAt(band, y1);
+        // Halfway out from the axis, each wedge is cut once more: an inner and an outer piece.
+        const cut = 0.5 * Math.min(radius(sec0), radius(sec1));
         for (let q = 0; q < k; q++) {
           const a0 = phase + (q / k) * Math.PI * 2;
           const a1 = phase + ((q + 1) / k) * Math.PI * 2;
-          const p0 = wedge(sec0, a0, a1);
-          const p1 = wedge(sec1, a0, a1);
-          if (p0.length < 3 && p1.length < 3) continue;
-          const pts = [...p0.map((p) => new THREE.Vector3(x + p[0], y + y0, z + p[1])), ...p1.map((p) => new THREE.Vector3(x + p[0], y + y1, z + p[1]))];
-          if (pts.length < 4) continue;
-          const centre = pts.reduce((m, p) => m.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
-          const skin = (cx: number, cy: number, cz: number): boolean => edgeDistance(sectionAt(band, cy - y), cx - x, cz - z) < 0.3;
-          if (y1 < pivotY + 0.01) this.spawn(pts, skin, slots, new THREE.Vector3(), new THREE.Vector3(), false, y + band.y1, true);
-          else this.spawn(pts, skin, slots, velAt(centre), spin(), true, y + band.y1);
+          const am = (a0 + a1) / 2;
+          const ca = Math.cos(am);
+          const sa = Math.sin(am);
+          const w0 = wedge(sec0, a0, a1);
+          const w1 = wedge(sec1, a0, a1);
+          for (const [p0, p1] of [
+            [clip(w0, ca, sa, cut), clip(w1, ca, sa, cut)],
+            [clip(w0, -ca, -sa, -cut), clip(w1, -ca, -sa, -cut)],
+          ] as const) {
+            if (p0.length < 3 && p1.length < 3) continue;
+            const pts = [...p0.map((p) => new THREE.Vector3(x + p[0], y + y0, z + p[1])), ...p1.map((p) => new THREE.Vector3(x + p[0], y + y1, z + p[1]))];
+            if (pts.length < 4) continue;
+            const centre = pts.reduce((m, p) => m.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
+            if (y1 < pivotY + 0.01) add(this.block(pts, skin, new THREE.Vector3(), new THREE.Vector3(), false, y + band.y1, true));
+            else add(this.block(pts, skin, velAt(centre), spin(), true, y + band.y1));
+          }
         }
       }
     }
+    this.batch(blocks, slots);
     if (t.spec.spire) {
       const { r, h } = t.spec.spire;
       const pts: THREE.Vector3[] = [];
@@ -707,14 +798,31 @@ export class Skyscrapers {
       if (b.isSleeping() || b.isFixed()) continue;
       const p = b.translation();
       const q = b.rotation();
-      d.mesh.position.set(p.x, p.y, p.z);
-      d.mesh.quaternion.set(q.x, q.y, q.z, q.w);
+      if (d.mesh) {
+        d.mesh.position.set(p.x, p.y, p.z);
+        d.mesh.quaternion.set(q.x, q.y, q.z, q.w);
+      } else if (d.batch) {
+        _m.compose(_pp.set(p.x, p.y, p.z), _qq.set(q.x, q.y, q.z, q.w), _one);
+        d.batch.meshes.forEach((m, j) => {
+          const id = d.batch!.ids[j]!;
+          if (id >= 0) m.setMatrixAt(id, _m);
+        });
+      }
       const vy = b.linvel().y;
       if (d.falling && vy > -3 && p.y < 60) {
-        // Landed: a cloud where it hit.
+        // Landed: a cloud where it hit, and rubble settles (and sleeps) rather than rocking on.
         for (let k = 0; k < 5; k++) this.puff(p.x, p.y - 4, p.z, 14, 20, 8);
+        b.setLinearDamping(0.8);
+        b.setAngularDamping(2);
       }
       d.falling = vy < -8;
+      const v = b.linvel();
+      const w = b.angvel();
+      if (v.x * v.x + v.y * v.y + v.z * v.z < 1 && w.x * w.x + w.y * w.y + w.z * w.z < 0.5) {
+        d.still += dt;
+        // Settled rubble (tonnes of it: no car moves it) turns static and costs nothing more.
+        if (d.still > 0.8) b.setBodyType(this.physics.RAPIER.RigidBodyType.Fixed, true);
+      } else d.still = 0;
     }
     for (const t of this.towers) {
       if (t.dust <= 0) continue;
@@ -738,10 +846,18 @@ export class Skyscrapers {
     this.pending.length = 0;
     this.strikes.length = 0;
     if (!this.debris.length && this.towers.every((t) => !t.collapsed && t.struck === 0 && t.chunks.every((c) => c.collider))) return;
+    const batches = new Set<THREE.BatchedMesh>();
     for (const d of this.debris) {
       this.physics.world.removeRigidBody(d.body);
-      this.group.remove(d.mesh);
-      d.mesh.geometry.dispose();
+      if (d.mesh) {
+        this.group.remove(d.mesh);
+        d.mesh.geometry.dispose();
+      }
+      for (const m of d.batch?.meshes ?? []) batches.add(m);
+    }
+    for (const m of batches) {
+      this.group.remove(m);
+      m.dispose();
     }
     this.debris.length = 0;
     this.dust?.clear();

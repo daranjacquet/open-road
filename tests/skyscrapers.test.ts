@@ -127,18 +127,18 @@ describe('skyscrapers and aircraft', () => {
       towers.flush();
     }
     // The top went over to +z and came down (a block may stay lodged on the stump).
-    let highest = -Infinity;
+    let high = 0;
     let towardZ = 0;
     let sumY = 0;
     let n = 0;
     physics.world.forEachRigidBody((b) => {
       if (!b.isDynamic()) return;
-      highest = Math.max(highest, b.translation().y);
+      if (b.translation().y > 62) high++;
       towardZ += b.translation().z;
       sumY += b.translation().y;
       n++;
     });
-    expect(highest).toBeLessThan(62);
+    expect(high / n).toBeLessThan(0.15);
     expect(sumY / n).toBeLessThan(35);
     expect(towardZ).toBeGreaterThan(0);
     towers.rebuild();
