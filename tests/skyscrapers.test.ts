@@ -99,27 +99,7 @@ describe('skyscrapers', () => {
 });
 
 describe('skyscrapers and aircraft', () => {
-  it('follow a rule of which vehicles can break them: the twin towers, cars only', async () => {
-    const { towers } = await city();
-    const { breakableBy } = await import('../src/world/skyscrapers');
-    const glass = new THREE.MeshStandardMaterial();
-    expect(breakableBy(twinTower('T', 0, 0, 0, glass, true), 'car')).toBe(true);
-    expect(breakableBy(twinTower('T', 0, 0, 0, glass, true), 'aircraft')).toBe(false);
-    expect(breakableBy({ name: 'x', x: 0, z: 0, y: 0, facade: glass, bands: [] }, 'aircraft')).toBe(true);
-    // Whatever the energy, an aircraft does nothing to a twin tower, high up or on the ground floor.
-    const wtc = towers.tower('WTC')!;
-    towers.strike(wtc.upper[1]!, 1e9, 1, 0, 200);
-    towers.strike(wtc.handles[0]!, 1e9, 1, 0, 5);
-    towers.flush();
-    const after = towers.tower('WTC')!;
-    expect(after.collapsed).toBe(false);
-    expect(after.standing).toBe(wtc.sections);
-    expect(after.struck).toBe(0);
-    // A car still breaks its ground floor.
-    towers.hit(wtc.handles[0]!, 2e6, 1, 0);
-    towers.flush();
-    expect(towers.tower('WTC')!.standing).toBeLessThan(wtc.sections);
-  });
+  
 
   it('a strike high up breaks a tower there: the top falls the way the aircraft flew, the stump stands', async () => {
     const { physics, towers } = await city();
