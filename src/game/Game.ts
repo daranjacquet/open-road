@@ -416,7 +416,18 @@ export class Game {
       });
     }
     // Breaks and collapses from this step's crashes, now that no car holds a collider of it.
-    this.d.map.city.skyscrapers.flush();
+    const towers = this.d.map.city.skyscrapers;
+    towers.flush();
+    // An aircraft that brought a tower down flies on through it with what energy it has left, and
+    // through the falling blocks.
+    if (towers.breakThrough !== null) {
+      const keep = Math.sqrt(towers.breakThrough);
+      towers.breakThrough = null;
+      if (plane && lv) {
+        plane.aircraft.body.setLinvel({ x: lv.x * keep, y: lv.y * keep, z: lv.z * keep }, true);
+        plane.aircraft.passThroughDebris(2.5);
+      }
+    }
     this.simTime += FIXED_DT;
   }
 

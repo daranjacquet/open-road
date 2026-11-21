@@ -135,6 +135,8 @@ export class Aircraft {
   private readonly ray: RAPIER.Ray;
   private readonly colliderPart = new Map<number, Part>();
   private overload = 0;
+  /** Seconds left flying through debris without touching it. */
+  private ghost = 0;
   /** Arcade flight: integral of the rate error per body axis (x pitch, y yaw, z roll). */
   private readonly rateI = new THREE.Vector3();
   private propAngle = 0;
@@ -302,6 +304,20 @@ export class Aircraft {
     this.onBreak?.({ part: name, reason, body });
   }
 
+  /**
+   * For `seconds`, the aircraft does not touch loose debris (falling blocks of a tower it broke,
+   * props): it flies on through them. Fixed scenery still stops it.
+   */
+  passThroughDebris(seconds: number): void {
+    this.ghost = seconds;
+    this.setDebrisContact(false);
+  }
+
+  private setDebrisContact(on: boolean): void {
+    const g = groups(GROUP.PROP, on ? 0xffff : 0xffff & ~GROUP.PROP);
+    for (const p of this.parts.values()) for (const c of p.colliders) c.setCollisionGroups(g);
+  }
+
   /** A contact force from the physics step on one of our colliders (N), for `dt` seconds. */
   contactForce(handle: number, force: number, dt: number): void {
     const p = this.colliderPart.get(handle);
@@ -348,6 +364,10 @@ export class Aircraft {
     st.beta = Math.atan2(_vb.x, Math.max(_vb.z, 0.1));
 
     this.actuate(dt, input);
+    if (this.ghost > 0) {
+      this.ghost -= dt;
+      if (this.ghost <= 0) this.setDebrisContact(true);
+    }
 
     // ---- aerodynamics: every surface on its own ----
     const rho = airDensity(_com.y);

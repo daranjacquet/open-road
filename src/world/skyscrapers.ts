@@ -37,6 +37,11 @@ export interface TowerSpec {
    * only cars: the game does not stage the September 11 attacks.
    */
   breakers?: readonly Breaker[];
+  /**
+   * An aircraft that brings it down flies on through it (default) rather than stopping dead. Off on
+   * the twin towers: the game does not stage the September 11 attacks.
+   */
+  passThrough?: boolean;
 }
 
 /** Can this kind of vehicle break this tower? */
@@ -358,6 +363,11 @@ export class Skyscrapers {
   /** Colliders above the ground floor (and the core), by handle. */
   private readonly upperOf = new Map<number, Tower>();
   private readonly strikes: { t: Tower; energy: number; dx: number; dz: number; at: number }[] = [];
+  /**
+   * Set by `flush` when an aircraft's strike brought a tower down that it may fly through: the share
+   * of its kinetic energy it keeps (the rest went into breaking the tower). The game reads and clears it.
+   */
+  breakThrough: number | null = null;
 
   constructor(
     private readonly physics: Physics,
@@ -563,7 +573,10 @@ export class Skyscrapers {
       // A burst of dust and debris where it hit, whether the tower holds or not.
       const r = radius(sectionAt(t.spec.bands.find((b) => at <= b.y1) ?? t.spec.bands[0]!, at));
       for (let k = 0; k < 14; k++) this.puff(t.spec.x - s.dx * r, t.spec.y + at, t.spec.z - s.dz * r, 6, 14, 6);
-      if (t.struck >= this.strikeLimit(t)) this.collapse(t, { at, dx: s.dx, dz: s.dz });
+      if (t.struck >= this.strikeLimit(t)) {
+        this.collapse(t, { at, dx: s.dx, dz: s.dz });
+        if (t.spec.passThrough !== false) this.breakThrough = Math.max(0.25, 1 - this.strikeLimit(t) / Math.max(s.energy, 1));
+      }
       touched.add(t);
     }
     this.strikes.length = 0;
@@ -1005,5 +1018,6 @@ export function twinTower(name: string, x: number, z: number, y: number, facade:
     bands: [{ y0: 0, y1: north ? 417 : 415, bottom: plan, top: plan }],
     ...(north ? { spire: { r: 1.8, h: 110 } } : {}),
     breakers: ['car', 'aircraft'],
+    passThrough: false,
   };
 }

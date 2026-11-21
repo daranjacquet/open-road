@@ -103,6 +103,21 @@ describe('skyscrapers', () => {
 });
 
 describe('skyscrapers and aircraft', () => {
+  it('an aircraft flies on through the towers it brings down, except the twin towers', async () => {
+    const { towers } = await city();
+    const glass = new THREE.MeshStandardMaterial();
+    expect(twinTower('T', 0, 0, 0, glass, true).passThrough).toBe(false);
+    const t = towers.tower('High-rise')!;
+    towers.strike(t.upper[1]!, 5e6, 0, 1, 50);
+    towers.flush();
+    expect(towers.breakThrough).toBeGreaterThan(0.25);
+    towers.breakThrough = null;
+    const w = towers.tower('WTC')!;
+    towers.strike(w.upper[1]!, 1e9, 0, 1, 200);
+    towers.flush();
+    expect(towers.breakThrough).toBeNull();
+  });
+
   it('struck from 5 m up, even within the ground floor, it all comes down; lower, it is a hit like a car', async () => {
     const { towers } = await city();
     const t = towers.tower('High-rise')!;
@@ -193,14 +208,17 @@ describe('skyscrapers and aircraft', () => {
     expect(towers.tower('High-rise')!.struck).toBe(0);
   });
 
-  it('a real SR22 flying into a high-rise at 150 kt brings it down', async () => {
+  it('a real SR22 flying into a high-rise at 150 kt brings it down and flies on through it', async () => {
     const { physics, towers } = await city();
     const { Aircraft } = await import('../src/vehicle/aircraft/Aircraft');
     const cfg = (await import('../src/vehicle/aircraft/sr22.json')).default as unknown as import('../src/vehicle/aircraft/types').AircraftConfig;
     const ac = new Aircraft(physics, cfg, 300, 45, -150, 0);
     ac.body.setLinvel({ x: 0, y: 0, z: 78 }, true);
     const input = { pitch: 0, roll: 0, yaw: 0, throttle: 0.8, brake: 0, flaps: 0 };
-    for (let i = 0; i < 120 * 4 && !towers.tower('High-rise')!.collapsed; i++) {
+    let broke = -1;
+    // The game's step: the aircraft's velocity before the step goes to the towers; a tower it brings
+    // down that it may fly through gives it back its speed (less what breaking it took).
+    for (let i = 0; i < 120 * 4; i++) {
       ac.fixedUpdate(FIXED_DT, input);
       const lv = ac.body.linvel();
       physics.step();
@@ -214,8 +232,20 @@ describe('skyscrapers and aircraft', () => {
         for (const c of [e.collider1(), e.collider2()]) towers.strike(c, 0.5 * ac.mass * v2, lv.x / h, lv.z / h, ac.currPos.y);
       });
       towers.flush();
+      if (towers.breakThrough !== null) {
+        const keep = Math.sqrt(towers.breakThrough);
+        towers.breakThrough = null;
+        ac.body.setLinvel({ x: lv.x * keep, y: lv.y * keep, z: lv.z * keep }, true);
+        ac.passThroughDebris(2.5);
+        broke = i;
+      }
+      if (broke >= 0 && i > broke + 120) break;
     }
     expect(towers.tower('High-rise')!.collapsed).toBe(true);
+    // A second after breaking in, it is out the far side (the tower is 30 m deep) and still flying fast.
+    console.log(`after breaking through: z ${ac.body.translation().z.toFixed(0)}, ${ac.state.airspeed.toFixed(0)} m/s`);
+    expect(ac.body.translation().z).toBeGreaterThan(30);
+    expect(ac.state.airspeed).toBeGreaterThan(30);
     expect(towers.tower('WTC')!.collapsed).toBe(false);
   });
 });
