@@ -178,17 +178,18 @@ export class Game {
       }
       // The new car takes over where the current vehicle is (car or aircraft), at its speed.
       const from = this.current();
+      // Out of the aircraft: it goes back to the start of runway 27 first, out of the way.
+      if (from.plane) this.plane?.respawn();
       const old = this.player;
       old.dispose();
       this.player = new GameCar(this.d.physics, this.d.gs.scene, carById(id), from.x, from.z, from.yaw);
       const ground = this.d.map.heightAt(from.x, from.z);
       this.player.vehicle.placeAt(from.x, Math.max(from.y + (from.plane ? 0 : 0.6), ground + 1.0), from.z, from.yaw);
       this.player.vehicle.carryOn(from.vx, from.vy, from.vz);
-      if (from.plane) {
-        // Out of the aircraft: it goes back to the start of runway 27.
-        this.plane?.respawn();
-        this.leavePlane(false);
-      }
+      // Scene queries only catch up with moved and removed bodies at the next physics step: for half
+      // a second the crumple zones ignore contacts (the old vehicle's ghost would crush the new one).
+      this.player.crush.grace = 60;
+      if (from.plane) this.leavePlane(false);
       this.cars[0] = this.player;
       this.garage.attach();
       this.hookPlayer();
@@ -233,7 +234,11 @@ export class Game {
 
   /** Into the aircraft where the car is, at the car's speed and heading; the car goes home. */
   async switchToPlane(): Promise<void> {
-    if (this.swapping) return;
+    if (this.mode === 'plane') return;
+    if (this.swapping) {
+      this.garage?.syncCar();
+      return;
+    }
     this.swapping = true;
     try {
       if (!this.plane) this.d.hud.toast('Loading the aircraft…', 1500);
@@ -334,6 +339,7 @@ export class Game {
     this.d.hud.setMode('plane');
     this.d.hud.hint(null);
     this.d.rig.reset();
+    this.garage?.syncCar(true);
   }
 
   /** Back in the car, which waits beside the aircraft (beyond the left wing tip). */
@@ -343,6 +349,7 @@ export class Game {
     this.d.input.clearEdges();
     this.d.hud.setMode('car');
     this.d.audio.leaveAircraft();
+    this.garage?.syncCar();
     this.d.rig.reset();
     this.flightCmd = { ...PARKED };
     if (!plane || !bringCar) return;

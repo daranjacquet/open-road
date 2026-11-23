@@ -13,7 +13,7 @@ import { loadCarTemplates } from './render/car/glb';
 import { AdaptiveResolution } from './render/quality';
 import { createScene } from './render/scene';
 import { warmUp } from './render/warmup';
-import { Garage } from './ui/garage';
+import { Garage, PLANE_ID } from './ui/garage';
 import { Hud } from './ui/hud';
 import { createGround } from './world/ground';
 import { createMap } from './world/map';
@@ -97,7 +97,10 @@ async function boot(): Promise<void> {
   });
 
   // Garage panel: car choice, setups, settings, repair, teleports, graphics.
-  const garage = new Garage(() => game.player, (id) => game.swapCar(id).catch((err) => console.error('[swapCar]', err)));
+  const garage = new Garage(
+    () => game.player,
+    (id) => (id === PLANE_ID ? game.switchToPlane() : game.swapCar(id)).catch((err) => console.error('[vehicle]', err)),
+  );
   game.garage = garage;
   garage.gui.add({ repair: () => game.repair() }, 'repair').name('Repair (F)');
   const go = garage.gui.addFolder('Go to (T)');

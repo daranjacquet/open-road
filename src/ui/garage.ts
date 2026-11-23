@@ -29,6 +29,9 @@ function saveTune(id: string, t: Tune): void {
  * Garage panel (lil-gui): car choice, ready-made setups and every setting, applied live and saved
  * per car.
  */
+/** The aircraft's entry in the vehicle menu. */
+export const PLANE_ID = 'plane';
+
 export class Garage {
   readonly gui: GUI;
   private tune: Tune;
@@ -47,7 +50,11 @@ export class Garage {
     this.info = { power: '' };
     const gui = new GUI({ title: 'Garage (G)' });
     this.gui = gui;
-    gui.add(this.choice, 'car', Object.fromEntries(CARS.map((c) => [c.name, c.id]))).name('Car').onChange((id: string) => onSwap(id));
+    // Every vehicle, the aircraft included: choosing one takes over where you are, at your speed.
+    gui
+      .add(this.choice, 'car', { ...Object.fromEntries(CARS.map((c) => [c.name, c.id])), 'Cirrus SR22 (aircraft)': PLANE_ID })
+      .name('Vehicle')
+      .onChange((id: string) => onSwap(id));
 
     const presets = gui.addFolder('Setups');
     for (const name of Object.keys(PRESETS)) {
@@ -190,9 +197,9 @@ export class Garage {
     this.refresh();
   }
 
-  /** Show the car actually driven in the car menu (after a refused or failed swap). */
-  syncCar(): void {
-    this.choice.car = this.getCar().def.id;
+  /** Show the vehicle actually in use in the menu: the aircraft, or the car (after a refused or failed swap). */
+  syncCar(flying = false): void {
+    this.choice.car = flying ? PLANE_ID : this.getCar().def.id;
     this.gui.controllersRecursive().forEach((c) => c.updateDisplay());
   }
 
