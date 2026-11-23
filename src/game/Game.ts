@@ -248,7 +248,6 @@ export class Game {
         return;
       }
       const from = this.current();
-      this.player.respawn();
       const ground = this.d.map.heightAt(from.x, from.z);
       plane.placeAt(from.x, Math.max(from.y + 0.2, ground + PLANE_REST), from.z, from.yaw);
       const ac = plane.aircraft;
@@ -340,6 +339,8 @@ export class Game {
     this.d.hud.hint(null);
     this.d.rig.reset();
     this.garage?.syncCar(true);
+    // The car you came in is gone while you fly; it comes back where you get out.
+    this.player.stowed = true;
   }
 
   /** Back in the car, which waits beside the aircraft (beyond the left wing tip). */
@@ -347,6 +348,7 @@ export class Game {
     const plane = this.plane;
     this.mode = 'car';
     this.d.input.clearEdges();
+    this.player.stowed = false;
     this.d.hud.setMode('car');
     this.d.audio.leaveAircraft();
     this.garage?.syncCar();
@@ -450,7 +452,7 @@ export class Game {
   step(cmd: DriveInput): void {
     const cars = this.cars;
     const driving = this.mode === 'car';
-    for (let i = 0; i < cars.length; i++) cars[i]!.fixedUpdate(FIXED_DT, driving ? this.inputFor(cars[i]!, cmd) : IDLE);
+    for (let i = 0; i < cars.length; i++) if (!cars[i]!.stowed) cars[i]!.fixedUpdate(FIXED_DT, driving ? this.inputFor(cars[i]!, cmd) : IDLE);
     const plane = this.plane;
     plane?.fixedUpdate(FIXED_DT, driving ? PARKED : this.flightCmd);
     // The aircraft's velocity going into the step: a crash stops it within the step.

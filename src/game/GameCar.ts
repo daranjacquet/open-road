@@ -103,6 +103,17 @@ export class GameCar {
     this.crush.grace = 60;
   }
 
+  /** Off the map while the player flies: no body in the world, nothing drawn. */
+  get stowed(): boolean {
+    return !this.model.root.visible;
+  }
+
+  set stowed(v: boolean) {
+    this.vehicle.body.setEnabled(!v);
+    this.model.root.visible = !v;
+    this.effects.group.visible = !v;
+  }
+
   respawn(): void {
     this.repair();
     this.vehicle.placeAt(this.spawn.x, 1.0, this.spawn.z, this.spawn.yaw);
