@@ -520,6 +520,8 @@ export class Game {
       if (fly) this.flightCmd = fly();
       this.step(drive ? drive() : this.d.input.out);
       if (i % 4 === 0) {
+        // Falling blocks of a tower follow their bodies (and settle) as in real frames.
+        this.d.map.city.skyscrapers.update(this.simTime);
         for (const c of this.cars) c.updateVisuals(performance.now() + i, 1, FIXED_DT * 4, vh);
         this.plane?.updateVisuals(1, FIXED_DT * 4);
       }

@@ -634,7 +634,9 @@ export class Skyscrapers {
     const local = Float32Array.from(points.flatMap((p) => [(p.x - centre.x) * k, (p.y - centre.y) * k, (p.z - centre.z) * k]));
     const desc = RAPIER.ColliderDesc.convexHull(local);
     if (!desc) return null;
-    const geo = solidGeometry(points, onSkin, roofAt, centre, k);
+    // Drawn at full size (no seams across the tower as it starts to fall); only the collider is
+    // shrunk, so neighbouring pieces do not start out in contact.
+    const geo = solidGeometry(points, onSkin, roofAt, centre, 1);
     geo.computeBoundingBox();
     const size = geo.boundingBox!.getSize(new THREE.Vector3());
     const volume = Math.max(1, size.x * size.y * size.z * 0.6);
@@ -682,6 +684,10 @@ export class Skyscrapers {
       }
       if (!n) continue;
       const m = new THREE.BatchedMesh(n, verts, 0, slots[slot]!);
+      // The pieces spread far from where the tower stood: the batch's own bounds (worked out once)
+      // would cull all of them at some angles. Each piece is still culled on its own.
+      m.frustumCulled = false;
+      m.perObjectFrustumCulled = true;
       m.castShadow = slot !== 2;
       m.receiveShadow = true;
       meshes.push(m);
