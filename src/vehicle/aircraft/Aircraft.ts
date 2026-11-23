@@ -541,8 +541,9 @@ export class Aircraft {
     }
     // Bank, right wing down positive.
     const bank = Math.asin(clamp(_x.set(1, 0, 0).applyQuaternion(_q).y, -1, 1));
-    const qMax = Math.min(0.9, (5 * G) / Math.max(V, 1));
-    const roll = Math.abs(input.roll) > 0.05 ? input.roll * 1.6 : clamp(-bank * 1.2, -0.8, 0.8);
+    // Up to 60 degrees a second at low speed, capped to about 5 g at speed.
+    const qMax = Math.min(1.05, (4 * G) / Math.max(V, 1));
+    const roll = Math.abs(input.roll) > 0.05 ? input.roll * 2.4 : clamp(-bank * 1.5, -1, 1);
     // Target body rates (x: + nose down, y: + nose left, z: + right wing down).
     let pitchRate = input.pitch * qMax;
     const attitude = Math.asin(clamp(_fwd.y, -1, 1));
@@ -556,16 +557,17 @@ export class Aircraft {
       // On the wheels: a gentle rotation, and never past 9 degrees (the tail strikes at 12).
       pitchRate = Math.min(input.pitch * 0.25, (0.16 - attitude) * 3);
     }
-    _t.set(-pitchRate, input.yaw * 0.6 - (G * Math.sin(bank)) / Math.max(V, 20), roll);
+    _t.set(-pitchRate, input.yaw * 0.8 - (G * Math.sin(bank)) / Math.max(V, 20), roll);
     if (!air) _t.set(_t.x, 0, 0);
     _v.copy(_ang).applyQuaternion(_qi);
     _t.sub(_v);
     if (!air) _t.y = _t.z = 0;
-    this.rateI.addScaledVector(_t, dt).clampScalar(-0.6, 0.6);
+    this.rateI.addScaledVector(_t, dt).clampScalar(-1.5, 1.5);
     if (!air) this.rateI.y = this.rateI.z = 0;
     const I = this.body.principalInertia();
-    const k = auth;
-    _f.set(I.x * (5 * _t.x + 4 * this.rateI.x), I.y * (3 * _t.y + 2 * this.rateI.y), I.z * (6 * _t.z + 4 * this.rateI.z)).multiplyScalar(k).applyQuaternion(_q);
+    // The aircraft's own stability grows with the dynamic pressure: so does the controller's push.
+    const k = auth * clamp((V / 40) ** 2, 1, 6);
+    _f.set(I.x * (18 * _t.x + 14 * this.rateI.x), I.y * (10 * _t.y + 6 * this.rateI.y), I.z * (18 * _t.z + 12 * this.rateI.z)).multiplyScalar(k).applyQuaternion(_q);
     _a.x = _f.x * dt;
     _a.y = _f.y * dt;
     _a.z = _f.z * dt;

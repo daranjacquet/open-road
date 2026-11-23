@@ -389,3 +389,23 @@ describe('arcade flight with the boosted engine', () => {
     expect(partsOff(ac)).toEqual([]);
   }, 60_000);
 });
+
+describe('arcade flight: pushing the stick', () => {
+  it('noses down and descends within a second and a half, even at full boosted power', async () => {
+    const { ac, input, step } = await setup(400);
+    ac.assists.arcade = true;
+    ac.boost = 4;
+    ac.body.setLinvel({ x: 0, y: 0, z: 85 }, true);
+    input.throttle = 1;
+    ac.controls.throttle = 1;
+    for (let i = 0; i < 240; i++) step();
+    // Z on an AZERTY keyboard (W on QWERTY): stick forward, ramping in like the keys do.
+    for (let i = 0; i < 180; i++) {
+      input.pitch = Math.max(-1, input.pitch - 2.2 / 120);
+      step();
+    }
+    console.log(`after 1.5 s of stick forward: pitch ${(pitchOf(ac) * 57.3).toFixed(0)} deg, ${ac.state.vs.toFixed(0)} m/s`);
+    expect(pitchOf(ac)).toBeLessThan(-0.25);
+    expect(ac.state.vs).toBeLessThan(-15);
+  });
+});

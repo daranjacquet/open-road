@@ -158,8 +158,8 @@ export class Input {
     const tYaw = (this.key('KeyQ') ? 1 : 0) - (this.key('KeyE') ? 1 : 0);
     const ramp = (cur: number, target: number, rateIn: number, rateOut: number): number =>
       moveToward(cur, target, (target === 0 || Math.sign(target) !== Math.sign(cur) ? rateOut : rateIn) * dt);
-    let pitch = ramp(f.pitch, tPitch, 1.0, 4);
-    let roll = ramp(f.roll, tRoll, 2.5, 5);
+    let pitch = ramp(f.pitch, tPitch, 2.2, 5);
+    let roll = ramp(f.roll, tRoll, 4, 6);
     let yaw = ramp(f.yaw, tYaw, 2.5, 5);
     let throttle = f.throttle + ((this.key('ShiftLeft', 'ShiftRight') ? 1 : 0) - (this.key('ControlLeft', 'ControlRight') ? 1 : 0)) * 0.5 * dt;
     let brake = this.key('Space') ? 1 : 0;
