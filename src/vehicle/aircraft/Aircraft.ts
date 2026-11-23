@@ -517,9 +517,10 @@ export class Aircraft {
     for (const w of this.wheels) wheelLoad += w.load;
     st.g = (liftUp + wheelLoad) / (mass * G);
 
-    // ---- structure: a wing pulled past its limit load folds ----
+    // ---- structure: a wing pulled past its limit load folds (not in arcade flight, where only
+    // crashes break the aircraft: a roll in a fast dive would otherwise tear a wing off) ----
     const half = (cfg.limits.wingG * mass * G) / 2;
-    const worst = Math.max(Math.abs(wingL), Math.abs(wingR));
+    const worst = this.assists.arcade ? 0 : Math.max(Math.abs(wingL), Math.abs(wingR));
     this.overload = worst > half ? this.overload + dt : 0;
     if (this.overload > 0.08) this.detach(Math.abs(wingL) > Math.abs(wingR) ? 'wingL' : 'wingR', 'overload');
   }

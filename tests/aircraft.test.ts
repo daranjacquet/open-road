@@ -409,3 +409,34 @@ describe('arcade flight: pushing the stick', () => {
     expect(ac.state.vs).toBeLessThan(-15);
   });
 });
+
+describe('arcade flight: no structural failure from flying', () => {
+  it('a minute of hard keyboard flying at full boosted power, dives past 600 km/h included, keeps both wings', async () => {
+    const { ac, input, step } = await setup(600);
+    ac.assists.arcade = true;
+    ac.boost = 4;
+    ac.body.setLinvel({ x: 0, y: 0, z: 100 }, true);
+    input.throttle = 1;
+    ac.controls.throttle = 1;
+    let vmax = 0;
+    const seq = [['roll', 1, 1.5], ['pitch', 1, 2], ['roll', -1, 2], ['pitch', -1, 1.5], ['pitch', 1, 3], ['roll', 1, 3], ['pitch', 1, 2], ['roll', -1, 1], ['pitch', -1, 2], ['pitch', 1, 2]] as const;
+    for (let k = 0; k < 3; k++) {
+      for (const [axis, val, dur] of seq) {
+        for (let i = 0; i < dur * 120; i++) {
+          const cur = input[axis];
+          input[axis] = clamp(cur + Math.sign(val - cur) * (axis === 'pitch' ? 2.2 : 4) / 120, -1, 1);
+          step();
+          vmax = Math.max(vmax, ac.state.airspeed);
+          // Keep it in the sky: this is about flying, not crashing.
+          const p = ac.body.translation();
+          if (p.y < 80) ac.body.setTranslation({ x: p.x, y: 600, z: p.z }, true);
+        }
+        input.pitch = 0;
+        input.roll = 0;
+      }
+    }
+    console.log(`hard flying: top speed ${(vmax * 3.6).toFixed(0)} km/h, parts off: ${partsOff(ac).join(',') || 'none'}`);
+    expect(vmax * 3.6).toBeGreaterThan(500);
+    expect(partsOff(ac)).toEqual([]);
+  }, 60_000);
+});
