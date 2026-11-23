@@ -129,6 +129,11 @@ describe('aircraft in the game', () => {
     expect(world.bodies.len()).toBe(bodies + 1);
     expect(wing.parent?.name).toBe('debris-wingL');
     expect(plane.model.parts.get('aileronL')!.parent).toBe(wing);
+    // The left main gear leg, mounted in that wing, leaves with it: off the aircraft, under the same holder.
+    expect(plane.aircraft.parts.get('gearL')!.on).toBe(false);
+    expect(plane.aircraft.wheels.find((w) => w.def.part === 'gearL')!.on).toBe(false);
+    expect(plane.model.parts.get('gearL')!.parent).toBe(wing.parent);
+    expect(plane.aircraft.parts.get('gearR')!.on).toBe(true);
     expect(plane.events).toContain('Left wing torn off');
     // A gear leg has no body of its own in the flight model: the view makes one.
     plane.aircraft.detach('gearN', 'landing');

@@ -98,7 +98,12 @@ export interface BreakEvent {
   reason: 'impact' | 'overload' | 'landing';
   /** The part's new body (null for gear legs and the propeller, which only the view shows). */
   body: RAPIER.RigidBody | null;
+  /** Parts mounted on it that leave with it (a main gear leg with its wing). */
+  carries: string[];
 }
+
+/** Main gear legs are mounted in the wings: they go when their wing goes. */
+const MOUNTED_ON: Record<string, string> = { gearL: 'wingL', gearR: 'wingR' };
 
 /**
  * A light aircraft as one Rapier rigid body. Each lifting surface works out its own airflow
@@ -239,6 +244,15 @@ export class Aircraft {
     this.prevQuat.copy(this.currQuat);
   }
 
+  /** Set the full orientation and a spin right after `placeAt` (switching vehicles on the move). */
+  orient(q: { x: number; y: number; z: number; w: number }, wx = 0, wy = 0, wz = 0): void {
+    this.body.setRotation(q, true);
+    this.body.setAngvel({ x: wx, y: wy, z: wz }, true);
+    this.sync();
+    this.prevPos.copy(this.currPos);
+    this.prevQuat.copy(this.currQuat);
+  }
+
   /** Every part back on (call `placeAt` or keep the pose). */
   repair(): void {
     for (const p of this.parts.values()) {
@@ -301,7 +315,15 @@ export class Aircraft {
     for (const s of this.surfaces) if (s.def.part === name) s.on = false;
     for (const w of this.wheels) if (w.def.part === name) w.on = false;
     if (name === 'prop') this.propBroken = true;
-    this.onBreak?.({ part: name, reason, body });
+    const carries: string[] = [];
+    for (const [gear, wing] of Object.entries(MOUNTED_ON)) {
+      const g = this.parts.get(gear);
+      if (wing !== name || !g?.on) continue;
+      g.on = false;
+      for (const w of this.wheels) if (w.def.part === gear) w.on = false;
+      carries.push(gear);
+    }
+    this.onBreak?.({ part: name, reason, body, carries });
   }
 
   /**

@@ -184,7 +184,9 @@ export class Game {
       old.dispose();
       this.player = new GameCar(this.d.physics, this.d.gs.scene, carById(id), from.x, from.z, from.yaw);
       const ground = this.d.map.heightAt(from.x, from.z);
-      this.player.vehicle.placeAt(from.x, Math.max(from.y + (from.plane ? 0 : 0.6), ground + 1.0), from.z, from.yaw);
+      // Same place, same attitude (upside down stays upside down), same velocity and spin.
+      this.player.vehicle.placeAt(from.x, Math.max(from.y, ground + 1.0), from.z, from.yaw);
+      this.player.vehicle.orient(from.q, from.w.x, from.w.y, from.w.z);
       this.player.vehicle.carryOn(from.vx, from.vy, from.vz);
       // Scene queries only catch up with moved and removed bodies at the next physics step: for half
       // a second the crumple zones ignore contacts (the old vehicle's ghost would crush the new one).
@@ -205,14 +207,26 @@ export class Game {
   }
 
   /** Where the vehicle the player is in is, which way it points and how fast it goes. */
-  private current(): { x: number; y: number; z: number; yaw: number; vx: number; vy: number; vz: number; plane: boolean } {
+  private current(): {
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    q: { x: number; y: number; z: number; w: number };
+    vx: number;
+    vy: number;
+    vz: number;
+    w: { x: number; y: number; z: number };
+    plane: boolean;
+  } {
     const plane = this.mode === 'plane' && this.plane !== null;
     const body = plane ? this.plane!.aircraft.body : this.player.vehicle.body;
     const t = body.translation();
     const q = body.rotation();
     const v = body.linvel();
+    const w = body.angvel();
     _v.set(0, 0, 1).applyQuaternion(_q.set(q.x, q.y, q.z, q.w));
-    return { x: t.x, y: t.y, z: t.z, yaw: Math.atan2(_v.x, _v.z), vx: v.x, vy: v.y, vz: v.z, plane };
+    return { x: t.x, y: t.y, z: t.z, yaw: Math.atan2(_v.x, _v.z), q: { x: q.x, y: q.y, z: q.z, w: q.w }, vx: v.x, vy: v.y, vz: v.z, w: { x: w.x, y: w.y, z: w.z }, plane };
   }
 
   /**
@@ -251,6 +265,7 @@ export class Game {
       const ground = this.d.map.heightAt(from.x, from.z);
       plane.placeAt(from.x, Math.max(from.y + 0.2, ground + PLANE_REST), from.z, from.yaw);
       const ac = plane.aircraft;
+      ac.orient(from.q, from.w.x, from.w.y, from.w.z);
       ac.body.setLinvel({ x: from.vx, y: from.vy, z: from.vz }, true);
       // Already rolling or flying: the engine keeps it going.
       const speed = Math.hypot(from.vx, from.vy, from.vz);

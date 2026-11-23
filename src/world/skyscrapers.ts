@@ -404,7 +404,7 @@ export class Skyscrapers {
     const v3 = (p: [number, number], h: number): THREE.Vector3 => new THREE.Vector3(x + p[0], y + h, z + p[1]);
     const hullDesc = (pts: THREE.Vector3[]): RAPIER.ColliderDesc =>
       RAPIER.ColliderDesc.convexHull(Float32Array.from(pts.flatMap((p) => [p.x, p.y, p.z])))!.setFriction(0.8).setCollisionGroups(groups(GROUP.WORLD, 0xffff));
-    const tower: Tower = { spec, chunks: [], strength: 150e3 + 1200 * (spec.bands[spec.bands.length - 1]!.y1), upperDescs: [], upper: [], intact: [], collapsed: false, dust: 0, struck: 0, lastStrike: -1, stump: [], baseFallsAt: -1 };
+    const tower: Tower = { spec, chunks: [], strength: 90e3 + 600 * (spec.bands[spec.bands.length - 1]!.y1), upperDescs: [], upper: [], intact: [], collapsed: false, dust: 0, struck: 0, lastStrike: -1, stump: [], baseFallsAt: -1 };
 
     // Ground-floor wall: sections along each edge, from the outer skin to the inner face.
     for (let e = 0; e < outer.length; e++) {

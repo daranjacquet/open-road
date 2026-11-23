@@ -29,7 +29,7 @@ async function city(): Promise<{ physics: Physics; towers: Skyscrapers }> {
 }
 
 describe('skyscrapers', () => {
-  it('stand on a ring of ground-floor sections; a light knock does nothing, a hard one breaks a section', async () => {
+  it('stand on a ring of ground-floor sections: a knock does nothing, 100 km/h breaks a section, 200 km/h brings it down', async () => {
     const { towers } = await city();
     const wtc = towers.tower('WTC')!;
     expect(wtc.sections).toBe(24);
@@ -37,13 +37,24 @@ describe('skyscrapers', () => {
     towers.hit(wtc.handles[0]!, 100e3, 1, 0);
     towers.flush();
     expect(towers.tower('WTC')!.standing).toBe(24);
-    // A 200 km/h saloon: the section goes and the rest carries to its neighbours.
-    towers.hit(wtc.handles[3]!, 0.5 * 1720 * 55 * 55, 1, 0);
+    // A 100 km/h saloon: a section goes.
+    towers.hit(wtc.handles[3]!, 0.5 * 1720 * 28 * 28, 1, 0);
     towers.flush();
     const after = towers.tower('WTC')!;
     expect(after.standing).toBeLessThan(24);
-    expect(after.standing).toBeGreaterThan(18);
+    expect(after.standing).toBeGreaterThan(20);
     expect(after.collapsed).toBe(false);
+    // At 200 km/h the rest carries along to the neighbours: several sections at once, and a second
+    // such hit brings the 417 m tower down.
+    const standing = towers.tower('WTC')!.standing;
+    for (let i = 0; i < 60; i++) towers.flush();
+    towers.hit(towers.tower('WTC')!.handles[10]!, 0.5 * 1720 * 55 * 55, 1, 0);
+    towers.flush();
+    expect(towers.tower('WTC')!.standing).toBeLessThan(standing - 3);
+    for (let i = 0; i < 60; i++) towers.flush();
+    if (!towers.tower('WTC')!.collapsed) towers.hit(towers.tower('WTC')!.handles[10]!, 0.5 * 1720 * 55 * 55, 1, 0);
+    towers.flush();
+    expect(towers.tower('WTC')!.collapsed).toBe(true);
   });
 
   it('comes down when a whole side is knocked out, the blocks fall, and it stands again after a rebuild', async () => {
@@ -107,7 +118,7 @@ describe('skyscrapers and aircraft', () => {
     const { towers } = await city();
     const t = towers.tower('High-rise')!;
     // At 2 m: a wall section, no more.
-    towers.strike(t.handles[0]!, 1e6, 0, 1, 2);
+    towers.strike(t.handles[0]!, 0.15e6, 0, 1, 2);
     towers.flush();
     expect(towers.tower('High-rise')!.collapsed).toBe(false);
     expect(towers.tower('High-rise')!.standing).toBeLessThan(t.sections);
@@ -152,7 +163,7 @@ describe('skyscrapers and aircraft', () => {
     const { physics, towers } = await city();
     const t = towers.tower('High-rise')!;
     // A slow knock adds up but does not bring it down.
-    towers.strike(t.upper[1]!, 0.2e6, 0, 1, 50);
+    towers.strike(t.upper[1]!, 0.1e6, 0, 1, 50);
     towers.flush();
     expect(towers.tower('High-rise')!.collapsed).toBe(false);
     expect(towers.tower('High-rise')!.struck).toBeGreaterThan(0);

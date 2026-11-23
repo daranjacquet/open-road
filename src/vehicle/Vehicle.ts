@@ -28,6 +28,9 @@ const SURFACE_ROLLING: Record<Surface, number> = { asphalt: 1, dirt: 2.4, grass:
 
 // Scratch objects (the step must not allocate).
 const _q = new THREE.Quaternion();
+const _qa = new THREE.Quaternion();
+const _va = new THREE.Vector3();
+const _vb = new THREE.Vector3();
 const _qs = new THREE.Quaternion();
 const _up = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
@@ -358,6 +361,7 @@ export class Vehicle {
     this.updateDrivetrain(dt, input);
     this.updateBrakes(input);
     this.castSuspension(dt);
+    this.airControl(dt, input);
     this.applyAntiRoll();
     this.applyWheelForces(dt);
     this.applySlideControl(dt);
@@ -367,6 +371,38 @@ export class Vehicle {
     this.flushImpulse();
     this.throttleCmd = this.s.throttleCmd;
     this.brakeCmd = this.s.brakeCmd;
+  }
+
+  /**
+   * In the air (no wheel on anything), the keys turn the car, as in action games: W tips the nose
+   * down, S lifts it, A/D roll it left and right. Each held key asks for a rotation rate; with no key
+   * the car tumbles on as it was thrown.
+   */
+  private airControl(dt: number, input: DriveInput): void {
+    if (this.wheels.some((w) => w.hit)) return;
+    const pitch = input.throttle - input.brake;
+    const roll = input.steer;
+    if (Math.abs(pitch) < 0.05 && Math.abs(roll) < 0.05) return;
+    const r = this.body.rotation();
+    _qa.set(r.x, r.y, r.z, r.w);
+    const av = this.body.angvel();
+    // Body rates: x (left axis) + = nose down, z (forward axis) + = right side down.
+    _va.set(av.x, av.y, av.z).applyQuaternion(_qa.clone().invert());
+    const I = this.body.principalInertia();
+    const k = 8;
+    const tx = Math.abs(pitch) >= 0.05 ? I.x * k * 1.4 * (pitch * 4.5 - _va.x) : 0;
+    const tz = Math.abs(roll) >= 0.05 ? I.z * k * (-roll * 3.2 - _va.z) : 0;
+    _vb.set(tx * dt, 0, tz * dt).applyQuaternion(_qa);
+    this.body.applyTorqueImpulse({ x: _vb.x, y: _vb.y, z: _vb.z }, true);
+  }
+
+  /** Set the full orientation right after `placeAt` (switching vehicles keeps an upside-down car upside down), and a spin (rad/s, world frame). */
+  orient(q: { x: number; y: number; z: number; w: number }, wx = 0, wy = 0, wz = 0): void {
+    this.body.setRotation(q, true);
+    this.body.setAngvel({ x: wx, y: wy, z: wz }, true);
+    this.syncFromBody();
+    this.prevPos.copy(this.currPos);
+    this.prevQuat.copy(this.currQuat);
   }
 
   /** Read chassis transform, velocity and telemetry for this step. */

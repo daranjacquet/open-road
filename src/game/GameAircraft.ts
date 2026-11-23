@@ -159,6 +159,15 @@ export class GameAircraft {
       m.decompose(g.position, g.quaternion, g.scale);
     }
     holder.add(g);
+    // A main gear leg mounted in the wing goes with it, wheel and all.
+    for (const name of e.carries ?? []) {
+      const leg = this.model.parts.get(name);
+      if (!leg) continue;
+      leg.updateWorldMatrix(true, false);
+      const m = this.model.root.matrixWorld.clone().invert().multiply(leg.matrixWorld);
+      m.decompose(leg.position, leg.quaternion, leg.scale);
+      holder.add(leg);
+    }
     this.scene.add(holder);
     this.debris.push({ part: e.part, body, holder });
     this.syncDebris();
