@@ -80,7 +80,7 @@ The sliders keep their ranges, but any value typed in a box is taken as it is, p
 - **Engine**: power, torque, rev limit. **Driveline**: FWD, RWD or AWD, AWD split, diff lock, final drive, auto or manual gearbox.
 - **Suspension**: ride height, springs, dampers, anti-roll bars. **Wheels and tyres**: track width, camber, tyre width, grip, rear grip balance, grip while sliding, dirt and grass grip.
 - **Engine**: raising the power also lengthens the final drive (until you set it yourself), so a stronger engine reaches a higher top speed instead of hitting the rev limiter in top gear.
-- **Brakes**: power, bias, handbrake. **Chassis**: mass, weight distribution, downforce. **Driving aids**: TC, ABS, ESP.
+- **Brakes**: power, bias, handbrake. **Chassis**: mass, weight distribution, downforce, air drag (Cd A: lower it and the car goes faster, the gearing follows). **Driving aids**: TC, ABS, ESP.
 
 ### The map
 

@@ -38,3 +38,25 @@ describe('cars in the air (keys turn them, like in action games)', () => {
     });
   }
 });
+
+describe('garage air drag', () => {
+  it('less drag, higher top speed (the gearing follows)', async () => {
+    const { applyTune, stockTune, suggestFinalDrive } = await import('../src/vehicle/tuning');
+    const def = CARS.find((c) => c.id === 'sedan')!;
+    const top = async (drag: number): Promise<number> => {
+      const t = { ...stockTune(def.cfg), drag };
+      t.finalDrive = suggestFinalDrive(def.cfg, t);
+      const { physics, car } = await makeSim(applyTune(def.cfg, t), 0, 0, 0);
+      for (let i = 0; i < 120 * 40; i++) {
+        car.fixedUpdate(FIXED_DT, { throttle: 1, brake: 0, steer: 0, handbrake: 0 });
+        physics.step();
+        car.afterPhysicsStep();
+      }
+      return car.speedKmh;
+    };
+    const stock = await top(def.cfg.aero.cdA);
+    const slippery = await top(def.cfg.aero.cdA * 0.4);
+    console.log(`sedan after 40 s flat out: stock drag ${stock.toFixed(0)} km/h, 40 % drag ${slippery.toFixed(0)} km/h`);
+    expect(slippery).toBeGreaterThan(stock + 20);
+  }, 60_000);
+});

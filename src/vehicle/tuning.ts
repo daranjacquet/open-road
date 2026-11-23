@@ -78,6 +78,8 @@ export interface Tune {
   weightFront: number;
   /** Downforce area Cl*A (m^2). */
   downforce: number;
+  /** Air drag area Cd*A (m^2): lower goes faster. */
+  drag: number;
   // Aids
   tc: boolean;
   abs: boolean;
@@ -152,6 +154,7 @@ export function stockTune(cfg: VehicleConfig): Tune {
     mass: cfg.mass,
     weightFront: round(((cfg.com[2] - cfg.wheels.RL[2]) / L) * 100, 1),
     downforce: cfg.aero.clA,
+    drag: cfg.aero.cdA,
     tc: true,
     abs: true,
     esp: true,
@@ -255,6 +258,7 @@ export function applyTune(base: VehicleConfig, t: Tune): VehicleConfig {
   const L = cfg.wheels.FL[2] - cfg.wheels.RL[2];
   if (t.weightFront !== stock.weightFront) cfg.com = [base.com[0], base.com[1], cfg.wheels.RL[2] + (clamp(t.weightFront, 0, 100) / 100) * L];
   cfg.aero.clA = t.downforce;
+  cfg.aero.cdA = Math.max(0, t.drag);
   return cfg;
 }
 
@@ -277,7 +281,8 @@ function powerLimitedTop(cfg: VehicleConfig, powerW: number): number {
 export function suggestFinalDrive(base: VehicleConfig, t: Tune): number {
   const stock = curvePeaks(base.engine.torqueCurve, base.engine.redlineRpm).power;
   const v0 = powerLimitedTop(base, stock);
-  const v1 = powerLimitedTop(base, t.power * HP);
+  // With the tuned drag: less of it means a higher top speed to gear for.
+  const v1 = powerLimitedTop({ ...base, aero: { ...base.aero, cdA: Math.max(0.05, t.drag ?? base.aero.cdA) } }, t.power * HP);
   return round(base.gearbox.finalDrive * Math.min(1, v0 / v1), 3);
 }
 

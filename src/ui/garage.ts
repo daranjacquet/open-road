@@ -133,6 +133,7 @@ export class Garage {
     num(ch, 'mass', 'Mass (kg)', 800, 3500, 10);
     num(ch, 'weightFront', 'Weight on front (%)', 35, 65, 0.5);
     num(ch, 'downforce', 'Downforce (Cl A)', 0, 4, 0.05);
+    num(ch, 'drag', 'Air drag (Cd A)', 0, 2, 0.01);
 
     const aids = gui.addFolder('Driving aids');
     aids.add(t, 'tc').name('Traction control').onChange(() => this.changed());
@@ -235,10 +236,10 @@ export class Garage {
 
   private changed(key?: TuneKey): void {
     const car = this.getCar();
-    // The gearing follows the power (a stronger engine reaches a higher top speed instead of
+    // The gearing follows the power and the drag (a stronger engine or a slipperier body reaches a higher top speed instead of
     // hitting the rev limiter in top gear), until the final drive is set by hand.
     if (key === 'finalDrive') this.followGearing = false;
-    if (key === 'power' && this.followGearing) this.tune.finalDrive = suggestFinalDrive(car.def.cfg, this.tune);
+    if ((key === 'power' || key === 'drag') && this.followGearing) this.tune.finalDrive = suggestFinalDrive(car.def.cfg, this.tune);
     car.applyTune(this.tune);
     saveTune(car.def.id, this.tune);
     this.refresh();
