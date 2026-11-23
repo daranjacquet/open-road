@@ -73,7 +73,7 @@ The instruments (bottom right): attitude indicator, airspeed in km/h, altitude i
 
 ### Garage
 
-The top-right panel (`G`) picks the vehicle (the three cars and the SR22, taking over where you are at your speed) and changes the car live, saving the setup per car:
+The sliders keep their ranges, but any value typed in a box is taken as it is, past the range too (a positive quantity such as mass or power is held at a tenth of its slider's minimum, so it never reaches zero). The top-right panel (`G`) picks the vehicle (the three cars and the SR22, taking over where you are at your speed) and changes the car live, saving the setup per car:
 
 - **Setups**: Stock, **Drift** (RWD, welded diff, 58 degrees of lock, front camber, wider front track, soft rear grip, big handbrake, no stability aid), **Rally** (four-wheel drive with a rear bias, a mostly locked diff, soft and tall suspension, gravel tyres that keep their grip when sliding, full drift assist: slides easily on dirt or asphalt and still corners at about 1.4 g) and **Track** (stiffer and lower, wider tyres, more grip and downforce).
 - **Steering**: lock, steering assist, stability assist, slide control, steering speed, **arcade grip**, **drift assist**.

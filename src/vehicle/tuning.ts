@@ -188,12 +188,14 @@ export function applyTune(base: VehicleConfig, t: Tune): VehicleConfig {
   const stock = stockTune(base);
 
   cfg.steering.lock = (t.steerLock * Math.PI) / 180;
-  cfg.steering.assist = clamp(t.steerAssist / 100, 0, 1);
-  cfg.steering.stability = clamp(t.stability / 100, 0, 1);
-  cfg.steering.slideControl = clamp(t.slideControl / 100, 0, 1);
+  // Values typed in the garage may go past the sliders: only what has no physical meaning is held
+  // (a share of torque or braking between 0 and 100 %, a weight split inside the wheelbase).
+  cfg.steering.assist = Math.max(0, t.steerAssist / 100);
+  cfg.steering.stability = Math.max(0, t.stability / 100);
+  cfg.steering.slideControl = Math.max(0, t.slideControl / 100);
   cfg.steering.rate = base.steering.rate * t.steerSpeed;
-  cfg.arcade = clamp(t.arcade / 100, 0, 1);
-  cfg.driftAssist = clamp(t.driftAssist / 100, 0, 1);
+  cfg.arcade = Math.max(0, t.arcade / 100);
+  cfg.driftAssist = Math.max(0, t.driftAssist / 100);
 
   if (t.power !== stock.power || t.torque !== stock.torque || t.redline !== stock.redline) {
     const e = cfg.engine;
@@ -207,9 +209,9 @@ export function applyTune(base: VehicleConfig, t: Tune): VehicleConfig {
   }
 
   cfg.drive = t.drive;
-  cfg.frontTorqueBias = clamp(t.frontBias / 100, 0.05, 0.95);
+  cfg.frontTorqueBias = clamp(t.frontBias / 100, 0, 1);
   if (t.diffLock !== stock.diffLock) {
-    const lock = clamp(t.diffLock / 100, 0, 1);
+    const lock = Math.max(0, t.diffLock / 100);
     cfg.diff.lsdK = 40 + 460 * lock;
     cfg.diff.lsdMax = 5000 * lock;
   }
@@ -242,16 +244,16 @@ export function applyTune(base: VehicleConfig, t: Tune): VehicleConfig {
   cfg.tireWidth = { front: t.tireFront / 1000, rear: t.tireRear / 1000 };
   cfg.tire.mu = base.tire.mu * t.grip;
   cfg.rearGripScale = base.rearGripScale * t.rearGrip;
-  cfg.tire.slideRatio = clamp(t.slideGrip / 100, 0.6, 0.97);
-  cfg.tire.looseGrip = clamp(t.looseGrip, 0.5, 1.6);
+  cfg.tire.slideRatio = clamp(t.slideGrip / 100, 0.05, 2);
+  cfg.tire.looseGrip = Math.max(0.05, t.looseGrip);
 
   cfg.brakes.torque = base.brakes.torque * t.brakes;
-  cfg.brakes.frontBias = clamp(t.brakeBias / 100, 0.3, 0.85);
+  cfg.brakes.frontBias = clamp(t.brakeBias / 100, 0, 1);
   cfg.brakes.handbrakeTorque = base.brakes.handbrakeTorque * t.handbrake;
 
   cfg.mass = t.mass;
   const L = cfg.wheels.FL[2] - cfg.wheels.RL[2];
-  if (t.weightFront !== stock.weightFront) cfg.com = [base.com[0], base.com[1], cfg.wheels.RL[2] + (clamp(t.weightFront, 30, 70) / 100) * L];
+  if (t.weightFront !== stock.weightFront) cfg.com = [base.com[0], base.com[1], cfg.wheels.RL[2] + (clamp(t.weightFront, 0, 100) / 100) * L];
   cfg.aero.clA = t.downforce;
   return cfg;
 }

@@ -62,8 +62,25 @@ export class Garage {
     }
 
     const t = this.tune;
-    const num = (folder: GUI, key: TuneKey, name: string, min: number, max: number, step: number): Controller =>
-      folder.add(t, key, min, max, step).name(name).onChange(() => this.changed(key));
+    const num = (folder: GUI, key: TuneKey, name: string, min: number, max: number, step: number): Controller => {
+      const c = folder.add(t, key, min, max, step).name(name).onChange(() => this.changed(key));
+      // The slider keeps its range; a value typed in the box is taken as it is, beyond the range
+      // too. Only a value that would break the physics (zero or below for a positive quantity) is
+      // held at a tenth of the slider's minimum.
+      const box = (c as unknown as { $input: HTMLInputElement }).$input;
+      // What was typed, read before lil-gui clamps it (and may rewrite the box).
+      let typed = '';
+      box.addEventListener('input', () => (typed = box.value), { capture: true });
+      box.addEventListener('change', () => {
+        let v = parseFloat(typed || box.value);
+        typed = '';
+        if (!Number.isFinite(v)) return;
+        if (min > 0) v = Math.max(v, min * 0.1);
+        else if (min === 0) v = Math.max(v, 0);
+        c.setValue(v);
+      });
+      return c;
+    };
 
     const steer = gui.addFolder('Steering');
     num(steer, 'steerLock', 'Lock (deg)', 20, 70, 0.5);
