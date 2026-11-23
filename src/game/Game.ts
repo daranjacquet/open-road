@@ -176,13 +176,19 @@ export class Game {
           return;
         }
       }
+      // The new car takes over where the current vehicle is (car or aircraft), at its speed.
+      const from = this.current();
       const old = this.player;
-      const t = old.vehicle.body.translation();
-      const q = old.vehicle.currQuat;
-      const yaw = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
       old.dispose();
-      this.player = new GameCar(this.d.physics, this.d.gs.scene, carById(id), t.x, t.z, yaw);
-      this.player.vehicle.placeAt(t.x, t.y + 0.6, t.z, yaw);
+      this.player = new GameCar(this.d.physics, this.d.gs.scene, carById(id), from.x, from.z, from.yaw);
+      const ground = this.d.map.heightAt(from.x, from.z);
+      this.player.vehicle.placeAt(from.x, Math.max(from.y + (from.plane ? 0 : 0.6), ground + 1.0), from.z, from.yaw);
+      this.player.vehicle.carryOn(from.vx, from.vy, from.vz);
+      if (from.plane) {
+        // Out of the aircraft: it goes back to the start of runway 27.
+        this.plane?.respawn();
+        this.leavePlane(false);
+      }
       this.cars[0] = this.player;
       this.garage.attach();
       this.hookPlayer();
@@ -197,9 +203,59 @@ export class Game {
     }
   }
 
+  /** Where the vehicle the player is in is, which way it points and how fast it goes. */
+  private current(): { x: number; y: number; z: number; yaw: number; vx: number; vy: number; vz: number; plane: boolean } {
+    const plane = this.mode === 'plane' && this.plane !== null;
+    const body = plane ? this.plane!.aircraft.body : this.player.vehicle.body;
+    const t = body.translation();
+    const q = body.rotation();
+    const v = body.linvel();
+    _v.set(0, 0, 1).applyQuaternion(_q.set(q.x, q.y, q.z, q.w));
+    return { x: t.x, y: t.y, z: t.z, yaw: Math.atan2(_v.x, _v.z), vx: v.x, vy: v.y, vz: v.z, plane };
+  }
+
+  /**
+   * The next vehicle (V): the cars in turn, then the aircraft, then the first car again. The new one
+   * takes over where the current one is, at its speed and heading; the one left behind goes home.
+   */
   nextCar(): void {
+    if (this.mode === 'plane') {
+      this.swapCar(CARS[0]!.id).catch((err) => console.error('[swapCar]', err));
+      return;
+    }
     const i = CARS.findIndex((c) => c.id === this.player.def.id);
-    this.swapCar(CARS[(i + 1) % CARS.length]!.id).catch((err) => console.error('[swapCar]', err));
+    if (i === CARS.length - 1) {
+      this.switchToPlane().catch((err) => console.error('[aircraft]', err));
+      return;
+    }
+    this.swapCar(CARS[i + 1]!.id).catch((err) => console.error('[swapCar]', err));
+  }
+
+  /** Into the aircraft where the car is, at the car's speed and heading; the car goes home. */
+  async switchToPlane(): Promise<void> {
+    if (this.swapping) return;
+    this.swapping = true;
+    try {
+      if (!this.plane) this.d.hud.toast('Loading the aircraft…', 1500);
+      const plane = await this.loadPlane();
+      if (!plane) {
+        this.d.hud.toast('Could not load the aircraft', 1500);
+        return;
+      }
+      const from = this.current();
+      this.player.respawn();
+      const ground = this.d.map.heightAt(from.x, from.z);
+      plane.placeAt(from.x, Math.max(from.y + 0.2, ground + PLANE_REST), from.z, from.yaw);
+      const ac = plane.aircraft;
+      ac.body.setLinvel({ x: from.vx, y: from.vy, z: from.vz }, true);
+      // Already rolling or flying: the engine keeps it going.
+      const speed = Math.hypot(from.vx, from.vy, from.vz);
+      if (speed > 15) ac.controls.throttle = 0.75;
+      this.boardPlane();
+      this.d.hud.toast('SR22', 1200);
+    } finally {
+      this.swapping = false;
+    }
   }
 
   teleport(loc: Location): void {
@@ -338,6 +394,7 @@ export class Game {
       this.d.hud.toast(a.protect ? 'Stall protection on' : 'Stall protection off', 1400);
     }
     if (input.pressed('KeyF')) this.repair();
+    if (input.pressed('KeyV')) this.nextCar();
     if (input.pressed('KeyT')) this.nextLocation();
     if (input.pressed('KeyN')) this.d.hud.toggleMap();
   }

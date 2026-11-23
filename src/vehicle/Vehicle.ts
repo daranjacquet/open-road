@@ -320,6 +320,17 @@ export class Vehicle {
     this.prevQuat.copy(this.currQuat);
   }
 
+  /**
+   * Carry on at a velocity (m/s, world frame) right after `placeAt`: switching vehicles on the
+   * move. The wheels spin at road speed, so the tyres do not lock up or spin.
+   */
+  carryOn(vx: number, vy: number, vz: number): void {
+    this.body.setLinvel({ x: vx, y: vy, z: vz }, true);
+    _up.set(0, 0, 1).applyQuaternion(this.currQuat);
+    const along = vx * _up.x + vy * _up.y + vz * _up.z;
+    for (const w of this.wheels) w.omega = along / this.cfg.wheel.radius;
+  }
+
   private syncFromBody(): void {
     const t = this.body.translation();
     const r = this.body.rotation();

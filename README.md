@@ -34,7 +34,7 @@ A browser driving sandbox built around **realistic car physics and crash damage*
 | Orbit the camera around the car / zoom | hold right mouse button and move / wheel | |
 | Teleport to the next place | `T` (or the garage menu) | |
 | Map (click a place to go there) | `N` | |
-| Switch car | `V` (or the menu) | |
+| Next vehicle: the cars, then the SR22 (keeps your position, heading and speed) | `V` (or the menu) | |
 | Reset the parked target cars | `B` | |
 | Mute | `M` | |
 | Debug overlay | `F3` | |

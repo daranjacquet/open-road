@@ -6,8 +6,8 @@ import type { Overview } from '../world/overview';
 import { FlightHud } from './flighthud';
 import { Minimap } from './minimap';
 
-const CAR_HELP = 'W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; Q/E shift (manual) &middot; F repair &middot; G garage &middot; T teleport &middot; N map &middot; right-drag camera &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V car &middot; B targets &middot; M mute';
-const PLANE_HELP = 'S/W pitch up, down &middot; A/D roll &middot; Q/E rudder &middot; Shift/Ctrl throttle &middot; X flaps &middot; Space brakes &middot; Enter get out (stopped) &middot; C view &middot; P stall protection &middot; B boost/stock engine &middot; H arcade/simulation &middot; right-drag camera &middot; F repair &middot; R back to runway 27 &middot; T teleport &middot; N map &middot; M mute';
+const CAR_HELP = 'W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; Q/E shift (manual) &middot; F repair &middot; G garage &middot; T teleport &middot; N map &middot; right-drag camera &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V next vehicle (cars, then the aircraft) &middot; B targets &middot; M mute';
+const PLANE_HELP = 'S/W pitch up, down &middot; A/D roll &middot; Q/E rudder &middot; Shift/Ctrl throttle &middot; X flaps &middot; Space brakes &middot; Enter get out (stopped) &middot; C view &middot; P stall protection &middot; V next vehicle &middot; B boost/stock engine &middot; H arcade/simulation &middot; right-drag camera &middot; F repair &middot; R back to runway 27 &middot; T teleport &middot; N map &middot; M mute';
 
 /** Minimal driving HUD: speed, gear, rpm bar, assist lights. Updated at ~20 Hz. */
 export class Hud {
