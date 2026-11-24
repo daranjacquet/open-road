@@ -6,8 +6,10 @@ import type { Overview } from '../world/overview';
 import { FlightHud } from './flighthud';
 import { Minimap } from './minimap';
 
-const CAR_HELP = 'W/S gas, brake, reverse &middot; A/D steer &middot; Space handbrake &middot; Q/E shift (manual) &middot; F repair &middot; G garage &middot; T teleport &middot; N map &middot; right-drag camera &middot; R flip &middot; Shift+R reset &middot; C camera &middot; V next vehicle (cars, then the aircraft) &middot; B targets &middot; M mute';
-const PLANE_HELP = 'S/W pitch up, down &middot; A/D roll &middot; Q/E rudder &middot; Shift/Ctrl throttle &middot; X flaps &middot; Space brakes &middot; Enter get out (stopped) &middot; C view &middot; P stall protection &middot; V next vehicle &middot; B boost/stock engine &middot; H arcade/simulation &middot; right-drag camera &middot; F repair &middot; R back to runway 27 &middot; T teleport &middot; N map &middot; M mute';
+// Letters in brackets are key positions (QWERTY names): the help shows what the player's keyboard
+// has printed there (A/E rather than Q/E on an AZERTY keyboard).
+const CAR_HELP = '[W]/[S] gas, brake, reverse &middot; [A]/[D] steer (turn the car in the air too) &middot; Space handbrake &middot; [Q]/[E] shift (manual) &middot; [F] repair &middot; [G] garage &middot; [T] teleport &middot; [N] map &middot; right-drag camera &middot; [R] flip &middot; Shift+[R] reset &middot; [C] camera &middot; [V] next vehicle (cars, then the aircraft) &middot; [B] targets &middot; [M] mute';
+const PLANE_HELP = '[S]/[W] pitch up, down &middot; [A]/[D] roll &middot; [Q]/[E] rudder (pivots at a standstill) &middot; Shift/Ctrl throttle &middot; [X] flaps &middot; Space brakes &middot; Enter get out (stopped) &middot; [C] view &middot; [P] stall protection &middot; [V] next vehicle &middot; [B] boost/stock engine &middot; [H] arcade/simulation &middot; right-drag camera &middot; [F] repair &middot; [R] back to runway 27 &middot; [T] teleport &middot; [N] map &middot; [M] mute';
 
 /** Minimal driving HUD: speed, gear, rpm bar, assist lights. Updated at ~20 Hz. */
 export class Hud {
@@ -31,6 +33,9 @@ export class Hud {
   private readonly carEls: HTMLElement[];
   private readonly help: HTMLElement;
   private readonly hintEl: HTMLElement;
+  private mode: 'car' | 'plane' = 'car';
+  /** Key labels by QWERTY letter, from the keyboard layout when the browser tells it. */
+  private readonly labels = new Map<string, string>();
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -55,13 +60,13 @@ export class Hud {
         .hud-eng{margin-top:4px;opacity:.9}
         .hud-fix{pointer-events:auto;margin-top:8px;font:600 10px system-ui,sans-serif;color:#fff;background:rgba(10,14,20,.55);border:1px solid rgba(255,255,255,.35);border-radius:6px;padding:5px 2px;cursor:pointer;width:100%;white-space:nowrap}
         .hud-fix:hover{background:rgba(74,222,128,.35)}
-        .hud-lap{position:fixed;left:24px;top:40px;font-weight:600;background:rgba(10,14,20,.45);padding:8px 12px;border-radius:8px;min-width:170px;display:none}
+        .hud-lap{position:fixed;left:24px;top:74px;font-weight:600;background:rgba(10,14,20,.45);padding:8px 12px;border-radius:8px;min-width:170px;display:none}
         .hud-lap .t{font-size:12px;opacity:.8;margin-bottom:2px}
         .hud-lap .c{font-size:30px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
         .hud-lap .r{font-size:13px;font-variant-numeric:tabular-nums;opacity:.9;display:flex;justify-content:space-between;gap:12px}
         .hud-toast{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);font-size:26px;font-weight:700;padding:10px 18px;border-radius:10px;background:rgba(10,14,20,.6);opacity:0;transition:opacity .35s;pointer-events:none;text-align:center}
         .hud-toast.on{opacity:1}
-        .hud-help{position:fixed;left:50%;transform:translateX(-50%);top:10px;font-size:12px;opacity:.75;text-align:center;white-space:nowrap}
+        .hud-help{position:fixed;left:16px;right:270px;top:8px;font-size:12px;line-height:1.45;opacity:.8;text-align:center}
         .hud-hint{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);font-size:16px;font-weight:700;padding:7px 14px;border-radius:8px;background:rgba(10,14,20,.55);display:none}
         .hud-hint kbd{font:700 13px system-ui,sans-serif;border:1px solid rgba(255,255,255,.6);border-radius:4px;padding:1px 6px;margin-right:6px}
       </style>
@@ -78,7 +83,7 @@ export class Hud {
       <div class="hud-lap" id="hud-lap"><div class="t" id="lap-track"></div><div class="c" id="lap-cur">0:00.000</div><div class="r"><span>Last</span><span id="lap-last"></span></div><div class="r"><span>Best</span><span id="lap-best"></span></div></div>
       <div class="hud-toast" id="hud-toast"></div>
       <div class="hud-hint" id="hud-hint"></div>
-      <div class="hud-help" id="hud-help">${CAR_HELP}</div>`;
+      <div class="hud-help" id="hud-help"></div>`;
     this.speed = root.querySelector('#hud-speed')!;
     this.gear = root.querySelector('#hud-gear')!;
     this.rpmFill = root.querySelector('#hud-rpm')!;
@@ -109,6 +114,17 @@ export class Hud {
       man: root.querySelector('#hud-man')!,
     };
     this.help = root.querySelector('#hud-help')!;
+    this.renderHelp();
+    const kb = (navigator as unknown as { keyboard?: { getLayoutMap?: () => Promise<Map<string, string>> } }).keyboard;
+    kb?.getLayoutMap?.()
+      .then((map) => {
+        for (const l of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+          const k = map.get(`Key${l}`);
+          if (k) this.labels.set(l, k.toUpperCase());
+        }
+        this.renderHelp();
+      })
+      .catch(() => undefined);
     this.hintEl = root.querySelector('#hud-hint')!;
     this.carEls = [root.querySelector('.hud-box')!, root.querySelector('.hud-dmg')!];
     this.flight = new FlightHud(root);
@@ -119,7 +135,13 @@ export class Hud {
   setMode(mode: 'car' | 'plane'): void {
     for (const e of this.carEls) e.style.display = mode === 'car' ? '' : 'none';
     this.flight.visible = mode === 'plane';
-    this.help.innerHTML = mode === 'car' ? CAR_HELP : PLANE_HELP;
+    this.mode = mode;
+    this.renderHelp();
+  }
+
+  private renderHelp(): void {
+    const text = this.mode === 'car' ? CAR_HELP : PLANE_HELP;
+    this.help.innerHTML = text.replace(/\[([A-Z])\]/g, (_m, l: string) => this.labels.get(l) ?? l);
   }
 
   /** A key hint at the bottom of the screen ("Enter: fly the plane"), null hides it. */

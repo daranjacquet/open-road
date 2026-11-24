@@ -364,13 +364,14 @@ describe('arcade flight with the boosted engine', () => {
     let groundPitch = 0;
     let liftoff = -1;
     for (let i = 0; i < 120 * 20; i++) {
-      input.pitch = ac.state.airspeed > 31 && ac.state.agl < 150 ? 1 : 0;
+      // Stick back from 60 kt to 50 m (above 60 m the stick is free and would loop), then let go.
+      input.pitch = ac.state.airspeed > 31 && ac.state.agl < 50 ? 1 : 0;
       step();
       if (ac.wheels.some((w) => w.contact)) groundPitch = Math.max(groundPitch, pitchOf(ac));
       else if (liftoff < 0) liftoff = ac.body.translation().z;
     }
     expect(groundPitch).toBeLessThan(0.2);
-    expect(ac.body.translation().y).toBeGreaterThan(100);
+    expect(ac.body.translation().y).toBeGreaterThan(60);
     // Level at full power until it is fast, then pull as hard as the keys allow.
     input.flaps = 0;
     for (let i = 0; i < 120 * 40; i++) {
@@ -440,3 +441,43 @@ describe('arcade flight: no structural failure from flying', () => {
     expect(partsOff(ac)).toEqual([]);
   }, 60_000);
 });
+
+describe('arcade flight: loops and pivots', () => {
+  it('loops with the stick held back, high enough', async () => {
+    const { ac, input, step } = await setup(600);
+    ac.assists.arcade = true;
+    ac.boost = 4;
+    ac.body.setLinvel({ x: 0, y: 0, z: 90 }, true);
+    input.throttle = 1;
+    ac.controls.throttle = 1;
+    for (let i = 0; i < 120; i++) step();
+    input.pitch = 1;
+    let inverted = false;
+    let backLevel = false;
+    for (let i = 0; i < 120 * 14 && !backLevel; i++) {
+      step();
+      const upY = new THREE.Vector3(0, 1, 0).applyQuaternion(ac.currQuat).y;
+      if (upY < -0.9) inverted = true;
+      if (inverted && upY > 0.9) backLevel = true;
+    }
+    expect(inverted).toBe(true);
+    expect(backLevel).toBe(true);
+    expect(partsOff(ac)).toEqual([]);
+  }, 60_000);
+
+  it('pivots on the spot on the ground with the pedals', async () => {
+    const { ac, input, step } = await setup();
+    ac.assists.arcade = true;
+    for (let i = 0; i < 240; i++) step();
+    const h = (): number => {
+      const f = new THREE.Vector3(0, 0, 1).applyQuaternion(ac.currQuat);
+      return Math.atan2(f.x, f.z);
+    };
+    const h0 = h();
+    input.yaw = 1;
+    for (let i = 0; i < 240; i++) step();
+    console.log(`pivot at rest, pedal held 2 s: ${((h() - h0) * 57.3).toFixed(0)} deg`);
+    expect(Math.abs(h() - h0)).toBeGreaterThan(0.5);
+  });
+});
+

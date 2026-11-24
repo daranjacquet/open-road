@@ -558,21 +558,33 @@ export class Aircraft {
     const V = st.airspeed;
     const auth = clamp((V - 12) / 20, 0, 1);
     const air = !this.wheels.some((w) => w.contact);
+    if (!air && V < 12 && Math.abs(input.yaw) > 0.05) {
+      // Slow on the ground, the pedals pivot the aircraft on the spot (as in action games).
+      const I = this.body.principalInertia();
+      _v.copy(_ang).applyQuaternion(_qi);
+      _f.set(0, I.y * 12 * (input.yaw * 0.7 - _v.y), 0).applyQuaternion(_q);
+      _a.x = _f.x * dt;
+      _a.y = _f.y * dt;
+      _a.z = _f.z * dt;
+      this.body.applyTorqueImpulse(_a, true);
+    }
     if (auth <= 0) {
       this.rateI.set(0, 0, 0);
       return;
     }
     // Bank, right wing down positive.
     const bank = Math.asin(clamp(_x.set(1, 0, 0).applyQuaternion(_q).y, -1, 1));
-    // Up to 60 degrees a second at low speed, capped to about 5 g at speed.
-    const qMax = Math.min(1.05, (4 * G) / Math.max(V, 1));
+    // Up to 70 degrees a second at low speed, capped to about 7 g at speed (loops in about ten
+    // seconds; in arcade flight nothing breaks from it).
+    const qMax = Math.min(1.2, (6 * G) / Math.max(V, 1));
     const roll = Math.abs(input.roll) > 0.05 ? input.roll * 2.4 : clamp(-bank * 1.5, -1, 1);
     // Target body rates (x: + nose down, y: + nose left, z: + right wing down).
     let pitchRate = input.pitch * qMax;
     const attitude = Math.asin(clamp(_fwd.y, -1, 1));
-    if (air && _up.y > 0) {
-      // Upright, the nose only climbs as steep as the speed allows (15 degrees near 70 kt, no
-      // limit from about 180 kt: loops need speed); past it, it comes back down by itself.
+    if (air && _up.y > 0 && st.agl < 60) {
+      // Low over the ground (just after take-off), the nose only climbs as steep as the speed
+      // allows (15 degrees near 70 kt), so holding the stick back never loops into the runway.
+      // Higher up, nothing holds it: loops and stalls-turns are yours.
       const maxPitch = clamp((V - 30) / 40, 0.25, 1.6);
       pitchRate = Math.min(pitchRate, (maxPitch - attitude) * 1.5);
     }
