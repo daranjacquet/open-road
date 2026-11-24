@@ -245,3 +245,39 @@ describe('skyscrapers and aircraft', () => {
     expect(towers.tower('WTC')!.collapsed).toBe(false);
   });
 });
+
+describe('settled rubble', () => {
+  it('turns static once still, and comes loose again (with what is around) when an aircraft hits it', async () => {
+    const { physics, towers } = await city();
+    const t = towers.tower('High-rise')!;
+    for (const h of t.handles) {
+      towers.hit(h, 2e6, -1, 0);
+      towers.flush();
+      if (towers.tower('High-rise')!.collapsed) break;
+    }
+    // Ten seconds of frames: the rubble comes down and settles.
+    for (let i = 0; i < 120 * 10; i++) {
+      physics.step();
+      towers.flush();
+      if (i % 2 === 0) towers.update(i / 120);
+    }
+    const frozen: number[] = [];
+    physics.world.forEachCollider((c) => {
+      const b = c.parent();
+      if (b && b.isFixed() && b.translation().x > 200) frozen.push(c.handle);
+    });
+    expect(frozen.length).toBeGreaterThan(20);
+    const before = frozen.length;
+    towers.knock(frozen[Math.floor(frozen.length / 2)]!);
+    let still = 0;
+    physics.world.forEachCollider((c) => {
+      const b = c.parent();
+      if (b && b.isFixed() && b.translation().x > 200) still++;
+    });
+    console.log(`settled pieces ${before}, still static after the knock ${still}`);
+    expect(still).toBeLessThan(before - 3);
+    // A handle that is not rubble changes nothing.
+    towers.knock(towers.tower('WTC')!.handles[0]!);
+    expect(towers.tower('WTC')!.collapsed).toBe(false);
+  }, 60_000);
+});

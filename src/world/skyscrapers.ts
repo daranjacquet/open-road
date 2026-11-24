@@ -316,7 +316,11 @@ interface Block {
   body: RAPIER.RigidBody;
   geo: THREE.BufferGeometry;
   falling: boolean;
+  collider: number;
 }
+
+/** Settled pieces this close (m) to one an aircraft hits come loose with it. */
+const KNOCK_RADIUS = 25;
 
 /** How a tower breaks up: storey slices of `seg` metres, `k` wedges around the axis, each cut in two. */
 function breakUp(spec: TowerSpec): { seg: number; k: number } {
@@ -350,6 +354,8 @@ export class Skyscrapers {
   private readonly chunkOf = new Map<number, Chunk>();
   private readonly body: RAPIER.RigidBody;
   private readonly debris: Debris[] = [];
+  /** Debris by collider handle (aircraft knocks). */
+  private readonly debrisOf = new Map<number, Debris>();
   private readonly intactMeshes: THREE.Mesh[] = [];
   private readonly baseMeshes: THREE.Mesh[] = [];
   /** Dust clouds (none in headless runs). */
@@ -650,8 +656,35 @@ export class Skyscrapers {
         .setAngularDamping(0.4)
         .setCanSleep(true),
     );
-    world.createCollider(desc.setDensity(mass / volume).setFriction(0.45).setRestitution(0.02).setCollisionGroups(groups(fixed ? GROUP.WORLD : GROUP.PROP, 0xffff)), body);
-    return { body, geo, falling };
+    const collider = world.createCollider(desc.setDensity(mass / volume).setFriction(0.45).setRestitution(0.02).setCollisionGroups(groups(fixed ? GROUP.WORLD : GROUP.PROP, 0xffff)), body);
+    return { body, geo, falling, collider: collider.handle };
+  }
+
+  private addDebris(d: Debris, collider: number): void {
+    this.debris.push(d);
+    this.debrisOf.set(collider, d);
+  }
+
+  /**
+   * An aircraft hit the collider `handle`. If it is a piece of rubble, it and the settled pieces
+   * around it come loose (settled rubble is static: cars only bump into it), so a piece left
+   * balanced on another one can be knocked down. The stump of a tower still standing stays put.
+   */
+  knock(handle: number): void {
+    const hit = this.debrisOf.get(handle);
+    if (!hit) return;
+    const { RAPIER } = this.physics;
+    const p = hit.body.translation();
+    const stumps = new Set<RAPIER.RigidBody>();
+    for (const t of this.towers) for (const b of t.stump) stumps.add(b);
+    for (const d of this.debris) {
+      if (stumps.has(d.body)) continue;
+      const q = d.body.translation();
+      if ((q.x - p.x) ** 2 + (q.y - p.y) ** 2 + (q.z - p.z) ** 2 > KNOCK_RADIUS * KNOCK_RADIUS) continue;
+      if (d.body.isFixed()) d.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      else d.body.wakeUp();
+      d.still = 0;
+    }
   }
 
   /** One block with its own mesh (a broken ground-floor section, a spire). */
@@ -664,7 +697,7 @@ export class Skyscrapers {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.group.add(mesh);
-    this.debris.push({ body: b.body, mesh, batch: null, falling, still: 0 });
+    this.addDebris({ body: b.body, mesh, batch: null, falling, still: 0 }, b.collider);
   }
 
   /** The blocks of a collapse drawn together: one batched mesh per material slot (a few draw calls for hundreds of blocks). */
@@ -709,7 +742,7 @@ export class Skyscrapers {
         ids.push(id);
       });
       b.geo.dispose();
-      this.debris.push({ body: b.body, mesh: null, batch: { meshes, ids }, falling: b.falling, still: 0 });
+      this.addDebris({ body: b.body, mesh: null, batch: { meshes, ids }, falling: b.falling, still: 0 }, b.collider);
     });
   }
 
@@ -941,6 +974,7 @@ export class Skyscrapers {
       m.dispose();
     }
     this.debris.length = 0;
+    this.debrisOf.clear();
     this.dust?.clear();
     for (const t of this.towers) this.restore(t);
     this.remesh();

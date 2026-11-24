@@ -485,6 +485,9 @@ export class Game {
         const b = e.collider2();
         plane.contactForce(a, f, FIXED_DT);
         plane.contactForce(b, f, FIXED_DT);
+        // Rubble the aircraft hits comes loose (only the aircraft: cars bump into settled rubble).
+        towers.knock(a);
+        towers.knock(b);
         // A skyscraper takes the aircraft's kinetic energy (they hold their own cooldown).
         if (!lv) return;
         const v2 = lv.x * lv.x + lv.y * lv.y + lv.z * lv.z;
