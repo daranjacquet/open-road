@@ -189,3 +189,25 @@ With the aircraft close to the camera (chase view on the runway), the first vers
 
 Not done: a lower-detail model for far away (the aircraft is small on screen beyond 200 m, and its 36 meshes still cost 36 draw calls plus the shadows); spinning wheels (the wheels sit in their fairings, which the import cannot separate cleanly from the tyres).
 
+## 8. Fighter (2026-11-24)
+
+The user asked for a fighter in place of the light aircraft, flying like one. Candidates on Sketchfab, downloadable under CC BY 4.0 and detailed enough to cut into parts:
+
+| Model | Author | Triangles | Likes | Notes |
+| --- | --- | --- | --- | --- |
+| **[General Dynamics F-16D Block 60](https://sketchfab.com/3d-models/general-dynamics-f-16d-block-60-ea8edb08d79e4eafa9c794c581f88cf3)** (picked by the user) | MirzaArrafiERV_45 | 61k | 376 | Full cockpit, separate glass; carries stores; tagged as generated with AI |
+| MiG-23 MLD | citizensnip | 43k | 1,979 | Most liked; swing wing, harder to cut |
+| F/A-18 Hornet | andertan | 58k | 408 | Twin fins, folded-wing parts |
+| Dassault Rafale | andertan | 16k | 198 | Light, less detail in the cockpit |
+
+**Import.** The stores (two missiles, the wing tanks and pylons, a stray object below the fuselage) are dropped before anything is measured; the model is oriented nose to +z, scaled to 15.06 m, the origin at the centre of gravity (2.10 m above the ground on its wheels, 30 % of the mean chord). 44k triangles, 1.9 MB after meshopt. `tests/aircraft-model.test.ts` checks the size, the parts and hinges, that nothing of the wings is left on the fuselage (the wingtip lights included, split out of the glass), the wheels on the struts and the surfaces in their parts.
+
+**Flight model.** `src/vehicle/aircraft/f16.json`: six surfaces on the measured planform (27.8 m2 of wing, stabilators 5.9 m2, fin 5.1 m2), a jet engine (76 kN dry, 127 kN with afterburner, spool-up, transonic drag rise, air brake), gear at the model's wheels, nine mass boxes (12,160 kg, 16 % on the nose wheel). Two engine-level changes came with it:
+
+- **Inertia axes.** The arcade controller used `principalInertia()` as if it were about the body's x, y and z. It is in Rapier's principal frame, whose axes come in any order: for the F-16 the roll inertia (19,700 kg m2) came out on x and the yaw inertia (174,000) on z, so the roll loop pushed nine times too hard and the aircraft span up at 94 rad/s. `bodyInertia()` now projects the principal moments on the body axes (`tests/f16.test.ts` checks the roll inertia is the smallest). The SR22's frame was also turned (its roll and yaw moments were swapped, 1.4 times off), harmless at its size.
+- **Fly-by-wire in the simulation.** The stabilator alone can pull 20 g at 1,000 km/h. With `fbw` in the config, the simulation flies a g-command law: the stick asks for a load factor (1 g centred, 9 g full back, -3 g full forward), an integrator on the error (its gain falling with the dynamic pressure) moves the stabilator, acting on the g 0.3 s ahead and with some pitch damping, and an angle-of-attack limiter stops it at 25 degrees. Gains picked by sweeping step responses at 90 to 300 m/s: no divergence, a full pull settles about 8 g. The arcade mode keeps its rate controller, with the fighter's rates (250 degrees a second in roll, no wing levelling).
+
+**Measured** (`tests/f16.test.ts`): lift-off in about 320 m with the afterburner and 500 m dry, Mach 0.95 dry and 1.07 with afterburner at sea level, 1.14 at 1,500 m. Rapier caps linear velocity at 400 m/s (with `lengthUnit` 1), which the game keeps.
+
+**In the game.** The F-16 starts on runway 27 (`Fly the F-16`), the two SR22s stay parked on the apron with their own model and boxes. Afterburner flame (two additive cones at the nozzle), engine smoke at the nozzle, wingtip and tail lights moved, the stabilators animated as one, the cockpit interior hidden beyond 35 m, a longer chase camera and a cockpit eye in the canopy, jet sound (rumble, whine, roar), Mach and spool on the instruments, an F-16 silhouette for the damage diagram.
+

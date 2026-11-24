@@ -1,15 +1,18 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { parseCarGLB } from '../src/render/car/glb';
-import { buildAircraftModel, setAircraftTemplate } from '../src/render/aircraft/model';
+import { buildAircraftModel, isInterior, setAircraftTemplate } from '../src/render/aircraft/model';
 import type { AircraftConfig } from '../src/vehicle/aircraft/types';
 import cfgJson from '../src/vehicle/aircraft/sr22.json';
+import f16Json from '../src/vehicle/aircraft/f16.json';
 import { glbBytes } from './helpers/models';
 
 const cfg = cfgJson as unknown as AircraftConfig;
+const f16 = f16Json as unknown as AircraftConfig;
 
 beforeAll(async () => {
-  setAircraftTemplate(await parseCarGLB(glbBytes('plane')));
+  setAircraftTemplate(await parseCarGLB(glbBytes('plane')), 'plane');
+  setAircraftTemplate(await parseCarGLB(glbBytes('jet')), 'jet');
 });
 
 /** Box of a part's own meshes (not its children), in the body frame. */
@@ -26,9 +29,9 @@ function partBox(g: THREE.Group): THREE.Box3 {
 
 const PARTS = ['body', 'prop', 'glass', 'wingL', 'wingR', 'aileronL', 'aileronR', 'flapL', 'flapR', 'tailH', 'elevator', 'tailV', 'rudder', 'gearN', 'gearL', 'gearR', 'wheelN', 'wheelL', 'wheelR'];
 
-describe('aircraft model (GLB)', () => {
+describe('SR22 model (GLB, parked on the apron)', () => {
   it('has every part the flight model and the damage need, with hinge axes on the controls', () => {
-    const m = buildAircraftModel();
+    const m = buildAircraftModel('plane');
     for (const n of PARTS) expect(m.parts.has(n), `missing ${n}`).toBe(true);
     for (const n of ['aileronL', 'aileronR', 'flapL', 'flapR', 'elevator', 'rudder']) expect(m.axes.has(n), `${n} hinge`).toBe(true);
     // Controls hang under the surface they belong to, wheels under their leg.
@@ -39,7 +42,7 @@ describe('aircraft model (GLB)', () => {
   });
 
   it('matches the physics: span, length, wheels on the struts, surfaces on the wings', () => {
-    const m = buildAircraftModel();
+    const m = buildAircraftModel('plane');
     const all = new THREE.Box3();
     const boxes = new Map<string, THREE.Box3>();
     let tris = 0;
@@ -110,7 +113,8 @@ describe('aircraft in the game', () => {
     const { RAPIER, world } = physics;
     world.createCollider(RAPIER.ColliderDesc.cuboid(500, 1, 500).setTranslation(0, -1, 0).setCollisionGroups(groups(GROUP.WORLD, 0xffff)));
     const scene = new THREE.Scene();
-    const plane = new GameAircraft(physics, scene, 0, 1.18, 0, 0);
+    const { SR22 } = await import('../src/game/GameAircraft');
+    const plane = new GameAircraft(physics, scene, 0, 1.18, 0, 0, SR22, 'plane');
     const step = (): void => {
       plane.fixedUpdate(FIXED_DT, PARKED);
       physics.step();
@@ -153,6 +157,88 @@ describe('aircraft in the game', () => {
     const meshes = (parked.children[0] as THREE.Group).children.length;
     expect(meshes).toBeGreaterThan(2);
     expect(meshes).toBeLessThan(20);
+    plane.dispose();
+  });
+});
+
+describe('F-16 model (GLB, the aircraft you fly)', () => {
+  it('has every part the damage needs, an all-moving tailplane, and fits the flight model', () => {
+    const m = buildAircraftModel('jet');
+    for (const n of ['body', 'glass', 'wingL', 'wingR', 'aileronL', 'aileronR', 'tailH', 'tailV', 'rudder', 'gearN', 'gearL', 'gearR', 'wheelN', 'wheelL', 'wheelR', 'lensL', 'lensR']) {
+      expect(m.parts.has(n), `missing ${n}`).toBe(true);
+    }
+    expect(m.parts.has('prop')).toBe(false);
+    expect(m.parts.has('elevator')).toBe(false);
+    for (const n of ['aileronL', 'aileronR', 'rudder', 'tailH']) expect(m.axes.has(n), `${n} hinge`).toBe(true);
+    // The wingtip lights and ailerons go with their wing, the wheels with their leg.
+    expect(m.parts.get('lensL')!.parent).toBe(m.parts.get('wingL'));
+    expect(m.parts.get('aileronR')!.parent).toBe(m.parts.get('wingR'));
+    expect(m.parts.get('wheelL')!.parent).toBe(m.parts.get('gearL'));
+    const all = new THREE.Box3();
+    const boxes = new Map<string, THREE.Box3>();
+    let tris = 0;
+    for (const [name, g] of m.parts) {
+      const b = partBox(g);
+      boxes.set(name, b);
+      if (!b.isEmpty()) all.union(b);
+      for (const c of g.children) if (c instanceof THREE.Mesh) tris += (c.geometry.getIndex()?.count ?? 0) / 3;
+    }
+    const size = all.getSize(new THREE.Vector3());
+    // F-16: 9.96 m span (with wingtip rails), 15.06 m long, 5.09 m tall.
+    expect(size.x).toBeGreaterThan(9.6);
+    expect(size.x).toBeLessThan(10.2);
+    expect(size.z).toBeGreaterThan(14.8);
+    expect(size.z).toBeLessThan(15.3);
+    expect(tris).toBeGreaterThan(20000);
+    expect(tris).toBeLessThan(80000);
+    // Nothing of the wings is left on the fuselage: a torn-off wing takes all of itself.
+    expect(boxes.get('body')!.max.x).toBeLessThan(1.6);
+    expect(boxes.get('body')!.min.x).toBeGreaterThan(-1.6);
+    // The model stands within a few centimetres of where the flight model rests the aircraft (the
+    // struts then put each wheel on the ground).
+    expect(Math.abs(all.min.y + (f16.restHeight ?? 0))).toBeLessThan(0.1);
+    for (const g of f16.gear) {
+      const wheel = boxes.get(g.part.replace('gear', 'wheel'))!;
+      const c = wheel.getCenter(new THREE.Vector3());
+      expect(Math.abs(c.x - g.pos[0]), g.name).toBeLessThan(0.1);
+      expect(Math.abs(c.z - g.pos[2]), g.name).toBeLessThan(0.1);
+      // Fore and aft (the wheel well's doors and the fork reach lower than the tyre).
+      expect(Math.abs(wheel.getSize(new THREE.Vector3()).z / 2 - g.radius), g.name).toBeLessThan(0.06);
+    }
+    for (const s of f16.surfaces) {
+      const b = boxes.get(s.part)!.clone().expandByScalar(0.3);
+      expect(b.containsPoint(new THREE.Vector3(...s.pos)), s.name).toBe(true);
+    }
+    // The cockpit's insides are drawn only from close by.
+    expect(m.interior.length).toBeGreaterThan(2);
+    expect(m.interior.every((x) => isInterior((x.material as THREE.Material).name))).toBe(true);
+    m.dispose();
+  });
+
+  it('flies in the game: stabilator and afterburner follow the controls', async () => {
+    const { createPhysics, GROUP, groups, FIXED_DT } = await import('../src/core/physics');
+    const { GameAircraft } = await import('../src/game/GameAircraft');
+    const physics = await createPhysics();
+    physics.world.createCollider(physics.RAPIER.ColliderDesc.cuboid(2000, 1, 2000).setTranslation(0, -1, 0).setCollisionGroups(groups(GROUP.WORLD, 0xffff)));
+    const scene = new THREE.Scene();
+    const plane = new GameAircraft(physics, scene, 0, f16.restHeight!, 0, 0);
+    expect(plane.aircraft.cfg.engine.kind).toBe('jet');
+    const input = { pitch: 0, roll: 0, yaw: 0, throttle: 1, brake: 1, flaps: 0 };
+    const tail = plane.model.parts.get('tailH')!;
+    const rest = tail.quaternion.clone();
+    for (let i = 0; i < 600; i++) {
+      input.pitch = i > 300 ? 1 : 0;
+      plane.fixedUpdate(FIXED_DT, input);
+      physics.step();
+      plane.aircraft.afterPhysicsStep();
+    }
+    plane.updateVisuals(1, 1 / 60);
+    // Full throttle on the brakes: the engine has spooled up and the afterburner is lit.
+    expect(plane.aircraft.state.afterburner).toBe(true);
+    const flame = scene.getObjectByName('afterburner')!;
+    expect(flame.visible).toBe(true);
+    // Stick back: the whole tailplane turns.
+    expect(tail.quaternion.angleTo(rest)).toBeGreaterThan(0.2);
     plane.dispose();
   });
 });

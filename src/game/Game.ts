@@ -16,7 +16,7 @@ import type { GameMap, Location } from '../world/map';
 import { LIMIT, SPAWN } from '../world/map';
 import type { WorldProps } from '../world/props';
 import { CARS, carById } from './catalog';
-import { buildParkedAircraft, GameAircraft, PARKED } from './GameAircraft';
+import { buildParkedAircraft, F16, GameAircraft, PARKED } from './GameAircraft';
 import { GameCar, IDLE } from './GameCar';
 import { RaceSystem } from './race';
 
@@ -37,13 +37,13 @@ export interface GameDeps {
 
 const CAR_KEY = 'open-road:car';
 /** Body origin above the ground with the aircraft standing on its wheels (m). */
-const PLANE_REST = 1.18;
+const PLANE_REST = F16.restHeight ?? 2.16;
 /** How close (m) and how slow (m/s) the car must be to get into the aircraft. */
 const BOARD_RANGE = 16;
 /** Past this distance from the centre the aircraft is turned back towards the map (m). */
 const PLANE_LIMIT = LIMIT + 150;
-/** Power multiplier of the boosted engine (on by default; B switches to the stock engine). */
-const BOOST = 4;
+/** Thrust multiplier of the boosted engine (B; the F-16 already climbs straight up without it). */
+const BOOST = 2;
 
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
@@ -71,7 +71,7 @@ export class Game {
   /** Arcade flight (easy, no stall) or the full simulation; H switches. */
   private arcadeFlight = true;
   /** Boosted engine (power x4) or the stock one; B switches. */
-  private boosted = true;
+  private boosted = false;
 
   private readonly stepper = new FixedStepper(FIXED_DT);
   private readonly res: StepResult = { steps: 0, alpha: 0 };
@@ -271,7 +271,7 @@ export class Game {
       const speed = Math.hypot(from.vx, from.vy, from.vz);
       if (speed > 15) ac.controls.throttle = 0.75;
       this.boardPlane();
-      this.d.hud.toast('SR22', 1200);
+      this.d.hud.toast('F-16', 1200);
     } finally {
       this.swapping = false;
     }
@@ -310,7 +310,9 @@ export class Game {
   loadPlane(): Promise<GameAircraft | null> {
     this.planeLoading ??= (async () => {
       try {
-        if (!aircraftLoaded()) await loadAircraft(import.meta.env.BASE_URL);
+        // The fighter the player flies, and the light aircraft parked on the apron.
+        if (!aircraftLoaded('jet')) await loadAircraft(import.meta.env.BASE_URL, 'jet');
+        if (!aircraftLoaded('plane')) await loadAircraft(import.meta.env.BASE_URL, 'plane');
         const s = this.d.map.planeSpot;
         this.plane = new GameAircraft(this.d.physics, this.d.gs.scene, s.x, s.y + PLANE_REST, s.z, s.yaw);
         buildParkedAircraft(this.d.physics, this.d.gs.scene, this.d.map.stands, this.d.map.heightAt, 1.15);
@@ -633,7 +635,7 @@ export class Game {
     const player = this.player;
     if (flying && plane) {
       rig.shake = Math.max(rig.shake, Math.min(0.5, Math.sqrt(plane.impact) / 2500));
-      rig.updateAircraft(frameDt, plane.view.pos, plane.view.quat, plane.aircraft.state.airspeed);
+      rig.updateAircraft(frameDt, plane.view.pos, plane.view.quat, plane.aircraft.state.airspeed, plane.aircraft.cfg.camera);
       gs.followSun(plane.view.pos);
       map.update(now / 1000, gs.camera, plane.view.pos);
     } else {
@@ -668,7 +670,7 @@ export class Game {
       audio.updateAircraft(plane.aircraft, now, hud.flight.stallWarning);
     } else {
       hud.update(player, now);
-      if (this.canBoard()) hud.hint('Enter', 'Fly the SR22');
+      if (this.canBoard()) hud.hint('Enter', 'Fly the F-16');
       else hud.hint(null);
       audio.update(player.vehicle, now);
     }
@@ -705,7 +707,7 @@ export class Game {
     const plane = this.plane;
     plane?.updateVisuals(1, 0);
     if (this.mode === 'plane' && plane) {
-      rig.updateAircraft(0.05, plane.view.pos, plane.view.quat, plane.aircraft.state.airspeed);
+      rig.updateAircraft(0.05, plane.view.pos, plane.view.quat, plane.aircraft.state.airspeed, plane.aircraft.cfg.camera);
       gs.followSun(plane.view.pos);
       this.d.map.update(this.simTime, gs.camera, plane.view.pos);
     } else {

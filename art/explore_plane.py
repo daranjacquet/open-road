@@ -1,6 +1,6 @@
 """Look at an aircraft model in the game frame before writing its import mapping.
 
-    blender -b --factory-startup -P art/explore_plane.py -- <model> <forward> <length> <outdir>
+    blender -b --factory-startup -P art/explore_plane.py -- <model> <forward> <length> <outdir> [drop-regex]
 
 Prints every object's box in the game frame (x left, y up, z forward, metres, ground at y = 0)
 and renders side, top and front orthographic views with a grid (red every metre, blue every 0.5 m),
@@ -18,8 +18,13 @@ from lib.importer import apply_all_transforms, load_any, orient_and_scale, scene
 
 a = sys.argv[sys.argv.index("--") + 1:]
 src, forward, length, outdir = a[0], a[1], float(a[2]), a[3]
+drop = a[4] if len(a) > 4 else None
 bpy.ops.wm.read_factory_settings(use_empty=True)
 load_any(src)
+if drop:
+    import re
+    for o in [o for o in bpy.data.objects if o.type == "MESH" and re.search(drop, o.name)]:
+        bpy.data.objects.remove(o, do_unlink=True)
 apply_all_transforms()
 orient_and_scale(forward, length)
 meshes = [o for o in bpy.data.objects if o.type == "MESH"]

@@ -8,8 +8,21 @@ import { SmokeClouds } from '../render/smoke';
 import { Aircraft, type BreakEvent } from '../vehicle/aircraft/Aircraft';
 import type { AircraftConfig } from '../vehicle/aircraft/types';
 import sr22 from '../vehicle/aircraft/sr22.json';
+import f16 from '../vehicle/aircraft/f16.json';
 
+/** The light aircraft parked on the apron. */
 export const SR22 = sr22 as unknown as AircraftConfig;
+/** The fighter the player flies. */
+export const F16 = f16 as unknown as AircraftConfig;
+
+/**
+ * Where each model carries its lights, in the body frame: the red wingtip light on the left wing
+ * (the green one mirrors it), the strobes beside them, and the white tail light on its part.
+ */
+const LIGHTS: Record<string, { tip: [number, number, number]; strobe: [number, number, number]; tail: [string, number, number, number] }> = {
+  plane: { tip: [5.79, 0.09, -0.12], strobe: [5.8, 0.09, -0.3], tail: ['rudder', 0, 0.15, -4.95] },
+  jet: { tip: [4.83, -0.11, -1.72], strobe: [4.83, -0.11, -1.95], tail: ['tailV', 0, 3.2, -6.33] },
+};
 
 /** Parked: engine off, brakes on. */
 export const PARKED: FlightInput = { pitch: 0, roll: 0, yaw: 0, throttle: 0, brake: 1, flaps: 0 };
@@ -19,6 +32,7 @@ const BREAK_TEXT: Record<string, string> = {
   wingL: 'Left wing torn off',
   wingR: 'Right wing torn off',
   tailH: 'Tailplane torn off',
+  engine: 'Engine torn off',
   tailV: 'Fin and rudder torn off',
   gearN: 'Nose gear collapsed',
   gearL: 'Left main gear collapsed',
@@ -63,6 +77,8 @@ export class GameAircraft {
   private smokeCarry = 0;
   private time = 0;
   private readonly spawn: { x: number; y: number; z: number; yaw: number };
+  /** Afterburner flame at the nozzle (jets only): an outer orange plume and a blue-white core. */
+  private readonly flame: { group: THREE.Group; outer: THREE.Mesh; core: THREE.Mesh } | null = null;
 
   constructor(
     private readonly physics: Physics,
@@ -71,10 +87,12 @@ export class GameAircraft {
     y: number,
     z: number,
     yaw: number,
+    cfg: AircraftConfig = F16,
+    private readonly modelId = 'jet',
   ) {
     this.spawn = { x, y, z, yaw };
-    this.aircraft = new Aircraft(physics, SR22, x, y, z, yaw);
-    this.model = buildAircraftModel();
+    this.aircraft = new Aircraft(physics, cfg, x, y, z, yaw);
+    this.model = buildAircraftModel(modelId);
     scene.add(this.model.root, this.smoke.mesh);
     for (const [name, g] of this.model.parts) this.rest.set(name, { parent: g.parent!, pos: g.position.clone(), quat: g.quaternion.clone() });
     this.model.root.updateMatrixWorld(true);
@@ -84,6 +102,7 @@ export class GameAircraft {
     }
     this.contact = this.aircraft.wheels.map(() => true);
     this.addLights();
+    if (cfg.engine.kind === 'jet') this.flame = this.addFlame(cfg.engine.pos);
     this.aircraft.onBreak = (e) => this.broke(e);
     this.updateVisuals(1, 0);
   }
@@ -102,14 +121,37 @@ export class GameAircraft {
       mesh.position.set(x, y, z).sub(g.getWorldPosition(_v));
       g.add(mesh);
     };
-    at('wingL', dot(0xff2a1a, 0.05), 5.79, 0.09, -0.12);
-    at('wingR', dot(0x22ff55, 0.05), -5.79, 0.09, -0.12);
-    at('rudder', dot(0xffffff, 0.04), 0, 0.15, -4.95);
-    for (const [part, x] of [['wingL', 5.8], ['wingR', -5.8]] as const) {
+    const l = LIGHTS[this.modelId] ?? LIGHTS.plane!;
+    const [tx, ty, tz] = l.tip;
+    at('wingL', dot(0xff2a1a, 0.05), tx, ty, tz);
+    at('wingR', dot(0x22ff55, 0.05), -tx, ty, tz);
+    at(l.tail[0], dot(0xffffff, 0.04), l.tail[1], l.tail[2], l.tail[3]);
+    for (const [part, sign] of [['wingL', 1], ['wingR', -1]] as const) {
       const s = dot(0xffffff, 0.07);
-      at(part, s, x, 0.09, -0.3);
+      at(part, s, l.strobe[0] * sign, l.strobe[1], l.strobe[2]);
       this.strobes.push(s);
     }
+  }
+
+  /** Two additive cones pointing aft from the nozzle; their length follows the afterburner. */
+  private addFlame(pos: [number, number, number]): { group: THREE.Group; outer: THREE.Mesh; core: THREE.Mesh } {
+    const cone = (r: number, color: number, opacity: number): THREE.Mesh => {
+      // Unit length along -z from the nozzle: scaled per frame.
+      const g = new THREE.ConeGeometry(r, 1, 16, 1, true).rotateX(-Math.PI / 2).translate(0, 0, -0.5);
+      const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+      m.castShadow = false;
+      m.renderOrder = 2;
+      return m;
+    };
+    const group = new THREE.Group();
+    group.name = 'afterburner';
+    group.position.set(...pos);
+    const outer = cone(0.4, 0xff6a1a, 0.32);
+    const core = cone(0.27, 0x6f9bff, 0.5);
+    group.add(outer, core);
+    group.visible = false;
+    this.model.root.add(group);
+    return { group, outer, core };
   }
 
   get pos(): THREE.Vector3 {
@@ -291,6 +333,8 @@ export class GameAircraft {
     turn('flapL', -c.flaps * flapMax);
     turn('flapR', -c.flaps * flapMax);
     turn('elevator', c.elevator + c.trim);
+    // A fighter's whole tailplane moves (a stabilator), leading edge down for the nose up.
+    if (!parts.has('elevator')) turn('tailH', c.elevator + c.trim);
     turn('rudder', -c.rudder);
     const prop = parts.get('prop');
     const pa = axes.get('prop');
@@ -307,13 +351,29 @@ export class GameAircraft {
     const ph = this.time % 1.2;
     const on = ph < 0.05 || (ph > 0.15 && ph < 0.2);
     for (const s of this.strobes) s.visible = on;
+    // Afterburner: a short blue core at full dry power, a long flickering plume once it lights.
+    const fl = this.flame;
+    if (fl) {
+      const st = ac.state;
+      const e = ac.cfg.engine;
+      const spool = Math.max(0, (st.rpm - e.idleRpm) / (e.maxRpm - e.idleRpm));
+      const ab = st.afterburner ? Math.min(1, (c.throttle - 0.85) / 0.15) : 0;
+      const flicker = 1 + 0.08 * Math.sin(this.time * 57) + 0.05 * Math.sin(this.time * 131);
+      fl.group.visible = ac.engineHealth > 0 && spool > 0.6;
+      fl.core.scale.set(1, 1, (0.4 + spool * 0.5 + ab * 1.3) * flicker);
+      (fl.core.material as THREE.MeshBasicMaterial).opacity = 0.15 + 0.35 * Math.max(ab, spool - 0.6);
+      fl.outer.visible = ab > 0;
+      fl.outer.scale.set(1, 1, (1.2 + ab * 2.6) * flicker);
+    }
     // Engine smoke as it gets hurt: grey wisps, then thick black smoke when it has stopped.
     if (dt > 0) {
       const hurt = 1 - ac.engineHealth;
       if (hurt > 0.3) {
         this.smokeCarry += dt * (6 + hurt * 30);
         const lv = ac.body.linvel();
-        _v.set(0, 0.25, 1.4).applyQuaternion(ac.currQuat).add(ac.currPos);
+        if (ac.cfg.engine.kind === 'jet') _v.set(...ac.cfg.engine.pos);
+        else _v.set(0, 0.25, 1.4);
+        _v.applyQuaternion(ac.currQuat).add(ac.currPos);
         while (this.smokeCarry >= 1) {
           this.smokeCarry -= 1;
           const dark = ac.engineHealth <= 0 ? 0.25 : 0.6;
@@ -329,6 +389,10 @@ export class GameAircraft {
     this.refit();
     this.physics.world.removeRigidBody(this.aircraft.body);
     this.scene.remove(this.model.root, this.smoke.mesh);
+    if (this.flame) for (const m of [this.flame.outer, this.flame.core]) {
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
     this.model.dispose();
     this.smoke.dispose();
   }
@@ -344,7 +408,7 @@ export function buildParkedAircraft(physics: Physics, scene: THREE.Scene, stands
   const tints = [0xfff1d6, 0xdfe9ff, 0xf3f3f3];
   const { RAPIER, world } = physics;
   stands.forEach((st, i) => {
-    const model = buildAircraftModel();
+    const model = buildAircraftModel('plane');
     model.root.updateMatrixWorld(true);
     const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
     model.root.traverse((o) => {

@@ -17,29 +17,35 @@ export interface AircraftModel {
 }
 
 /** Materials of the cabin's insides; the instruments among them are not worth drawing on parked aircraft. */
-export const isInterior = (name: string): boolean => /^(Aviyonik|Joystick|Panel|interior)/.test(name);
+export const isInterior = (name: string): boolean => /^(Aviyonik|Joystick|Panel|interior|cock_2|ins\.)/.test(name);
 export const isInstrument = (name: string): boolean => /^(Aviyonik|Joystick|Panel)/.test(name);
 
-let template: THREE.Group | null = null;
-let loading: Promise<void> | null = null;
+/** Aircraft models by id (public/models/<id>.glb): `jet` the F-16 you fly, `plane` the SR22s parked at the airfield. */
+const templates = new Map<string, THREE.Group>();
+const loading = new Map<string, Promise<void>>();
 
-export function aircraftLoaded(): boolean {
-  return template !== null;
+export function aircraftLoaded(id = 'jet'): boolean {
+  return templates.has(id);
 }
 
-/** Fetch and parse the aircraft model once. */
-export function loadAircraft(baseUrl: string): Promise<void> {
-  loading ??= (async () => {
-    const res = await fetch(`${baseUrl}models/plane.glb`);
-    if (!res.ok) throw new Error(`Aircraft model: HTTP ${res.status}`);
-    template = await parseCarGLB(await res.arrayBuffer());
-  })();
-  return loading;
+/** Fetch and parse an aircraft model once. */
+export function loadAircraft(baseUrl: string, id = 'jet'): Promise<void> {
+  let p = loading.get(id);
+  if (!p) {
+    p = (async () => {
+      const res = await fetch(`${baseUrl}models/${id}.glb`);
+      if (!res.ok) throw new Error(`Aircraft model ${id}: HTTP ${res.status}`);
+      templates.set(id, await parseCarGLB(await res.arrayBuffer()));
+    })();
+    p.catch(() => loading.delete(id));
+    loading.set(id, p);
+  }
+  return p;
 }
 
 /** For tests: use an already parsed model. */
-export function setAircraftTemplate(t: THREE.Group): void {
-  template = t;
+export function setAircraftTemplate(t: THREE.Group, id = 'jet'): void {
+  templates.set(id, t);
 }
 
 const partOf = (o: THREE.Object3D): string | null => (typeof o.userData['part_name'] === 'string' ? (o.userData['part_name'] as string) : null);
@@ -86,8 +92,9 @@ function tune(m: THREE.Material): THREE.Material {
   return m;
 }
 
-export function buildAircraftModel(): AircraftModel {
-  if (!template) throw new Error('Aircraft model not loaded');
+export function buildAircraftModel(id = 'jet'): AircraftModel {
+  const template = templates.get(id);
+  if (!template) throw new Error(`Aircraft model ${id} not loaded`);
   template.updateMatrixWorld(true);
   const root = new THREE.Group();
   root.name = 'aircraft';

@@ -17,22 +17,23 @@ blender -b --factory-startup -P art/import_car.py -- sedan --views /tmp/views   
 
 ## The aircraft
 
-The Cirrus SR22 (`sources/plane/`, credits in `../CREDITS.md`) has its own import, built the same way:
+The F-16 (`sources/jet/`, flown) and the Cirrus SR22 (`sources/plane/`, parked), credits in `../CREDITS.md`, have their own import, built the same way:
 
 ```bash
-node scripts/build-models.mjs plane                                    # import, compress
+node scripts/build-models.mjs jet                                      # import, compress (or plane)
 blender -b --factory-startup -P art/explore_plane.py -- art/sources/plane/cirrus_sr22.glb +X 7.92 /tmp/views   # boxes and grid views of a new model
 blender -b --factory-startup -P art/import_plane.py -- plane --views /tmp/views                              # + views of the parts
 ```
 
 - `explore_plane.py` prints every object's box in the game frame and renders side, top and front views with a 0.5 m grid, to write the mapping.
 - `import_plane.py` + `imports/plane.json`: orientation, length and origin (the centre of gravity), material renames, texture boxes to paint out (registration, logos), the parts that break off (split from the body by boxes: wings, tailplane, fin, gear legs with their wheel fairings, propeller), and the control surfaces, cut along their hinge lines with `bmesh.ops.bisect_plane` (hinge plane plus the spanwise ends) and given a `hinge_axis`. Parts carry `part_name`, `chassis_pivot`, `hinge_axis` and `parent_part` (controls under their wing or tailplane, wheels under their leg).
-- The flight model (`src/vehicle/aircraft/sr22.json`) is not fitted by a script: its surfaces, gear and mass boxes were placed on measurements of the model, and `tests/aircraft-model.test.ts` checks that they still match it.
+- `"drop"` (F-16): regexes of source objects deleted before anything is measured (the missiles, tanks and pylons). A `split` entry can take several `"boxes"` (the two stabilators make one part), split another part than the body with `"from"` (the wingtip lights out of the glass), and `"spin"` gives a part a rotation axis through its centroid (the propeller, the all-moving tailplane, the wheels). `explore_plane.py` takes the same drop regex as a fifth argument.
+- The flight models (`src/vehicle/aircraft/f16.json`, `sr22.json`) are not fitted by a script: its surfaces, gear and mass boxes were placed on measurements of the model, and `tests/aircraft-model.test.ts` checks that they still match them.
 
 ## Layout
 
 - `lib/importer.py`: loading any source format, transforms, bounding boxes, triangle counts, quick renders.
-- `imports/<id>.json`: one mapping per car (see above), and `plane.json` for the aircraft.
+- `imports/<id>.json`: one mapping per car (see above), and `jet.json` and `plane.json` for the aircraft.
 - `sources/<id>/`: the downloaded models and their licences.
 - `blend/`: the `.blend` scenes written by the import.
 - `build/`: raw exports (ignored by git); `scripts/optimize-models.mjs` writes `public/models/`.

@@ -52,7 +52,7 @@ export class Garage {
     this.gui = gui;
     // Every vehicle, the aircraft included: choosing one takes over where you are, at your speed.
     gui
-      .add(this.choice, 'car', { ...Object.fromEntries(CARS.map((c) => [c.name, c.id])), 'Cirrus SR22 (aircraft)': PLANE_ID })
+      .add(this.choice, 'car', { ...Object.fromEntries(CARS.map((c) => [c.name, c.id])), 'F-16 Fighting Falcon (aircraft)': PLANE_ID })
       .name('Vehicle')
       .onChange((id: string) => onSwap(id));
 

@@ -285,7 +285,7 @@ export function buildAirfield(physics: Physics, surface: SurfaceMap, m: PlaceMat
   spots.push({ name: 'Airfield runway', x: a.x0 + 40, y, z: zc, yaw: Math.PI / 2 });
   // The aircraft waits on the centre line past the threshold stripes, lined up for runway 27: it
   // takes off to the west, over the farmland (east of the airfield the hills rise to 180 m).
-  spots.push({ name: 'SR22', x: a.x1 - 62, y, z: zc, yaw: -Math.PI / 2 });
+  spots.push({ name: 'F-16', x: a.x1 - 62, y, z: zc, yaw: -Math.PI / 2 });
 
   const off = new THREE.Color(0x222222);
   const whiteC = new THREE.Color(0xffffff);

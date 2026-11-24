@@ -144,12 +144,12 @@ async function boot(): Promise<void> {
         }
         // Then the aircraft: its shaders compiled off to the side before it appears on the runway.
         try {
-          await loadAircraft(import.meta.env.BASE_URL);
+          await Promise.all([loadAircraft(import.meta.env.BASE_URL, 'jet'), loadAircraft(import.meta.env.BASE_URL, 'plane')]);
           const tmp = new THREE.Scene();
-          const model = buildAircraftModel();
-          tmp.add(model.root);
+          const models = [buildAircraftModel('jet'), buildAircraftModel('plane')];
+          for (const model of models) tmp.add(model.root);
           await warmUp(gs.renderer, tmp, gs.camera, gs.scene);
-          model.dispose();
+          for (const model of models) model.dispose();
         } catch (err) {
           console.warn('[boot] Aircraft loading or shader compilation failed.', err);
         }

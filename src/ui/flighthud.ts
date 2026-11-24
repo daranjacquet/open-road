@@ -12,7 +12,6 @@ const DIAGRAM: [string, string][] = [
   ['gearN', 'fd-gearN'],
   ['gearL', 'fd-gearL'],
   ['gearR', 'fd-gearR'],
-  ['prop', 'fd-prop'],
 ];
 
 /**
@@ -30,6 +29,9 @@ export class FlightHud {
   private readonly thr: HTMLElement;
   private readonly thrFill: HTMLElement;
   private readonly rpm: HTMLElement;
+  private readonly rpmLabel: HTMLElement;
+  private readonly mach: HTMLElement;
+  private readonly ab: HTMLElement;
   private readonly flaps: HTMLElement;
   private readonly lights: Record<'brake' | 'trim' | 'gnd' | 'prot' | 'boost' | 'arcade', HTMLElement>;
   private readonly stall: HTMLElement;
@@ -67,15 +69,14 @@ export class FlightHud {
       </style>
       <div class="fl-dmg">AIRCRAFT
         <svg width="74" height="65" viewBox="-48 -6 96 84">
-          <rect class="p" id="fd-prop" x="-9" y="-4" width="18" height="3" rx="1.5"/>
-          <rect class="b" x="-4" y="0" width="8" height="64" rx="4"/>
-          <rect class="p" id="fd-wingL" x="-46" y="18" width="42" height="11" rx="3"/>
-          <rect class="p" id="fd-wingR" x="4" y="18" width="42" height="11" rx="3"/>
-          <rect class="p" id="fd-tailH" x="-16" y="60" width="32" height="7" rx="2"/>
-          <rect class="p" id="fd-tailV" x="-1.5" y="56" width="3" height="16" rx="1.5"/>
-          <circle class="p" id="fd-gearN" cx="0" cy="9" r="3"/>
-          <circle class="p" id="fd-gearL" cx="-14" cy="33" r="3"/>
-          <circle class="p" id="fd-gearR" cx="14" cy="33" r="3"/>
+          <path class="b" d="M0 -5 L4 6 L5 74 L-5 74 L-4 6 Z"/>
+          <path class="p" id="fd-wingL" d="M-5 24 L-42 50 L-42 57 L-5 57 Z"/>
+          <path class="p" id="fd-wingR" d="M5 24 L42 50 L42 57 L5 57 Z"/>
+          <path class="p" id="fd-tailH" d="M-5 61 L-22 72 L-22 77 L-5 77 Z M5 61 L22 72 L22 77 L5 77 Z"/>
+          <rect class="p" id="fd-tailV" x="-1.5" y="58" width="3" height="19" rx="1.5"/>
+          <circle class="p" id="fd-gearN" cx="0" cy="16" r="3"/>
+          <circle class="p" id="fd-gearL" cx="-9" cy="44" r="3"/>
+          <circle class="p" id="fd-gearR" cx="9" cy="44" r="3"/>
         </svg>
         <div class="hud-eng" id="fl-eng">ENGINE 100%</div>
         <button class="hud-fix" id="fl-fix" tabindex="-1" title="Repair the aircraft where it is (F)">REPAIR (F)</button>
@@ -84,11 +85,11 @@ export class FlightHud {
       <div class="fl-box">
         <canvas class="fl-adi" id="fl-adi" width="264" height="264"></canvas>
         <div class="fl-col">
-          <div><span class="fl-ias" id="fl-ias">0</span><span class="fl-u">km/h</span></div>
+          <div><span class="fl-ias" id="fl-ias">0</span><span class="fl-u">km/h</span><span class="fl-u" id="fl-mach">M 0.00</span></div>
           <div class="fl-row"><span><b>ALT</b><span id="fl-alt">0</span> ft</span><span><b>VS</b><span id="fl-vs">0</span> ft/min</span></div>
-          <div class="fl-row"><span><b>HDG</b><span id="fl-hdg">000</span></span><span><b>G</b><span id="fl-g">1.0</span></span><span><b>RPM</b><span id="fl-rpm">0</span></span></div>
+          <div class="fl-row"><span><b>HDG</b><span id="fl-hdg">000</span></span><span><b>G</b><span id="fl-g">1.0</span></span><span><b id="fl-rpm-l">RPM</b><span id="fl-rpm">0</span></span></div>
           <div class="fl-row"><b style="font-size:11px;opacity:.7">THR</b><div class="fl-thr"><i id="fl-thr-fill"></i></div><span id="fl-thr">0%</span></div>
-          <div class="fl-lights"><b id="fl-flaps">FLAPS 0</b><b id="fl-trim">AUTO-TRIM</b><b id="fl-prot">STALL PROT</b><b id="fl-boost">BOOST</b><b id="fl-arcade">ARCADE</b><b id="fl-gnd">GROUND</b><b id="fl-brake">BRAKE</b></div>
+          <div class="fl-lights"><b id="fl-ab">A/B</b><b id="fl-flaps">FLAPS 0</b><b id="fl-trim">AUTO-TRIM</b><b id="fl-prot">STALL PROT</b><b id="fl-boost">BOOST</b><b id="fl-arcade">ARCADE</b><b id="fl-gnd">GROUND</b><b id="fl-brake">BRAKE</b></div>
         </div>
       </div>`;
     root.appendChild(el);
@@ -101,6 +102,9 @@ export class FlightHud {
     this.thr = q('fl-thr');
     this.thrFill = q('fl-thr-fill');
     this.rpm = q('fl-rpm');
+    this.rpmLabel = q('fl-rpm-l');
+    this.mach = q('fl-mach');
+    this.ab = q('fl-ab');
     this.flaps = q('fl-flaps');
     this.lights = { brake: q('fl-brake'), trim: q('fl-trim'), gnd: q('fl-gnd'), prot: q('fl-prot'), boost: q('fl-boost'), arcade: q('fl-arcade') };
     this.stall = q('fl-stall');
@@ -131,20 +135,30 @@ export class FlightHud {
     const fwd = plane.view.quat;
     this.ias.textContent = Math.round(st.airspeed * KMH).toString();
     // Altimeter: height above the sea (the lake, and the airfield, are at sea level), wheels down.
-    this.alt.textContent = String(Math.max(0, Math.round(((st.altitude - 1.15) * FT) / 10) * 10));
+    this.alt.textContent = String(Math.max(0, Math.round(((st.altitude - (ac.cfg.restHeight ?? 1.15)) * FT) / 10) * 10));
+    this.mach.textContent = `M ${st.mach.toFixed(2)}`;
     const vs = Math.round((st.vs * FT * 60) / 50) * 50;
     this.vs.textContent = (vs > 0 ? '+' : '') + vs;
     // Compass heading: north is -z on the map, east +x (the state's heading is the yaw from +z).
     const hdg = ((Math.round(180 - (st.heading * 180) / Math.PI) % 360) + 360) % 360;
     this.hdg.textContent = String(hdg === 0 ? 360 : hdg).padStart(3, '0');
     this.gload.textContent = st.g.toFixed(1);
-    this.rpm.textContent = (Math.round(st.rpm / 10) * 10).toString();
+    // A jet shows its spool (% of the maximum rpm), a piston engine its rpm.
+    const jet = ac.cfg.engine.kind === 'jet';
+    this.rpmLabel.textContent = jet ? 'N' : 'RPM';
+    this.rpm.textContent = jet ? `${Math.round(st.rpm)}%` : (Math.round(st.rpm / 10) * 10).toString();
+    this.ab.style.display = jet ? '' : 'none';
+    this.ab.classList.toggle('on', st.afterburner);
+    this.mach.style.display = jet ? '' : 'none';
     const thr = Math.round(ac.controls.throttle * 100);
     this.thr.textContent = `${thr}%`;
     this.thrFill.style.width = `${thr}%`;
     const fl = Math.round(ac.controls.flaps * 100);
     this.flaps.textContent = `FLAPS ${fl}`;
     this.flaps.classList.toggle('on', fl > 2);
+    this.flaps.style.display = ac.cfg.surfaces.some((x) => x.control === 'flap') ? '' : 'none';
+    // Fly-by-wire: no trim to watch and no stall protection to switch, the computer does both.
+    this.lights.trim.style.display = this.lights.prot.style.display = ac.cfg.fbw ? 'none' : '';
     this.lights.trim.classList.toggle('on', ac.assists.trim && Math.abs(ac.controls.trim) > 0.01);
     this.lights.gnd.classList.toggle('on', st.onGround);
     this.lights.prot.classList.toggle('on', ac.assists.protect);

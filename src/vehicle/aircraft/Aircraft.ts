@@ -6,9 +6,12 @@ import type { AircraftConfig, ColliderDef, FlightInput, GearDef, SurfaceDef } fr
 
 const G = 9.81;
 const OSWALD = 0.8;
-/** Downwash at the tail per radian of wing angle of attack, and the wing's zero-lift angle (rad). */
+/** Downwash at the tail per radian of wing angle of attack. */
 const DOWNWASH = 0.4;
-const WING_ZERO_LIFT = 0.067;
+/** Speed of sound (m/s), for the transonic drag rise. */
+const SOUND = 340;
+/** Arcade fly-by-wire of a light aircraft (the default). */
+const FBW = { rollRate: 2.4, pitchG: 6, pitchRate: 1.2, yawRate: 0.8, levelWings: true, groundPitch: 0.16 };
 
 const _q = new THREE.Quaternion();
 const _qi = new THREE.Quaternion();
@@ -29,6 +32,9 @@ const _fwd = new THREE.Vector3();
 const _a = { x: 0, y: 0, z: 0 };
 const _b = { x: 0, y: 0, z: 0 };
 const _x = new THREE.Vector3();
+const _ix = new THREE.Vector3();
+const _ie = new THREE.Vector3();
+const _iq = new THREE.Quaternion();
 const CHORD = new THREE.Vector3(0, 0, 1);
 
 function smoothstep(e0: number, e1: number, x: number): number {
@@ -120,7 +126,11 @@ export class Aircraft {
   /** Control positions after their actuators (rad), flap travel 0..1, throttle 0..1. */
   readonly controls = { aileron: 0, elevator: 0, rudder: 0, flaps: 0, throttle: 0, trim: 0 };
   /** Flight data of the last step. */
-  readonly state = { airspeed: 0, alpha: 0, beta: 0, altitude: 0, agl: 0, vs: 0, g: 1, stall: 0, rpm: 700, onGround: true, heading: 0, stallMargin: 1 };
+  /** Fly-by-wire pitch law: the stabilator position its g-holding integrator has reached (-1..1). */
+  private gHold = 0;
+  private gPrev = 1;
+  private gRate = 0;
+  readonly state = { airspeed: 0, alpha: 0, beta: 0, altitude: 0, agl: 0, vs: 0, g: 1, stall: 0, rpm: 700, onGround: true, heading: 0, stallMargin: 1, afterburner: false, mach: 0 };
   /**
    * Pilot aids: auto-trim (holds the pitch attitude when the stick is let go), coordinated rudder,
    * and stall protection (the elevator stops just short of the stall, for keyboard flying: the
@@ -160,6 +170,7 @@ export class Aircraft {
     yaw: number,
   ) {
     const { RAPIER, world } = physics;
+    this.state.rpm = cfg.engine.idleRpm;
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
     this.body = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
@@ -234,6 +245,8 @@ export class Aircraft {
     this.controls.throttle = 0;
     this.controls.flaps = 0;
     this.controls.trim = 0;
+    this.state.rpm = this.cfg.engine.idleRpm;
+    this.gHold = 0;
     for (const w of this.wheels) {
       w.length = w.def.travel;
       w.rate = 0;
@@ -393,7 +406,10 @@ export class Aircraft {
 
     // ---- aerodynamics: every surface on its own ----
     const rho = airDensity(_com.y);
-    const span = 11.7;
+    const span = cfg.span ?? 11.7;
+    // Zero-lift angle of the wing: where the downwash at the tail starts.
+    const s0 = cfg.surfaces[0]!;
+    const wingZeroLift = s0.cl0 / s0.clAlpha;
     let liftUp = 0;
     let wingL = 0;
     let wingR = 0;
@@ -419,7 +435,7 @@ export class Aircraft {
       let a = Math.atan2(-_v.dot(s.normal), _v.dot(CHORD));
       // Downwash: the wing turns the air down before it reaches the tailplane (about 0.4 of the
       // wing's angle), which is what lets the elevator take the wing up to the stall.
-      if (d.control === 'elevator') a -= DOWNWASH * Math.max(0, wingAlpha + WING_ZERO_LIFT);
+      if (d.control === 'elevator') a -= DOWNWASH * Math.max(0, wingAlpha + wingZeroLift);
       let dcl = 0;
       let flapMax = 0;
       const arcade = this.assists.arcade;
@@ -495,17 +511,33 @@ export class Aircraft {
     st.stall = stall;
     st.stallMargin = airspeed > 8 ? margin : 1;
 
-    // ---- engine and propeller ----
+    // ---- engine: propeller or jet ----
     const e = cfg.engine;
+    const jet = e.kind === 'jet';
     const running = !this.propBroken && this.engineHealth > 0;
     const thr = running ? c.throttle * this.engineHealth : 0;
     const vAxial = Math.max(_vel.dot(_fwd), 0);
-    // Boosted, the static thrust grows less than the power (the propeller does not change).
-    const t0 = e.staticThrust * (1 + (this.boost - 1) * 0.6);
-    const thrust = running ? Math.min(t0 * thr, (e.efficiency * e.power * this.boost * thr) / Math.max(vAxial, 1)) : 0;
-    const rpmTarget = this.propBroken ? 0 : running ? e.idleRpm + (e.maxRpm - e.idleRpm) * Math.pow(c.throttle, 0.8) + vAxial * 4 : vAxial * 18;
-    st.rpm += (Math.min(rpmTarget, e.maxRpm * 1.05) - st.rpm) * Math.min(1, dt * 2.5);
-    this.propAngle += (st.rpm / 60) * Math.PI * 2 * dt;
+    let thrust = 0;
+    if (jet) {
+      // Military power up to 85 % of the lever, then the afterburner lights. The engine spools (its
+      // rpm, as % of the maximum, follows the lever in a couple of seconds) and the thrust with it.
+      const lever = c.throttle;
+      const dry = e.staticThrust * this.boost;
+      const ab = (e.afterburnerThrust ?? e.staticThrust) * this.boost;
+      const target = running ? e.idleRpm + (e.maxRpm - e.idleRpm) * Math.min(1, lever / 0.85) : 0;
+      st.rpm += (target - st.rpm) * Math.min(1, dt * 1.2);
+      const spool = clamp((st.rpm - e.idleRpm) / (e.maxRpm - e.idleRpm), 0, 1);
+      st.afterburner = running && lever > 0.86;
+      thrust = running ? (spool * dry + (st.afterburner ? ((lever - 0.85) / 0.15) * (ab - dry) : 0)) * this.engineHealth : 0;
+    } else {
+      // Boosted, the static thrust grows less than the power (the propeller does not change).
+      const t0 = e.staticThrust * (1 + (this.boost - 1) * 0.6);
+      thrust = running ? Math.min(t0 * thr, (e.efficiency * e.power * this.boost * thr) / Math.max(vAxial, 1)) : 0;
+      const rpmTarget = this.propBroken ? 0 : running ? e.idleRpm + (e.maxRpm - e.idleRpm) * Math.pow(c.throttle, 0.8) + vAxial * 4 : vAxial * 18;
+      st.rpm += (Math.min(rpmTarget, e.maxRpm * 1.05) - st.rpm) * Math.min(1, dt * 2.5);
+      this.propAngle += (st.rpm / 60) * Math.PI * 2 * dt;
+      st.afterburner = false;
+    }
     _p.set(...e.pos).applyQuaternion(_q).add(_pos);
     _a.x = _fwd.x * thrust * dt;
     _a.y = _fwd.y * thrust * dt;
@@ -515,7 +547,7 @@ export class Aircraft {
     _b.z = _p.z;
     body.applyImpulseAtPoint(_a, _b, true);
     // Propeller strike: the disc reaching the ground.
-    if (!this.propBroken && st.rpm > 200) {
+    if (!jet && !this.propBroken && st.rpm > 200) {
       this.ray.origin = { x: _p.x, y: _p.y, z: _p.z };
       this.ray.dir = { x: -_up.x, y: -_up.y, z: -_up.z };
       const hit = world.castRay(this.ray, e.radius, true, undefined, groups(0xffff, GROUP.WORLD), undefined, body);
@@ -523,8 +555,12 @@ export class Aircraft {
     }
 
     // ---- everything else drags: fuselage, cowling, gear ----
+    st.mach = airspeed / SOUND;
     if (airspeed > 0.5) {
-      const dq = 0.5 * rho * airspeed * cfg.bodyDragArea;
+      // A jet's drag rises through the speed of sound; the air brake opens with the brake key in the air.
+      let area = cfg.bodyDragArea * (1 + (cfg.transonicDrag ?? 0) * smoothstep(0.85, 1.05, st.mach));
+      if (cfg.airbrakeArea && !st.onGround) area += cfg.airbrakeArea * clamp(input.brake, 0, 1);
+      const dq = 0.5 * rho * airspeed * area;
       _a.x = -_vel.x * dq * dt;
       _a.y = -_vel.y * dq * dt;
       _a.z = -_vel.z * dq * dt;
@@ -560,7 +596,7 @@ export class Aircraft {
     const air = !this.wheels.some((w) => w.contact);
     if (!air && V < 12 && Math.abs(input.yaw) > 0.05) {
       // Slow on the ground, the pedals pivot the aircraft on the spot (as in action games).
-      const I = this.body.principalInertia();
+      const I = this.bodyInertia();
       _v.copy(_ang).applyQuaternion(_qi);
       _f.set(0, I.y * 12 * (input.yaw * 0.7 - _v.y), 0).applyQuaternion(_q);
       _a.x = _f.x * dt;
@@ -576,8 +612,10 @@ export class Aircraft {
     const bank = Math.asin(clamp(_x.set(1, 0, 0).applyQuaternion(_q).y, -1, 1));
     // Up to 70 degrees a second at low speed, capped to about 7 g at speed (loops in about ten
     // seconds; in arcade flight nothing breaks from it).
-    const qMax = Math.min(1.2, (6 * G) / Math.max(V, 1));
-    const roll = Math.abs(input.roll) > 0.05 ? input.roll * 2.4 : clamp(-bank * 1.5, -1, 1);
+    const fbw = this.cfg.fbw ?? FBW;
+    const qMax = Math.min(fbw.pitchRate, (fbw.pitchG * G) / Math.max(V, 1));
+    // Let go of the roll keys: a light aircraft levels its wings, a fighter holds its bank.
+    const roll = Math.abs(input.roll) > 0.05 ? input.roll * fbw.rollRate : fbw.levelWings ? clamp(-bank * 1.5, -1, 1) : 0;
     // Target body rates (x: + nose down, y: + nose left, z: + right wing down).
     let pitchRate = input.pitch * qMax;
     const attitude = Math.asin(clamp(_fwd.y, -1, 1));
@@ -585,21 +623,24 @@ export class Aircraft {
       // Low over the ground (just after take-off), the nose only climbs as steep as the speed
       // allows (15 degrees near 70 kt), so holding the stick back never loops into the runway.
       // Higher up, nothing holds it: loops and stalls-turns are yours.
-      const maxPitch = clamp((V - 30) / 40, 0.25, 1.6);
+      // Just off the runway the tail is still close to it: the nose only climbs past the
+      // rotation attitude as the wheels rise (about 3 degrees a metre).
+      const wheels = Math.max(0, st.agl - (this.cfg.restHeight ?? 1.15));
+      const maxPitch = Math.min(clamp((V - 30) / 40, 0.25, 1.6), (fbw.groundPitch ?? 0.16) + wheels * 0.05);
       pitchRate = Math.min(pitchRate, (maxPitch - attitude) * 1.5);
     }
     if (!air) {
       // On the wheels: a gentle rotation, and never past 9 degrees (the tail strikes at 12).
-      pitchRate = Math.min(input.pitch * 0.25, (0.16 - attitude) * 3);
+      pitchRate = Math.min(input.pitch * 0.25, ((fbw.groundPitch ?? 0.16) - attitude) * 3);
     }
-    _t.set(-pitchRate, input.yaw * 0.8 - (G * Math.sin(bank)) / Math.max(V, 20), roll);
+    _t.set(-pitchRate, input.yaw * fbw.yawRate - (G * Math.sin(bank)) / Math.max(V, 20), roll);
     if (!air) _t.set(_t.x, 0, 0);
     _v.copy(_ang).applyQuaternion(_qi);
     _t.sub(_v);
     if (!air) _t.y = _t.z = 0;
     this.rateI.addScaledVector(_t, dt).clampScalar(-1.5, 1.5);
     if (!air) this.rateI.y = this.rateI.z = 0;
-    const I = this.body.principalInertia();
+    const I = this.bodyInertia();
     // The aircraft's own stability grows with the dynamic pressure: so does the controller's push.
     const k = auth * clamp((V / 40) ** 2, 1, 6);
     _f.set(I.x * (18 * _t.x + 14 * this.rateI.x), I.y * (10 * _t.y + 6 * this.rateI.y), I.z * (18 * _t.z + 12 * this.rateI.z)).multiplyScalar(k).applyQuaternion(_q);
@@ -607,6 +648,27 @@ export class Aircraft {
     _a.y = _f.y * dt;
     _a.z = _f.z * dt;
     this.body.applyTorqueImpulse(_a, true);
+  }
+
+  /**
+   * Moments of inertia about the aircraft's own axes (x pitch, y yaw, z roll). Rapier gives them in
+   * its principal frame, whose axes come in any order: a fighter's roll inertia can land on z.
+   */
+  private bodyInertia(): THREE.Vector3 {
+    const I = this.body.principalInertia();
+    const f = this.body.principalInertiaLocalFrame();
+    _iq.set(f.x, f.y, f.z, f.w);
+    _ie.set(0, 0, 0);
+    const add = (x: number, y: number, z: number, v: number): void => {
+      _ix.set(x, y, z).applyQuaternion(_iq);
+      _ie.x += v * _ix.x * _ix.x;
+      _ie.y += v * _ix.y * _ix.y;
+      _ie.z += v * _ix.z * _ix.z;
+    };
+    add(1, 0, 0, I.x);
+    add(0, 1, 0, I.y);
+    add(0, 0, 1, I.z);
+    return _ie;
   }
 
   /** Control surfaces and levers follow the pilot through their actuators (and the aids). */
@@ -619,7 +681,34 @@ export class Aircraft {
     c.aileron = move(c.aileron, input.roll * max('aileronL'), 2.5);
     let pitch = input.pitch;
     if (this.assists.protect && pitch > 0 && st.airspeed > 15) pitch = Math.min(pitch, clamp((st.stallMargin - 0.012) / 0.035, 0, 1));
-    c.elevator = move(c.elevator, pitch * max('elevator'), 2.0);
+    // A fly-by-wire fighter: the stick asks for a load factor (centred 1 g, full back the 9 g
+    // limit, full forward -3 g) and the flight computer moves the stabilator to hold it, faster at
+    // low speed where the tail has less bite. On the wheels and slow, the stick moves it directly.
+    const fbw = this.cfg.fbw;
+    if (fbw && !st.onGround && st.airspeed > 45) {
+      const target = pitch >= 0 ? 1 + pitch * (fbw.pitchG - 1) : 1 + pitch * 4;
+      const q = 0.5 * airDensity(this.currPos.y) * st.airspeed * st.airspeed;
+      const ki = clamp(2500 / q, 0.04, 0.8);
+      // The load factor where it is heading (0.3 s ahead at its present rate): the airframe
+      // keeps pitching after the stabilator stops, so the law acts on that, not on the g of now.
+      const rate = (st.g - this.gPrev) / dt;
+      this.gRate += (rate - this.gRate) * Math.min(1, dt * 20);
+      let err = target - (st.g + this.gRate * 0.3);
+      // Angle-of-attack limiter: never past 25 degrees nose up or 10 down, whatever the g asked.
+      err = clamp(err, (-0.17 - st.alpha) * 8, (0.42 - st.alpha) * 8);
+      this.gHold = clamp(this.gHold + err * ki * dt, -1, 1);
+      const nose = -_x.set(1, 0, 0).applyQuaternion(_q).dot(_ang);
+      const steady = ((st.g - 1) * G) / Math.max(st.airspeed, 45);
+      c.elevator = move(c.elevator, clamp(this.gHold + err * ki * 0.3 - (nose - steady) * ki * 4, -1, 1) * max('elevator'), 2.0);
+      c.trim = 0;
+    } else {
+      if (fbw) {
+        this.gHold = c.elevator / max('elevator');
+        this.gRate = 0;
+      }
+      c.elevator = move(c.elevator, pitch * max('elevator'), 2.0);
+    }
+    this.gPrev = st.g;
     let rudder = input.yaw;
     // Coordinated rudder: cancel the sideslip in the air when the pilot is not using the pedals.
     if (this.assists.rudder && !st.onGround && Math.abs(input.yaw) < 0.05 && st.airspeed > 15) rudder = clamp(st.beta * 3, -1, 1);
@@ -627,7 +716,7 @@ export class Aircraft {
     c.flaps = move(c.flaps, clamp(input.flaps, 0, 1), 0.14);
     c.throttle = move(c.throttle, clamp(input.throttle, 0, 1), 0.8);
     // Auto-trim: with the stick let go in flight, the trim slowly holds the pitch rate at zero.
-    if (this.assists.trim && !st.onGround && Math.abs(input.pitch) < 0.05 && st.airspeed > 20) {
+    if (this.assists.trim && !fbw && !st.onGround && Math.abs(input.pitch) < 0.05 && st.airspeed > 20) {
       const pitchRate = _x.set(1, 0, 0).applyQuaternion(_q).dot(_ang); // + = nose down
       c.trim = clamp(c.trim + pitchRate * 0.6 * dt, -0.25, 0.25);
     }

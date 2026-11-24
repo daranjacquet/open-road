@@ -7,7 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 
-const AIRCRAFT = new Set(['plane']);
+const AIRCRAFT = new Set(['plane', 'jet']);
 const ids = process.argv.slice(2).length ? process.argv.slice(2) : readdirSync('art/imports').filter((f) => f.endsWith('.json')).map((f) => f.replace(/\.json$/, ''));
 for (const id of ids) {
   const script = AIRCRAFT.has(id) ? 'art/import_plane.py' : 'art/import_car.py';

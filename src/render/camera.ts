@@ -22,6 +22,7 @@ const _pivot = new THREE.Vector3();
 const _up = new THREE.Vector3();
 /** Pilot's eye in the aircraft body frame (left seat; +x is left). */
 const EYE = new THREE.Vector3(0.3, 0.62, -0.12);
+const _eye = new THREE.Vector3();
 /** Height of the orbit pivot above the car's origin (m): the middle of the cabin. */
 const PIVOT_HEIGHT = 0.8;
 
@@ -114,17 +115,20 @@ export class CameraRig {
   }
 
   /** Follow an aircraft: `pos` / `quat` are its render-interpolated body transform. */
-  updateAircraft(dt: number, pos: THREE.Vector3, quat: THREE.Quaternion, speed: number): void {
+  updateAircraft(dt: number, pos: THREE.Vector3, quat: THREE.Quaternion, speed: number, view?: { eye: [number, number, number]; range: number }): void {
+    const eye = view ? _eye.set(...view.eye) : EYE;
+    // Chase distance: the light aircraft's 14 m, longer for a bigger airframe.
+    const base = view?.range ?? 14;
     if (!this.initialised) {
       this.airQuat.copy(quat);
       this.initialised = true;
     }
     if (this.airMode === 'cockpit') {
-      this.camera.position.copy(EYE).applyQuaternion(quat).add(pos);
+      this.camera.position.copy(eye).applyQuaternion(quat).add(pos);
       _up.set(0, 1, 0).applyQuaternion(quat);
       this.camera.up.copy(_up);
       // Straight ahead, a touch down: the nose and the horizon both in view.
-      _look.set(EYE.x, EYE.y - 0.9, EYE.z + 20).applyQuaternion(quat).add(pos);
+      _look.set(eye.x, eye.y - 0.9, eye.z + 20).applyQuaternion(quat).add(pos);
       this.camera.lookAt(_look);
       this.pos.copy(this.camera.position);
     } else {
@@ -140,7 +144,7 @@ export class CameraRig {
       _fwd.set(0, 0, 1).applyQuaternion(this.airQuat);
       const yaw = Math.atan2(_fwd.x, _fwd.z) + this.orbitYaw;
       const pitch = Math.asin(clamp(_fwd.y, -1, 1));
-      const range = lerp(14, 17, clamp(speed / 80, 0, 1)) * this.zoom;
+      const range = lerp(base, base * 1.2, clamp(speed / 80, 0, 1)) * this.zoom;
       const elev = clamp(0.2 - pitch * 0.85 + this.orbitPitch, -1.2, 1.4);
       _pivot.set(0, 0.6, 0).applyQuaternion(quat).add(pos);
       const flat = Math.cos(elev) * range;

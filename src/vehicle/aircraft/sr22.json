@@ -410,5 +410,6 @@
   "limits": {
     "wingG": 5.7,
     "gearSink": 4.5
-  }
+  },
+  "restHeight": 1.15
 }

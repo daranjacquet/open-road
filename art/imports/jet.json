@@ -1,0 +1,258 @@
+{
+  "source": "art/sources/jet/f16d_block60.glb",
+  "credit": "\"General Dynamics F-16D Block 60\" by Muhamad Mirza Arrafi (https://sketchfab.com/3d-models/general-dynamics-f-16d-block-60-ea8edb08d79e4eafa9c794c581f88cf3), CC BY 4.0 (marked as generated with AI on Sketchfab), stores removed, modified",
+  "forward": "+Y",
+  "length": 15.06,
+  "origin": [
+    0,
+    2.1,
+    -1.15
+  ],
+  "drop": [
+    "^Object_17$",
+    "^Object_18$",
+    "^Object_21$"
+  ],
+  "materials": {
+    "paint": [
+      "^body\\.",
+      "^cft\\.",
+      "^tail\\.",
+      "^cock\\.0"
+    ],
+    "glass": [
+      "^glass$"
+    ]
+  },
+  "parts": {
+    "glass": [
+      "^Object_19$"
+    ]
+  },
+  "split": {
+    "wheelN": {
+      "from": "body",
+      "box": [
+        -0.4,
+        0.3,
+        -0.01,
+        0.66,
+        1.95,
+        2.7
+      ]
+    },
+    "wheelL": {
+      "from": "body",
+      "box": [
+        0.88,
+        1.6,
+        -0.01,
+        0.74,
+        -2.25,
+        -1.38
+      ]
+    },
+    "wheelR": {
+      "from": "body",
+      "box": [
+        -1.6,
+        -0.88,
+        -0.01,
+        0.74,
+        -2.25,
+        -1.38
+      ]
+    },
+    "gearN": {
+      "from": "body",
+      "box": [
+        -0.45,
+        0.35,
+        -0.01,
+        0.95,
+        1.3,
+        2.8
+      ]
+    },
+    "gearL": {
+      "from": "body",
+      "box": [
+        0.55,
+        1.65,
+        -0.01,
+        0.95,
+        -2.45,
+        -1.25
+      ]
+    },
+    "gearR": {
+      "from": "body",
+      "box": [
+        -1.65,
+        -0.55,
+        -0.01,
+        0.95,
+        -2.45,
+        -1.25
+      ]
+    },
+    "rudder": {
+      "from": "body",
+      "box": [
+        -0.35,
+        0.35,
+        3.3,
+        5.0,
+        -7.7,
+        -6.6
+      ]
+    },
+    "tailV": {
+      "from": "body",
+      "box": [
+        -0.35,
+        0.35,
+        3.25,
+        5.6,
+        -7.7,
+        -3.4
+      ]
+    },
+    "wingL": {
+      "from": "body",
+      "box": [
+        1.25,
+        5.2,
+        1.55,
+        2.45,
+        -3.74,
+        1.6
+      ]
+    },
+    "wingR": {
+      "from": "body",
+      "box": [
+        -5.2,
+        -1.25,
+        1.55,
+        2.45,
+        -3.74,
+        1.6
+      ]
+    },
+    "tailH": {
+      "from": "body",
+      "boxes": [
+        [
+          1.15,
+          3.1,
+          1.4,
+          2.6,
+          -7.7,
+          -3.75
+        ],
+        [
+          -3.1,
+          -1.15,
+          1.4,
+          2.6,
+          -7.7,
+          -3.75
+        ]
+      ]
+    },
+    "lensL": {
+      "from": "glass",
+      "box": [
+        1.4,
+        5.2,
+        1.4,
+        2.6,
+        -3.74,
+        1.6
+      ]
+    },
+    "lensR": {
+      "from": "glass",
+      "box": [
+        -5.2,
+        -1.4,
+        1.4,
+        2.6,
+        -3.74,
+        1.6
+      ]
+    }
+  },
+  "controls": {
+    "aileronL": {
+      "from": "wingL",
+      "x": [
+        1.3,
+        3.3
+      ],
+      "hinge": [
+        [
+          1.3,
+          -2.85
+        ],
+        [
+          3.3,
+          -2.85
+        ]
+      ]
+    },
+    "aileronR": {
+      "from": "wingR",
+      "x": [
+        1.3,
+        3.3
+      ],
+      "hinge": [
+        [
+          1.3,
+          -2.85
+        ],
+        [
+          3.3,
+          -2.85
+        ]
+      ]
+    }
+  },
+  "rudder": [
+    "rudder"
+  ],
+  "parents": {
+    "aileronL": "wingL",
+    "aileronR": "wingR",
+    "rudder": "tailV",
+    "wheelN": "gearN",
+    "wheelL": "gearL",
+    "wheelR": "gearR",
+    "lensL": "wingL",
+    "lensR": "wingR"
+  },
+  "spin": {
+    "tailH": [
+      1,
+      0,
+      0
+    ],
+    "wheelN": [
+      1,
+      0,
+      0
+    ],
+    "wheelL": [
+      1,
+      0,
+      0
+    ],
+    "wheelR": [
+      1,
+      0,
+      0
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 # Open Road
 
-A browser driving sandbox built around **realistic car physics and crash damage**. A 4 km open world with mountains, country roads, a city, two circuits and places to visit, obstacles to wreck cars on, three detailed cars reworked in Blender, and a **Cirrus SR22 light aircraft** to fly from the airfield, with a flight model built surface by surface and wings, tail and gear that come off. Everything runs client-side: Three.js for rendering, Rapier (WASM) for rigid-body physics, and custom code for the tyres, drivetrain, aerodynamics, crumple zones and crash deformation.
+A browser driving sandbox built around **realistic car physics and crash damage**. A 4 km open world with mountains, country roads, a city, two circuits and places to visit, obstacles to wreck cars on, three detailed cars reworked in Blender, and an **F-16 Fighting Falcon** to fly from the airfield (afterburner, fly-by-wire, 9 g turns, Mach 1), with a flight model built surface by surface and wings, tail and gear that come off. Everything runs client-side: Three.js for rendering, Rapier (WASM) for rigid-body physics, and custom code for the tyres, drivetrain, aerodynamics, crumple zones and crash deformation.
 
 **Play:** https://daranjacquet.github.io/open-road/
 
@@ -14,7 +14,7 @@ A browser driving sandbox built around **realistic car physics and crash damage*
 | ![wall](docs/crash-sedan-wall.jpg) | ![pillar](docs/crash-offroad-pillar.jpg) |
 | **Torn-off bumper, bonnet sprung open** | **Side impact: doors pushed in and sprung, windows cracked** |
 | ![bumper](docs/crash-sedan-bumper.jpg) | ![side](docs/crash-offroad-side.jpg) |
-| **The SR22 climbing out of the airfield** | **Pulled hard at 210 kt: both wings fold off** |
+| **The SR22 (the first aircraft, now parked on the apron) climbing out** | **Pulled hard at 210 kt: both wings fold off** |
 | ![aircraft](docs/aircraft.jpg) | ![wings](docs/aircraft-wings.jpg) |
 
 ## Controls
@@ -35,7 +35,7 @@ A browser driving sandbox built around **realistic car physics and crash damage*
 | Orbit the camera around the car / zoom | hold right mouse button and move / wheel | |
 | Teleport to the next place | `T` (or the garage menu) | |
 | Map (click a place to go there) | `N` | |
-| Next vehicle: the cars, then the SR22 (keeps your position, attitude, speed and spin, upside down included) | `V` (or the menu) | |
+| Next vehicle: the cars, then the F-16 (keeps your position, attitude, speed and spin, upside down included) | `V` (or the menu) | |
 | Reset the parked target cars | `B` | |
 | Mute | `M` | |
 | Debug overlay | `F3` | |
@@ -44,32 +44,30 @@ A browser driving sandbox built around **realistic car physics and crash damage*
 
 The gearbox is automatic by default (manual in the garage). The steering is assisted: holding a direction asks the front tyres for their best grip, whatever the speed, and the wheels countersteer by themselves when the rear slides. You can turn every aid down in the garage.
 
-### Flying the SR22
+### Flying the F-16
 
-The aircraft waits at the start of **runway 27** at the airfield (or teleport to *Fly the SR22*). Drive up to it and press `Enter`; press `Enter` again, stopped on the ground, to get out (your car waits beyond the left wing tip).
+The fighter waits at the start of **runway 27** at the airfield (or teleport to *Fly the F-16*). Drive up to it and press `Enter`; press `Enter` again, stopped on the ground, to get out (your car waits beyond the left wing tip).
 
 | Action | Keyboard | Gamepad |
 | --- | --- | --- |
 | Stick back (nose up) / forward (nose down) | `S` `Down` / `W` `Up` | left stick |
-| Roll left / right (ailerons; steers the nose wheel on the ground) | `A` `D` / `Left` `Right` | left stick |
-| Rudder left / right | `Q` / `E` | `LB` / `RB` |
-| Throttle up / down (the lever stays where you leave it) | hold `Shift` / `Ctrl` | right / left trigger |
-| Flaps 0, 50, 100 % (`Shift+X` back a notch) | `X` | `X` |
-| Wheel brakes | `Space` | `A` |
+| Roll left / right (steers the nose wheel on the ground) | `A` `D` / `Left` `Right` | left stick |
+| Rudder left / right (pivots on the spot at a standstill) | `Q` / `E` | `LB` / `RB` |
+| Throttle up / down (the lever stays where you leave it; the afterburner lights past 85 %) | hold `Shift` / `Ctrl` | right / left trigger |
+| Wheel brakes on the ground, air brake in the air | `Space` | `A` |
 | View: chase or cockpit | `C` | `B` |
-| Stall protection on / off | `P` | |
-| Boosted engine (power x4, default) / stock engine | `B` | |
+| Boosted engine (thrust x2) / stock engine (default) | `B` | |
 | Arcade flight (default) / simulation | `H` | |
 | Back to runway 27, repaired | `R` | `Y` |
 | Repair in place | `F` | |
 
-A normal flight: flaps 50 % (`X`), full power (`Shift`), keep straight with `Q`/`E`, ease the stick back at about 65 kt and let go once the nose is 8 to 10 degrees up; it lifts off after about 280 m and climbs at 1,000 to 1,200 ft/min. Flaps up above 300 ft. It cruises at about 160 kt at 75 % power. To land, come back to **runway 09** from the west (the hills east of the airfield rise to 180 m): power to about 20 to 30 %, full flaps, 70 to 75 kt on a 3-degree slope (the PAPI left of the runway shows two white and two red lights), power off and flare over the threshold. It stops in about 200 m with the brakes.
+A take-off: full throttle with the afterburner (`Shift` held to 100 %), keep straight with `Q`/`E`, stick back from about 270 km/h; it lifts off after about 330 m (500 m at military power, 85 %) and climbs away at 20 degrees. It goes about Mach 0.95 at sea level on dry power and just past Mach 1 with the afterburner (Rapier caps every body at 400 m/s, Mach 1.18). To land, come back to **runway 09** from the west (the hills east of the airfield rise to 180 m) at about 300 km/h, power back, air brake if fast; the brakes stop it in a few hundred metres.
 
-**Arcade flight** is on by default (`H` switches to the simulation): the stick asks for a rotation rate and the aircraft turns at it, without stalling and without trim to manage; let go of the stick and it keeps its attitude, let go of the roll keys and the wings come back level; above 60 m nothing limits the nose, so holding the stick back loops (about 9 s at full boosted power); at a standstill on the ground the rudder keys pivot the aircraft; and flying never breaks the aircraft, however fast (only crashes do; the wings' load limit applies in the simulation). The rest of this section describes the simulation.
+**Arcade flight** is on by default (`H` switches to the simulation): the stick asks for a rotation rate and the fighter turns at it, without stalling: it rolls at 250 degrees a second and holds the bank you leave it in, pulls up to 9 g at speed, and loops in a few seconds above 60 m; at a standstill on the ground the rudder keys pivot it; and flying never breaks it, however fast (only crashes do).
 
-Aids: **auto-trim** holds the attitude whenever you let go of the stick, **coordinated rudder** keeps the slip ball centred in the air, and with the keyboard the **stall protection** (`P`) stops the elevator just short of the stall (a gamepad flies without it). The wings can still be pulled past their load limit at high speed.
+In the **simulation** the surfaces fly it, through a fly-by-wire law like the real one: the stick asks for a load factor (centred 1 g, full back 9 g, full forward -3 g) and the flight computer moves the all-moving tailplane to hold it, with an angle-of-attack limiter at 25 degrees. Without it, a full pull at 1,000 km/h would reach 20 g and fold the wings.
 
-The instruments (bottom right): attitude indicator, airspeed in km/h, altitude in feet, vertical speed, heading, load factor, rpm, throttle, flaps, and a stall warning that flashes and sounds a horn about 8 kt before the stall. Bottom left, a top view of the aircraft shows each part that has come off.
+The instruments (bottom right): attitude indicator, airspeed in km/h and Mach, altitude in feet, vertical speed, heading, load factor, engine spool (N, % rpm), throttle, the afterburner light. Bottom left, a top view of the fighter shows each part that has come off.
 
 ### Garage
 
@@ -92,7 +90,7 @@ A 4 km x 4 km world with hills, a mountain range and a ring of peaks at the edge
 - **Rally stage** (2.6 km): from the city's north edge to the loop under the mountains, through wooded hills (70 m of climbing), asphalt and gravel in turn, timed between a START and a FINISH gantry. **Forest trail** (1.5 km): a narrow gravel track up and down the steep hills along the west edge (grades up to 20 %), for the 4x4 and rally setups, timed too. Both are on the map and in the teleports; best times are kept per car.
 - **Places**: a **lake village** with a church and a harbour jetty you can drive onto, a petrol station, an **airfield** (below), a **farm** among fields, a **quarry** with jumps and dirt mounds, the **summit viewpoint**.
 - **Airfield**: runway 09/27, 1,320 m by 45 m, marked like a real one (threshold stripes, runway numbers, touchdown zone, aiming points, centre line, edges), blast pads with yellow chevrons, edge, threshold, runway-end and approach lights, a **PAPI** at each end whose four lights really turn white or red with your angle above the approach, windsocks, a parallel taxiway with its centre line, blue edge lights, holding points and red runway signs, an apron with parking stands and two parked SR22s, hangars and a control tower. The approaches are clear of trees. Cars can use the runway for top-speed runs.
-- **Skyscrapers that come down**: the twin towers, the landmark tower and the high-rises of 60 m and more. Their ground floor is a ring of wall sections around a core: crash into one hard enough and it caves in (the car's kinetic energy against the section's strength, the rest carrying to its neighbours): from about 60 km/h a section goes, and around 100 km/h a 70 m high-rise comes down in one hit (the twin towers take a couple of 200 km/h hits). Lose a whole side, or almost a third of the ring, and the tower falls: it breaks into pieces about 8 to 20 m across (storey slices cut into wedges around the axis, each split again halfway out, up to about 320 per tower) that lean over towards the side that gave way and come down through the city in a cloud of dust, crushing whatever is under them. The pieces of a collapse are drawn together in one batched mesh per material (a few draw calls for hundreds of pieces), and rubble that has settled turns static, so a fallen tower costs almost nothing after about ten seconds. **Fly the SR22 into one** (from about 65 kt, anywhere from 5 m up) and it breaks where it was hit: the top falls over the way the aircraft was flying, and a couple of seconds later the stump and the ground floor come down too. The aircraft does not stop dead: it flies on through the tower with the energy breaking it did not take, and through the falling blocks (except on the twin towers, `passThrough: false`). Behind the ground-floor wall is the concrete core, so a car that knocks a section in stops there instead of driving on under the tower. Each tower has a rule saying which vehicles can break it (`breakers` in `src/world/skyscrapers.ts`): all of them by default, cars only for the twin towers (the game does not stage the September 11 attacks). Rubble that has settled turns static (cars bump into it), but the aircraft knocks it loose: whatever it hits and the settled pieces within 25 m come free again, so a piece left balanced on the pile can be brought down. Teleporting anywhere puts every tower back up. The other buildings are solid.
+- **Skyscrapers that come down**: the twin towers, the landmark tower and the high-rises of 60 m and more. Their ground floor is a ring of wall sections around a core: crash into one hard enough and it caves in (the car's kinetic energy against the section's strength, the rest carrying to its neighbours): from about 60 km/h a section goes, and around 100 km/h a 70 m high-rise comes down in one hit (the twin towers take a couple of 200 km/h hits). Lose a whole side, or almost a third of the ring, and the tower falls: it breaks into pieces about 8 to 20 m across (storey slices cut into wedges around the axis, each split again halfway out, up to about 320 per tower) that lean over towards the side that gave way and come down through the city in a cloud of dust, crushing whatever is under them. The pieces of a collapse are drawn together in one batched mesh per material (a few draw calls for hundreds of pieces), and rubble that has settled turns static, so a fallen tower costs almost nothing after about ten seconds. **Fly the F-16 into one** (from about 65 kt, anywhere from 5 m up) and it breaks where it was hit: the top falls over the way the aircraft was flying, and a couple of seconds later the stump and the ground floor come down too. The aircraft does not stop dead: it flies on through the tower with the energy breaking it did not take, and through the falling blocks (except on the twin towers, `passThrough: false`). Behind the ground-floor wall is the concrete core, so a car that knocks a section in stops there instead of driving on under the tower. Each tower has a rule saying which vehicles can break it (`breakers` in `src/world/skyscrapers.ts`): all of them by default, cars only for the twin towers (the game does not stage the September 11 attacks). Rubble that has settled turns static (cars bump into it), but the aircraft knocks it loose: whatever it hits and the settled pieces within 25 m come free again, so a piece left balanced on the pile can be brought down. Teleporting anywhere puts every tower back up. The other buildings are solid.
 - **Forests** of about 50,000 trees (you can hit them), thicker on the hills and mountains.
 - **Ground**: grass, forest floor, fields, dirt, sand, rock and snow blended over the terrain. Close up, grass shows tufts and blades and dirt shows grain and pebbles, with relief that catches the light; from the driving seat, coarser tufts and patches of drier or lusher grass and damp earth. Dirt tracks are brown earth with two packed wheel tracks, a looser crown and grass coming through at the edges. All of it comes from one procedural texture set made at load (`src/world/groundtex.ts`).
 - **Grand Prix circuit**: 2.9 km, 14 m wide, long main straight, hairpin, esses, kerbs, armco and a start gantry.
@@ -116,7 +114,7 @@ src/
   main.ts    boot only: builds the systems below and hands them to Game
   core/      fixed-step loop, Rapier setup (with the surface lookup), input, math
   vehicle/   Vehicle.ts (suspension, tyres, drivetrain, assists), SteeringController, tuning, car JSON configs;
-             aircraft/ (Aircraft.ts: surfaces, propeller, gear, structure; sr22.json)
+             aircraft/ (Aircraft.ts: surfaces, propeller or jet, gear, structure, fly-by-wire; f16.json, sr22.json)
   damage/    crumple zones, dents, mechanical damage, detachable parts
   render/    scene, camera (car and aircraft views), adaptive resolution, GLB car and aircraft loaders,
              paint/glass shaders, effects, smoke
@@ -161,15 +159,15 @@ The three cars are hand-made models from Sketchfab (CC BY 4.0, see [CREDITS.md](
 - 30 to 43 meshes per car (the old procedural cars had about 100) and 1.4 to 1.5 MB per car with textures.
 
 ### Flight
-The aircraft is one Rapier rigid body whose mass (1,541 kg), centre of mass and inertia come from eleven boxes laid over the model (cabin, engine, tail cone, two boxes per wing, tailplane, fin). Nothing about its handling is scripted: it comes out of where the lifting surfaces sit.
+The F-16 is one Rapier rigid body whose mass (12,160 kg, about the real one with half its fuel), centre of mass and inertia come from nine boxes laid over the model (nose and cockpit, centre fuselage, engine, two boxes per wing, tailplane, fin). Nothing about its handling is scripted: it comes out of where the lifting surfaces sit, and the controller only asks for rates or g.
 
-- **Six lifting surfaces** (inner and outer panel of each wing, tailplane, fin) placed on the model's measured planform: 13.4 m2 of wing with 4 degrees of dihedral, the tailplane 4 m behind the wing. Each works out its own airflow every 120 Hz step, the body's rotation included (so it damps itself), then its angle of attack, a lift curve that is linear up to the stall and blends into a flat plate's past it, profile and induced drag, and its pitching moment. Downwash from the wing reaches the tailplane.
-- **Controls** add lift to their surface: ailerons on the outer panels, slotted flaps on the inner panels (more lift and a higher maximum, at a lower angle), elevator and rudder. They move at the rate of real actuators.
-- **Ground effect**: within a span of the ground the wing gets a little more lift and much less induced drag, so the aircraft floats in the flare.
-- **Propeller**: thrust limited by the static thrust at low speed and by the power (231 kW, 78 % efficiency) above it; rpm follows the throttle and the airspeed; a prop that touches the ground is gone.
-- **Gear**: three raycast struts (spring, damper, bump stop) with tyres, rolling resistance, brakes on the mains and a nose wheel steered by the rudder and the roll keys, less at speed.
-- **Numbers** (measured by `tests/aircraft.test.ts`): lift-off after 280 m with flaps 50 % (SR22: about 300 m), climb 1,000 to 1,200 ft/min, cruise 165 kt at 75 % power, clean stall at 66 kt with the nose dropping (SR22: 70 kt), stall warning at 74 kt, a 3-degree approach with full flaps touching down at 0.9 m/s and stopping in about 200 m.
-- **Damage**: a wing that carries more than its limit load (5.7 g of the aircraft's weight) for 80 ms folds; parts take impacts (contact forces from Rapier, summed as impulse) and a wing, the tailplane or the fin tears off past its strength; a gear leg that meets the ground faster than 4.5 m/s collapses; the propeller breaks on a strike; hits on the nose cut the engine's power until it stops and smokes; a main gear leg, mounted in its wing, goes with the wing. A part that comes off leaves with its mass (the balance shifts), its lift (a missing wing rolls the aircraft over), and flies on as its own body with the velocity it had.
+- **Six lifting surfaces** (inner and outer panel of each wing, the stabilator, the fin) placed on the model's measured planform: 27.8 m2 of wing (F-16: 27.87), the stabilators 5.9 m2 and the fin 5.1 m2. Each works out its own airflow every 120 Hz step, the body's rotation included (so it damps itself), then its angle of attack, a lift curve that is linear up to the stall and blends into a flat plate's past it, profile and induced drag, and its pitching moment. Downwash from the wing reaches the tailplane. The centre of mass sits at about 30 % of the mean chord, statically stable by about 0.46 m.
+- **Engine**: a turbofan of 76 kN dry and 127 kN with the afterburner (F100-PW-229: 79 and 129 kN), whose rpm spools up in a couple of seconds; the drag rises 4.4 times through Mach 0.85 to 1.05 (wave drag); the air brake adds 1.2 m2 of drag area.
+- **Controls**: flaperons on the inner panels for the roll, the whole tailplane (a stabilator) for the pitch, the rudder; they move at the rate of real actuators. The arcade controller pushes with the aircraft's inertia about its own axes (Rapier gives it in its principal frame, whose axes can come in any order).
+- **Ground effect**: within a span of the ground the wing gets a little more lift and much less induced drag.
+- **Gear**: three raycast struts (spring, damper, bump stop) with tyres, rolling resistance, brakes on the mains and a nose wheel steered by the rudder and the roll keys, less at speed; 16 % of the weight on the nose wheel.
+- **Numbers** (measured by `tests/f16.test.ts`): lift-off within 450 m with the afterburner and 650 m at military power, top speed Mach 0.85 to 1.0 dry and 1.0 to 1.15 with the afterburner at sea level, roll rate 200 to 300 degrees a second, full pull 7.5 to 10.5 g with nothing breaking, in the arcade and in the simulation. The SR22's flight model (`sr22.json`) is still there and still tested (`tests/aircraft.test.ts`); the two parked on the apron use its boxes.
+- **Damage**: parts take impacts (contact forces from Rapier, summed as impulse) and a wing, the tailplane or the fin tears off past its strength; a gear leg that meets the ground faster than 4 m/s collapses; hits on the engine cut its power until it stops and smokes; a main gear leg, mounted in its wing, goes with the wing, and so does the wingtip light. In the simulation a wing pulled past 13.5 g folds (the fly-by-wire stops short of it). A part that comes off leaves with its mass (the balance shifts), its lift (a missing wing rolls the aircraft over), and flies on as its own body with the velocity it had.
 
 ### Crash damage
 Full soft-body simulation (BeamNG style) is too heavy for a browser, so damage is split in two:
@@ -196,7 +194,7 @@ Measured on a Mac with a 120 Hz display (production build, Chromium in the Claud
 | Draw calls | 250 to 450 (city and test area are the busiest) |
 | Triangles | 450k to 650k |
 | Loading | about 0.9 s from scripts to the first frame (the world is built in a worker meanwhile) |
-| Download | 325 kB app + 111 kB world worker + 680 kB three + 4.3 MB Rapier + the cars on screen (meshopt); the aircraft (1 MB) loads after the first frame |
+| Download | 325 kB app + 111 kB world worker + 680 kB three + 4.3 MB Rapier + the cars on screen (meshopt); the F-16 (1.9 MB) and the parked SR22 (1 MB) load after the first frame |
 
 I have not measured on a modest PC; the render resolution adapts to the frame rate. See [docs/AUDIT.md](docs/AUDIT.md) for the details.
 
@@ -210,7 +208,7 @@ I have not measured on a modest PC; the render resolution adapts to the frame ra
 - **Handling was tuned with headless simulations**, not by a human driver: full-lock corners from 60 to 180 km/h, slaloms, handbrake flicks and a keyboard-style drifter that only presses keys fully (`tests/handling.test.ts`).
 - **Falling towers** break along fixed storey and quarter cuts into big blocks (30 m on the twin towers), not into rubble; the blocks stay where they land until you teleport.
 - **World.** No traffic and no pedestrians. The whole world is built at load (terrain in a worker, about 1 s in all); no streaming. Trees and the terrain far away use simpler models.
-- **Aircraft**: no wind or turbulence, no fuel, no engine failures other than impact damage, a fixed-pitch-style propeller model (the SR22's is constant speed), and no spin model beyond what the surfaces give (the aircraft spins, but not like the real one). The wheels sit in fairings and do not turn visibly. The fuselage itself never breaks: wings, tail, gear and propeller do. An aircraft brings the skyscrapers down, except the twin towers (only cars can). Runway 27 cannot be approached from the east: the hills are in the way.
+- **Aircraft**: no wind or turbulence, no fuel, no weapons, no engine failures other than impact damage, no thrust lapse with speed or height, and no spin model beyond what the surfaces give. The real F-16 is statically unstable and flies only through its computer; this one is stable, with a simpler fly-by-wire law. The gear does not retract and the wheels do not turn visibly. Rapier caps speeds at 400 m/s (Mach 1.18), so it never reaches its real Mach 2. The fuselage itself never breaks: wings, tail and gear do. An aircraft brings the skyscrapers down, except the twin towers (only cars can). Runway 27 cannot be approached from the east: the hills are in the way.
 - **Flight handling** was tuned with headless test flights (takeoff, climb, cruise, stall, a 3-degree approach and landing, overload, hard landing), not by a human pilot.
 - Skid marks only on asphalt. Audio is synthesised and simple.
 

@@ -1,0 +1,409 @@
+{
+  "name": "F-16",
+  "surfaces": [
+    {
+      "name": "wingInnerL",
+      "part": "wingL",
+      "pos": [
+        1.7,
+        -0.15,
+        0.5
+      ],
+      "normal": [
+        0,
+        1,
+        0
+      ],
+      "span": [
+        1,
+        0,
+        0
+      ],
+      "area": 10.8,
+      "chord": 3.6,
+      "aspect": 3.2,
+      "cl0": 0,
+      "clAlpha": 4.2,
+      "clMax": 1.6,
+      "clMin": -1,
+      "cd0": 0.012,
+      "cm0": 0,
+      "control": "aileronL",
+      "controlCl": 0.9,
+      "controlMax": 0.36
+    },
+    {
+      "name": "wingOuterL",
+      "part": "wingL",
+      "pos": [
+        3.9,
+        -0.12,
+        -1
+      ],
+      "normal": [
+        0,
+        1,
+        0
+      ],
+      "span": [
+        1,
+        0,
+        0
+      ],
+      "area": 3.1,
+      "chord": 1.75,
+      "aspect": 3.2,
+      "cl0": 0,
+      "clAlpha": 4.2,
+      "clMax": 1.6,
+      "clMin": -1,
+      "cd0": 0.012,
+      "cm0": 0,
+      "control": "none",
+      "controlCl": 0,
+      "controlMax": 0
+    },
+    {
+      "name": "wingInnerR",
+      "part": "wingR",
+      "pos": [
+        -1.7,
+        -0.15,
+        0.5
+      ],
+      "normal": [
+        0,
+        1,
+        0
+      ],
+      "span": [
+        -1,
+        0,
+        0
+      ],
+      "area": 10.8,
+      "chord": 3.6,
+      "aspect": 3.2,
+      "cl0": 0,
+      "clAlpha": 4.2,
+      "clMax": 1.6,
+      "clMin": -1,
+      "cd0": 0.012,
+      "cm0": 0,
+      "control": "aileronR",
+      "controlCl": 0.9,
+      "controlMax": 0.36
+    },
+    {
+      "name": "wingOuterR",
+      "part": "wingR",
+      "pos": [
+        -3.9,
+        -0.12,
+        -1
+      ],
+      "normal": [
+        0,
+        1,
+        0
+      ],
+      "span": [
+        -1,
+        0,
+        0
+      ],
+      "area": 3.1,
+      "chord": 1.75,
+      "aspect": 3.2,
+      "cl0": 0,
+      "clAlpha": 4.2,
+      "clMax": 1.6,
+      "clMin": -1,
+      "cd0": 0.012,
+      "cm0": 0,
+      "control": "none",
+      "controlCl": 0,
+      "controlMax": 0
+    },
+    {
+      "name": "stabilator",
+      "part": "tailH",
+      "pos": [
+        0,
+        -0.23,
+        -4.95
+      ],
+      "normal": [
+        0,
+        1,
+        0
+      ],
+      "span": [
+        1,
+        0,
+        0
+      ],
+      "area": 5.92,
+      "chord": 1.6,
+      "aspect": 5.8,
+      "cl0": -0.12,
+      "clAlpha": 3.5,
+      "clMax": 1.2,
+      "clMin": -1.2,
+      "cd0": 0.012,
+      "cm0": 0,
+      "control": "elevator",
+      "controlCl": 3,
+      "controlMax": 0.44
+    },
+    {
+      "name": "fin",
+      "part": "tailV",
+      "pos": [
+        0,
+        2.16,
+        -4.5
+      ],
+      "normal": [
+        1,
+        0,
+        0
+      ],
+      "span": [
+        0,
+        1,
+        0
+      ],
+      "area": 5.09,
+      "chord": 2.2,
+      "aspect": 1.3,
+      "cl0": 0,
+      "clAlpha": 2.2,
+      "clMax": 1,
+      "clMin": -1,
+      "cd0": 0.012,
+      "cm0": 0,
+      "control": "rudder",
+      "controlCl": 1.4,
+      "controlMax": 0.52
+    }
+  ],
+  "gear": [
+    {
+      "name": "nose",
+      "part": "gearN",
+      "pos": [
+        -0.11,
+        -1.64,
+        3.36
+      ],
+      "travel": 0.3,
+      "radius": 0.26,
+      "k": 240000,
+      "c": 16000,
+      "steer": true,
+      "brake": false
+    },
+    {
+      "name": "mainL",
+      "part": "gearL",
+      "pos": [
+        1.12,
+        -1.6,
+        -0.67
+      ],
+      "travel": 0.3,
+      "radius": 0.35,
+      "k": 620000,
+      "c": 42000,
+      "steer": false,
+      "brake": true
+    },
+    {
+      "name": "mainR",
+      "part": "gearR",
+      "pos": [
+        -1.12,
+        -1.6,
+        -0.67
+      ],
+      "travel": 0.3,
+      "radius": 0.35,
+      "k": 620000,
+      "c": 42000,
+      "steer": false,
+      "brake": true
+    }
+  ],
+  "colliders": [
+    {
+      "part": "fuselage",
+      "center": [
+        0,
+        0.25,
+        5.4
+      ],
+      "half": [
+        0.7,
+        0.95,
+        3.25
+      ],
+      "mass": 2600
+    },
+    {
+      "part": "fuselage",
+      "center": [
+        0,
+        0,
+        -0.05
+      ],
+      "half": [
+        1.25,
+        1.1,
+        2.2
+      ],
+      "mass": 5100
+    },
+    {
+      "part": "engine",
+      "center": [
+        0,
+        0.2,
+        -4.3
+      ],
+      "half": [
+        0.8,
+        0.9,
+        2.05
+      ],
+      "mass": 2600
+    },
+    {
+      "part": "wingL",
+      "center": [
+        2.125,
+        -0.15,
+        -0.2
+      ],
+      "half": [
+        0.875,
+        0.12,
+        2.05
+      ],
+      "mass": 500
+    },
+    {
+      "part": "wingL",
+      "center": [
+        3.95,
+        -0.12,
+        -1.05
+      ],
+      "half": [
+        0.95,
+        0.08,
+        1.2
+      ],
+      "mass": 180
+    },
+    {
+      "part": "wingR",
+      "center": [
+        -2.125,
+        -0.15,
+        -0.2
+      ],
+      "half": [
+        0.875,
+        0.12,
+        2.05
+      ],
+      "mass": 500
+    },
+    {
+      "part": "wingR",
+      "center": [
+        -3.95,
+        -0.12,
+        -1.05
+      ],
+      "half": [
+        0.95,
+        0.08,
+        1.2
+      ],
+      "mass": 180
+    },
+    {
+      "part": "tailH",
+      "center": [
+        0,
+        -0.23,
+        -4.85
+      ],
+      "half": [
+        2.93,
+        0.12,
+        1.33
+      ],
+      "mass": 300
+    },
+    {
+      "part": "tailV",
+      "center": [
+        0,
+        2.16,
+        -4.6
+      ],
+      "half": [
+        0.12,
+        1.13,
+        1.78
+      ],
+      "mass": 200
+    }
+  ],
+  "bodyDragArea": 0.25,
+  "transonicDrag": 3.4,
+  "airbrakeArea": 1.2,
+  "span": 9.45,
+  "engine": {
+    "kind": "jet",
+    "staticThrust": 76000,
+    "afterburnerThrust": 127000,
+    "power": 1,
+    "efficiency": 1,
+    "idleRpm": 60,
+    "maxRpm": 100,
+    "pos": [
+      0,
+      -0.05,
+      -6.05
+    ],
+    "radius": 0
+  },
+  "brakeMu": 0.6,
+  "steerLock": 0.55,
+  "limits": {
+    "wingG": 13.5,
+    "gearSink": 4
+  },
+  "fbw": {
+    "rollRate": 4.4,
+    "pitchG": 9,
+    "pitchRate": 0.65,
+    "yawRate": 0.35,
+    "levelWings": false,
+    "groundPitch": 0.22,
+    "cornerSpeed": 140
+  },
+  "restHeight": 2.16,
+  "camera": {
+    "eye": [
+      0,
+      0.9,
+      3.7
+    ],
+    "range": 22
+  }
+}

@@ -13,9 +13,11 @@ sits at (0, 0, 0):
       "materials": {"paint": ["^Meshpart2Mtl$"]},   # rename source materials (textures kept)
       "parts": {"prop": ["Object_11"]},             # whole objects -> part
       "split": {"wheelL": {"from": "body", "box": [x0, x1, y0, y1, z0, z1]}},     # faces in a box
+                                                    # ("boxes": [[...], [...]] for several)
       "controls": {"aileronL": {"from": "wingL", "x": [3.3, 5.8], "hinge": [[x, z], [x, z]],
                    "y": [y0, y1]}},                 # faces behind a hinge line -> hinged part
       "parents": {"aileronL": "wingL"},             # part hierarchy in the game
+      "drop": ["^Object_17$"],                      # source objects left out (weapons, stray bits)
       "spin": {"prop": [0, 0, 1], "wheelL": [1, 0, 0]}   # axes the game spins these about
     }
 
@@ -228,6 +230,9 @@ def main():
     spec = json.load(open(os.path.join(HERE, "imports", f"{pid}.json")))
     bpy.ops.wm.read_factory_settings(use_empty=True)
     load_any(os.path.join(ROOT, spec["source"]))
+    # Objects the game leaves out (weapons and stores, stray bits), before anything is measured.
+    for o in [o for o in meshes() if any_match(spec.get("drop", []), o.name)]:
+        bpy.data.objects.remove(o, do_unlink=True)
     apply_all_transforms()
     orient_and_scale(spec.get("forward", "-Y"), spec.get("length"))
     rename_materials(spec.get("materials", {}))
@@ -246,7 +251,10 @@ def main():
     parts["body"] = join(rest, "body")
     for name, s in spec.get("split", {}).items():
         src = parts.get(s.get("from", "body"))
-        o = split_faces(src, in_box(s["box"]), name) if src else None
+        # One box, or several ("boxes"): a part made of separate pieces (both stabilators).
+        boxes = [in_box(b) for b in s.get("boxes", [s.get("box")]) if b]
+        test = lambda x, y, z, boxes=boxes: any(f(x, y, z) for f in boxes)  # noqa: E731
+        o = split_faces(src, test, name) if src else None
         if o:
             parts[name] = o
     for name, s in spec.get("controls", {}).items():

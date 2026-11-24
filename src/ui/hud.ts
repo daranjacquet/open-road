@@ -9,7 +9,7 @@ import { Minimap } from './minimap';
 // Letters in brackets are key positions (QWERTY names): the help shows what the player's keyboard
 // has printed there (A/E rather than Q/E on an AZERTY keyboard).
 const CAR_HELP = '[W]/[S] gas, brake, reverse &middot; [A]/[D] steer (turn the car in the air too) &middot; Space handbrake &middot; [Q]/[E] shift (manual) &middot; [F] repair &middot; [G] garage &middot; [T] teleport &middot; [N] map &middot; right-drag camera &middot; [R] flip &middot; Shift+[R] reset &middot; [C] camera &middot; [V] next vehicle (cars, then the aircraft) &middot; [B] targets &middot; [M] mute';
-const PLANE_HELP = '[S]/[W] pitch up, down &middot; [A]/[D] roll &middot; [Q]/[E] rudder (pivots at a standstill) &middot; Shift/Ctrl throttle &middot; [X] flaps &middot; Space brakes &middot; Enter get out (stopped) &middot; [C] view &middot; [P] stall protection &middot; [V] next vehicle &middot; [B] boost/stock engine &middot; [H] arcade/simulation &middot; right-drag camera &middot; [F] repair &middot; [R] back to runway 27 &middot; [T] teleport &middot; [N] map &middot; [M] mute';
+const PLANE_HELP = '[S]/[W] pitch up, down &middot; [A]/[D] roll &middot; [Q]/[E] rudder (pivots at a standstill) &middot; Shift/Ctrl throttle (afterburner past 85&nbsp;%) &middot; Space wheel brakes / air brake &middot; Enter get out (stopped) &middot; [C] view &middot; [V] next vehicle &middot; [B] boost/stock engine &middot; [H] arcade/simulation &middot; right-drag camera &middot; [F] repair &middot; [R] back to runway 27 &middot; [T] teleport &middot; [N] map &middot; [M] mute';
 
 /** Minimal driving HUD: speed, gear, rpm bar, assist lights. Updated at ~20 Hz. */
 export class Hud {

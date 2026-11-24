@@ -171,7 +171,7 @@ export class GameAudio {
 
   /**
    * Aircraft: a six-cylinder engine through the propeller (its blades pass at the firing rate, so
-   * the two blend into one drone), wind over the airframe from the airspeed, the stall horn, and
+   * the two blend into one drone) or a jet's rumble, whine and roar; wind over the airframe from the airspeed, the stall horn, and
    * the crash sounds of parts hitting things.
    */
   updateAircraft(ac: Aircraft, now: number, stallWarning: boolean): void {
@@ -185,13 +185,24 @@ export class GameAudio {
     const running = !ac.propBroken && ac.engineHealth > 0;
     const rpmN = clamp((st.rpm - e.idleRpm) / (e.maxRpm - e.idleRpm), 0, 1);
     const throttle = running ? ac.controls.throttle : 0;
-    const f = Math.max(8, (st.rpm / 60) * 3);
-    this.osc1.frequency.setTargetAtTime(f, t, 0.05);
-    this.osc2.frequency.setTargetAtTime(f * 2.0, t, 0.05);
-    this.engineFilter.frequency.setTargetAtTime(220 + rpmN * 900 + throttle * 700, t, 0.08);
-    this.engineGain.gain.setTargetAtTime(running ? 0.12 + 0.2 * throttle + 0.08 * rpmN : 0, t, 0.08);
-    // Propeller wash: broadband noise that grows with power.
-    this.noiseGain.gain.setTargetAtTime(running ? 0.08 + 0.22 * throttle * rpmN : 0.02 * rpmN, t, 0.1);
+    if (e.kind === 'jet') {
+      // Turbofan: a low rumble and the compressor's whine rising with the spool, under the roar of
+      // the exhaust (broadband noise), which the afterburner doubles.
+      const spool = running ? rpmN : 0;
+      this.osc1.frequency.setTargetAtTime(42 + spool * 30, t, 0.2);
+      this.osc2.frequency.setTargetAtTime(1400 + spool * 2600, t, 0.3);
+      this.engineFilter.frequency.setTargetAtTime(900 + spool * 3200, t, 0.2);
+      this.engineGain.gain.setTargetAtTime(running ? 0.05 + 0.07 * spool : 0, t, 0.2);
+      this.noiseGain.gain.setTargetAtTime(running ? 0.1 + 0.25 * spool + (st.afterburner ? 0.3 : 0) : 0, t, 0.25);
+    } else {
+      const f = Math.max(8, (st.rpm / 60) * 3);
+      this.osc1.frequency.setTargetAtTime(f, t, 0.05);
+      this.osc2.frequency.setTargetAtTime(f * 2.0, t, 0.05);
+      this.engineFilter.frequency.setTargetAtTime(220 + rpmN * 900 + throttle * 700, t, 0.08);
+      this.engineGain.gain.setTargetAtTime(running ? 0.12 + 0.2 * throttle + 0.08 * rpmN : 0, t, 0.08);
+      // Propeller wash: broadband noise that grows with power.
+      this.noiseGain.gain.setTargetAtTime(running ? 0.08 + 0.22 * throttle * rpmN : 0.02 * rpmN, t, 0.1);
+    }
     this.squealGain.gain.setTargetAtTime(0, t, 0.05);
     const v = st.airspeed;
     this.windFilter.frequency.setTargetAtTime(300 + v * 9, t, 0.2);
