@@ -96,30 +96,52 @@ describe('F-16 flight model', () => {
     expect(wet).toBeLessThan(1.15);
   });
 
-  it('rolls at about 250 degrees a second, pulls 9 g, holds its bank, and nothing breaks', async () => {
+  it('arcade, GTA style: rolls at about 180 degrees a second and holds its bank, loops in about 5 s, nothing breaks', async () => {
     const { ac, input, step } = await setup(3000, 250);
     input.throttle = 0.9;
     for (let i = 0; i < 60; i++) step();
     input.roll = 1;
     for (let i = 0; i < 60; i++) step();
-    expect(rates(ac).z * 57.3).toBeGreaterThan(200);
-    expect(rates(ac).z * 57.3).toBeLessThan(300);
+    expect(rates(ac).z * 57.3).toBeGreaterThan(150);
+    expect(rates(ac).z * 57.3).toBeLessThan(230);
     // Let go mid-roll: a fighter holds the bank it has (no wing leveller).
     input.roll = 0;
     for (let i = 0; i < 120; i++) step();
     expect(Math.abs(rates(ac).z)).toBeLessThan(0.1);
     const x = new THREE.Vector3(1, 0, 0).applyQuaternion(ac.currQuat);
     expect(Math.abs(x.y)).toBeGreaterThan(0.2);
-    // Full pull: about 9 g at 250 m/s, no wing folds in arcade flight.
+    // Full pull: the nose comes round at the same rate whatever the speed (about 75 degrees a
+    // second), and in arcade flight no wing folds from it.
     input.pitch = 1;
-    let g = 0;
-    for (let i = 0; i < 360; i++) {
-      step();
-      g = Math.max(g, ac.state.g);
-    }
-    expect(g).toBeGreaterThan(7.5);
-    expect(g).toBeLessThan(10.5);
+    for (let i = 0; i < 120; i++) step();
+    expect(-rates(ac).x * 57.3).toBeGreaterThan(60);
+    for (let i = 0; i < 240; i++) step();
     expect(broken(ac)).toEqual([]);
+  });
+
+  it('arcade: goes where the nose points, and a bank alone turns it round', async () => {
+    const { ac, input, step } = await setup(2000, 200);
+    input.throttle = 0.85;
+    for (let i = 0; i < 120; i++) step();
+    const heading = (): number => {
+      const v = ac.body.linvel();
+      return Math.atan2(v.x, v.z) * 57.3;
+    };
+    const h0 = heading();
+    const y0 = ac.body.translation().y;
+    // Hold 70 degrees of bank for 6 s, no stick: it turns (it used to slide on the same way).
+    for (let i = 0; i < 120 * 6; i++) {
+      const b = Math.asin(new THREE.Vector3(1, 0, 0).applyQuaternion(ac.currQuat).y) * 57.3;
+      input.roll = Math.max(-1, Math.min(1, (70 - b) * 0.05));
+      step();
+    }
+    expect(Math.abs(heading() - h0)).toBeGreaterThan(100);
+    expect(Math.abs(ac.body.translation().y - y0)).toBeLessThan(60);
+    // The velocity stays within a few degrees of the nose.
+    const lv = ac.body.linvel();
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(ac.currQuat);
+    expect(new THREE.Vector3(lv.x, lv.y, lv.z).normalize().angleTo(fwd) * 57.3).toBeLessThan(6);
+    expect(ac.state.airspeed).toBeGreaterThan(180);
   });
 
   it('in the simulation too, the flight computer holds 1 g hands off and stops a full pull near 9 g', async () => {

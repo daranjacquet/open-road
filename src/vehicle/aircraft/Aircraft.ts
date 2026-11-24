@@ -11,7 +11,7 @@ const DOWNWASH = 0.4;
 /** Speed of sound (m/s), for the transonic drag rise. */
 const SOUND = 340;
 /** Arcade fly-by-wire of a light aircraft (the default). */
-const FBW = { rollRate: 2.4, pitchG: 6, pitchRate: 1.2, yawRate: 0.8, levelWings: true, groundPitch: 0.16 };
+const FBW: NonNullable<AircraftConfig['fbw']> = { rollRate: 2.4, pitchG: 6, pitchRate: 1.2, yawRate: 0.8, levelWings: true, groundPitch: 0.16 };
 
 const _q = new THREE.Quaternion();
 const _qi = new THREE.Quaternion();
@@ -476,7 +476,8 @@ export class Aircraft {
       const cl = cl0 * (1 + 0.12 * ge);
       const k = (16 * h) / span;
       const induced = d.part.startsWith('wing') ? (k * k) / (1 + k * k) : 1;
-      const cd = d.cd0 + ((cl * cl) / (Math.PI * OSWALD * d.aspect)) * induced + sv * 1.1 * Math.sin(a) ** 2 + Math.abs(dcl) * 0.03;
+      // Arcade: hard turns cost little speed (a fraction of the induced drag), as in action games.
+      const cd = d.cd0 + ((cl * cl) / (Math.PI * OSWALD * d.aspect)) * induced * (arcade ? 0.15 : 1) + sv * 1.1 * Math.sin(a) ** 2 + Math.abs(dcl) * 0.03;
       const q = 0.5 * rho * V * V;
       _s.copy(_v).multiplyScalar(1 / V); // direction of travel
       _n.copy(s.normal).addScaledVector(_s, -s.normal.dot(_s)).normalize(); // lift: across the airflow
@@ -525,7 +526,7 @@ export class Aircraft {
       const dry = e.staticThrust * this.boost;
       const ab = (e.afterburnerThrust ?? e.staticThrust) * this.boost;
       const target = running ? e.idleRpm + (e.maxRpm - e.idleRpm) * Math.min(1, lever / 0.85) : 0;
-      st.rpm += (target - st.rpm) * Math.min(1, dt * 1.2);
+      st.rpm += (target - st.rpm) * Math.min(1, dt * (this.assists.arcade ? 3 : 1.2));
       const spool = clamp((st.rpm - e.idleRpm) / (e.maxRpm - e.idleRpm), 0, 1);
       st.afterburner = running && lever > 0.86;
       thrust = running ? (spool * dry + (st.afterburner ? ((lever - 0.85) / 0.15) * (ab - dry) : 0)) * this.engineHealth : 0;
@@ -610,10 +611,10 @@ export class Aircraft {
     }
     // Bank, right wing down positive.
     const bank = Math.asin(clamp(_x.set(1, 0, 0).applyQuaternion(_q).y, -1, 1));
-    // Up to 70 degrees a second at low speed, capped to about 7 g at speed (loops in about ten
-    // seconds; in arcade flight nothing breaks from it).
+    // As in action games, the stick turns the nose at the same rate whatever the speed (less only
+    // when slow); in arcade flight nothing breaks from it.
     const fbw = this.cfg.fbw ?? FBW;
-    const qMax = Math.min(fbw.pitchRate, (fbw.pitchG * G) / Math.max(V, 1));
+    const qMax = fbw.pitchRate * clamp((V - 20) / 60, 0.3, 1);
     // Let go of the roll keys: a light aircraft levels its wings, a fighter holds its bank.
     const roll = Math.abs(input.roll) > 0.05 ? input.roll * fbw.rollRate : fbw.levelWings ? clamp(-bank * 1.5, -1, 1) : 0;
     // Target body rates (x: + nose down, y: + nose left, z: + right wing down).
@@ -633,7 +634,12 @@ export class Aircraft {
       // On the wheels: a gentle rotation, and never past 9 degrees (the tail strikes at 12).
       pitchRate = Math.min(input.pitch * 0.25, ((fbw.groundPitch ?? 0.16) - attitude) * 3);
     }
-    _t.set(-pitchRate, input.yaw * fbw.yawRate - (G * Math.sin(bank)) / Math.max(V, 20), roll);
+    // Banked, the aircraft turns by itself (GTA style): a heading rate about the world's vertical,
+    // up to about 30 degrees a second wings vertical, taken into the body axes (so a steep bank
+    // also lifts the nose round the turn). Upside down it turns the other way, as it should.
+    const turn = air ? Math.sin(bank) * (fbw.bankTurn ?? 0.3) * clamp((V - 25) / 40, 0, 1) : 0;
+    _s.set(0, -turn, 0).applyQuaternion(_qi);
+    _t.set(-pitchRate + _s.x, input.yaw * fbw.yawRate + _s.y, roll);
     if (!air) _t.set(_t.x, 0, 0);
     _v.copy(_ang).applyQuaternion(_qi);
     _t.sub(_v);
@@ -648,6 +654,20 @@ export class Aircraft {
     _a.y = _f.y * dt;
     _a.z = _f.z * dt;
     this.body.applyTorqueImpulse(_a, true);
+    if (air) {
+      // The aircraft goes where its nose points: the velocity turns towards it (keeping its speed),
+      // instead of the body turning while the aircraft carries on the way it was going. Slow, the
+      // grip fades and the aircraft mushes and sinks as a stalled one would.
+      const grip = (fbw.grip ?? 2.5) * clamp((V - 30) / 40, 0, 1);
+      if (grip > 0 && V > 1) {
+        const m = this.body.mass();
+        const w = Math.min(1, grip * dt);
+        _a.x = (_fwd.x * V - _vel.x) * w * m;
+        _a.y = (_fwd.y * V - _vel.y) * w * m;
+        _a.z = (_fwd.z * V - _vel.z) * w * m;
+        this.body.applyImpulse(_a, true);
+      }
+    }
   }
 
   /**
@@ -714,7 +734,7 @@ export class Aircraft {
     if (this.assists.rudder && !st.onGround && Math.abs(input.yaw) < 0.05 && st.airspeed > 15) rudder = clamp(st.beta * 3, -1, 1);
     c.rudder = move(c.rudder, rudder * max('rudder'), 2.0);
     c.flaps = move(c.flaps, clamp(input.flaps, 0, 1), 0.14);
-    c.throttle = move(c.throttle, clamp(input.throttle, 0, 1), 0.8);
+    c.throttle = move(c.throttle, clamp(input.throttle, 0, 1), this.assists.arcade ? 2 : 0.8);
     // Auto-trim: with the stick let go in flight, the trim slowly holds the pitch rate at zero.
     if (this.assists.trim && !fbw && !st.onGround && Math.abs(input.pitch) < 0.05 && st.airspeed > 20) {
       const pitchRate = _x.set(1, 0, 0).applyQuaternion(_q).dot(_ang); // + = nose down

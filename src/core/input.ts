@@ -161,7 +161,7 @@ export class Input {
     let pitch = ramp(f.pitch, tPitch, 2.2, 5);
     let roll = ramp(f.roll, tRoll, 4, 6);
     let yaw = ramp(f.yaw, tYaw, 2.5, 5);
-    let throttle = f.throttle + ((this.key('ShiftLeft', 'ShiftRight') ? 1 : 0) - (this.key('ControlLeft', 'ControlRight') ? 1 : 0)) * 0.5 * dt;
+    let throttle = f.throttle + ((this.key('ShiftLeft', 'ShiftRight') ? 1 : 0) - (this.key('ControlLeft', 'ControlRight') ? 1 : 0)) * 1.0 * dt;
     let brake = this.key('Space') ? 1 : 0;
     if (this.pressed('Shift+KeyX')) {
       this.edges.delete('KeyX');

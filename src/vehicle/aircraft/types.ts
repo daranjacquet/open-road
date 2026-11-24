@@ -105,9 +105,11 @@ export interface AircraftConfig {
    * Arcade flight's fly-by-wire: roll rate (rad/s), load factor the pitch rate is capped to (g),
    * pitch rate cap (rad/s), yaw rate (rad/s), whether the wings level themselves when the roll
    * keys are let go (a light aircraft) or hold their bank (a fighter), and the highest pitch
-   * attitude (rad) the rotation reaches on the wheels (short of a tail strike).
+   * attitude (rad) the rotation reaches on the wheels (short of a tail strike). Arcade only:
+   * `bankTurn` the heading rate (rad/s) wings vertical, `grip` how fast (1/s) the velocity turns
+   * to follow the nose.
    */
-  fbw?: { rollRate: number; pitchG: number; pitchRate: number; yawRate: number; levelWings: boolean; groundPitch?: number; cornerSpeed?: number };
+  fbw?: { rollRate: number; pitchG: number; pitchRate: number; yawRate: number; levelWings: boolean; groundPitch?: number; cornerSpeed?: number; bankTurn?: number; grip?: number };
 }
 
 export type { FlightInput } from '../../core/input';

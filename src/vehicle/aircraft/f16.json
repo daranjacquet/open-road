@@ -389,13 +389,15 @@
     "gearSink": 4
   },
   "fbw": {
-    "rollRate": 4.4,
+    "rollRate": 3.2,
     "pitchG": 9,
-    "pitchRate": 0.65,
-    "yawRate": 0.35,
+    "pitchRate": 1.3,
+    "yawRate": 0.6,
     "levelWings": false,
     "groundPitch": 0.22,
-    "cornerSpeed": 140
+    "cornerSpeed": 140,
+    "bankTurn": 0.45,
+    "grip": 7
   },
   "restHeight": 2.16,
   "camera": {
